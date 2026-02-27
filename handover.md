@@ -1,94 +1,38 @@
-# Handover — 2026-02-27 (Session 8)
+# Handover — 2026-02-27 (Session 9)
 
 ## 30-Second Summary
 
-Session 8: (1) Removed all em dashes from UI (dashboard, server.js, landing page, README), (2) Deployed new code to VM with `bash deploy.sh --rebuild`, (3) Took 6 Playwright screenshots of live dashboard, (4) Added screenshots to README.md and landing/index.html, (5) Created CONTRIBUTING.md, (6) Created LAUNCH.md with Show HN + r/selfhosted + awesome-selfhosted drafts, (7) Added Plausible tracking to dockfolio.dev, (8) Added Code With Rigor to config.yml (14th app), (9) Fixed konradreyhe.de (was BROKEN: no nginx, no SSL — now has SSL cert + redirect to crelvo.dev), (10) Full 22-domain audit — all working, (11) Updated Crelvo website (crelvo.dev) with all 10 projects (was 5), deployed, (12) Created 8 cross-promotion campaigns in Dockfolio dashboard (all active), (13) Renamed nginx-appmanager.conf to nginx-dockfolio.conf, updated docker-compose.yml container names.
+Session 9: (1) Analyzed priorities and deprioritized cross-promo injection (zero traffic = zero impact), (2) Rewrote LAUNCH.md - Show HN and r/selfhosted posts sharpened for impact (story-driven, focused on daily-use features), (3) Added ACCOUNTS.md to .gitignore (contains credentials), (4) Added Creative Programmer + AgoraHoch3 to crelvo.dev (was missing 2 of 12 projects), (5) Updated crelvo.dev hero stat from "6 Live Products" to "12", (6) Fixed project descriptions to match actual site content, (7) Built + deployed crelvo.dev to VM, (8) Verified all 14 domains are live, (9) Pushed all commits to github.com/dockfolio/dockfolio.
 
-**Most important thing for next session:** Inject cross-promo embed script on all sites via nginx, then commit + push everything.
+**Most important thing for next session:** Post the launches (LAUNCH.md is ready). Then rotate Telegram token.
 
 ## What Was Done
 
-### Completed
-- [x] Remove em dashes from dashboard UI (index.html, server.js)
-- [x] Remove em dashes from landing page
-- [x] Remove em dashes from README.md
-- [x] Deploy dashboard to VM (`deploy.sh --rebuild`) — container healthy
-- [x] Deploy landing page to VM (scp)
-- [x] Take 6 Playwright screenshots (dashboard overview, marketing revenue, command palette, morning briefing, healing panel, settings)
-- [x] Add screenshots to README.md (5 images with captions)
-- [x] Add screenshot showcase section to landing/index.html (hero + 2x2 grid)
-- [x] Create CONTRIBUTING.md (dev setup, branch strategy, architecture)
-- [x] Create LAUNCH.md (Show HN post, r/selfhosted post, awesome-selfhosted entry)
-- [x] Add Plausible tracking to dockfolio.dev (DB entry + script tag, both local + VM)
-- [x] Add Code With Rigor (codewithrigor.com) to config.yml as 14th app
-- [x] Deploy updated config.yml to VM
-- [x] Full 22-domain INWX audit — all DNS correct, all responding
-- [x] Fix konradreyhe.de — created nginx config, obtained SSL cert, HTTPS redirect to crelvo.dev
-- [x] Update Crelvo website (crelvo.dev) Projects component — added Dockfolio, BannerForge, LohnCheck, Code With Rigor, TheADHDMind (now 10 projects)
-- [x] Build + deploy Crelvo website to VM
-- [x] Create 8 cross-promotion campaigns via Dockfolio API (all activated)
-- [x] Rename nginx-appmanager.conf to nginx-dockfolio.conf
-- [x] Update docker-compose.yml container names (appmanager-* to dockfolio-*)
-- [x] Update deploy.sh references
-- [x] Commit: `d5c95c5` (em dash removal), `ee56224` (screenshots + launch prep), `e7de9e7` (Code With Rigor config)
-- [x] Push all to github.com/dockfolio/dockfolio
+### Completed This Session
+- [x] Sharpened LAUNCH.md (Show HN + r/selfhosted posts rewritten for impact)
+- [x] Added ACCOUNTS.md to .gitignore (has Stripe IDs, emails, credentials)
+- [x] Added Creative Programmer (thecreativeprogrammer.dev) to crelvo.dev projects
+- [x] Added AgoraHoch3 (agorahoch3.org) to crelvo.dev projects
+- [x] Fixed project descriptions to match actual site content
+- [x] Updated crelvo.dev hero stat: 6 -> 12 Live Products
+- [x] Built + deployed crelvo.dev to VM (all 8 languages rebuilt)
+- [x] Verified all 14 domains are live and responding
+- [x] Committed: `e784c89` (launch posts + gitignore)
+- [x] Pushed to github.com/dockfolio/dockfolio
+
+### Deliberately Skipped
+- **Cross-promo embed.js injection** — deprioritized. Sites have near-zero traffic, cross-promoting between empty rooms does nothing. Do this after launch drives traffic.
+- **Container name rename deploy** — still risky, still not urgent. See warning below.
 
 ### NOT Done — Next Session Must Do
-- [ ] **Inject cross-promo embed.js on all sites via nginx sub_filter** — was interrupted mid-execution. See "Cross-Promo Injection Plan" below.
-- [ ] **Commit remaining local changes** — config.yml update for Code With Rigor, any other uncommitted work
-- [ ] **Push to dockfolio remote** — after committing
-- [ ] **Rotate Telegram bot token** — manual: @BotFather `/revoke`, get new token, update `/home/deploy/appmanager/.env` on VM
 - [ ] **Post Show HN** — content in LAUNCH.md, best timing Tue-Thu 9-10AM EST
 - [ ] **Post on r/selfhosted** — content in LAUNCH.md
-- [ ] **Submit awesome-selfhosted PR** — entry format in LAUNCH.md
+- [ ] **Submit awesome-selfhosted PR** — entry format in LAUNCH.md (wait for some stars first)
+- [ ] **Rotate Telegram bot token** — manual: @BotFather `/revoke`, get new token, update `/home/deploy/appmanager/.env` on VM
 - [ ] **Archive Crelvo/appManager repo** — old private repo, no longer needed
-- [ ] **Rebuild dashboard on VM after nginx changes** — container names changed in docker-compose.yml but NOT yet deployed (would break Uptime Kuma container name reference)
-
-## Cross-Promo Injection Plan (INTERRUPTED — RESUME THIS)
-
-8 campaigns created and active in Dockfolio dashboard:
-
-| # | Source App | Target App | Headline |
-|---|-----------|-----------|----------|
-| 1 | promoforge | bannerforge | Need banner ads too? |
-| 2 | bannerforge | promoforge | Turn your website into a video |
-| 3 | abschlusscheck | headshot-ai | Professionelle KI-Bewerbungsfotos |
-| 4 | headshot-ai | abschlusscheck | KI-Gutachten fuer deine Abschlussarbeit |
-| 5 | lohncheck | abschlusscheck | Abschlussarbeit pruefen lassen? |
-| 6 | abschlusscheck | lohncheck | Gehaltsabrechnung pruefen |
-| 7 | sacredlens | old-world-logos | Explore Christian symbols in architecture |
-| 8 | theadhdmind | sacredlens | Discover hidden meanings in sacred art |
-
-**To inject the embed script on each site**, add this nginx `sub_filter` line to each site's nginx config:
-
-```nginx
-sub_filter '</body>' '<script src="https://admin.crelvo.dev/api/crosspromo/embed.js" data-app="SLUG" defer></script></body>';
-```
-
-Sites that need injection (nginx config -> slug):
-
-| Nginx Config | App Slug | Notes |
-|-------------|---------|-------|
-| promoforge | promoforge | Has sub_filter block (Plausible) |
-| bannerforge | bannerforge | Has sub_filter block |
-| bewerbungsfotos-ai | headshot-ai | Has sub_filter block |
-| abschlusscheck.de | abschlusscheck | Has sub_filter block |
-| lohnpruefung | lohncheck | Has sub_filter block |
-| sacredlens | sacredlens | Has sub_filter block |
-| theadhdmind | theadhdmind | Has sub_filter block |
-| codewithrigor | code-with-rigor | Has sub_filter block |
-| logos | old-world-logos | May NOT have sub_filter (static site with direct HTML injection for Plausible) |
-| creativeprogrammer | creative-programmer | Has sub_filter block |
-| crelvo | crelvo | Has sub_filter block |
-| agorahoch3 | agorahoch3 | Has sub_filter block |
-
-**DO NOT inject on:** 000-default, appmanager, plausible, dockfolio.dev.conf, konradreyhe
-
-For sites with existing `sub_filter_once on;`, add the new sub_filter line BEFORE `sub_filter_once on;`.
-
-For Old World Logos (static site at /var/www/logos/), the Plausible script was injected directly into HTML files, not via nginx. For crosspromo, use nginx sub_filter if possible, otherwise inject into the HTML template.
-
-After injection: `sudo nginx -t -c /home/deploy/nginx-configs/nginx.conf && sudo nginx -s reload -c /home/deploy/nginx-configs/nginx.conf`
+- [ ] **Fix AbschlussCheck timeout bug** — auto-refunds large documents (68+ pages), revenue-killing bug. Root cause in `/c/Users/kreyh/Projekte/abschlusscheck/app/api/webhook/route.ts` line 68 (30s timeout too short). See session 6 handover for full analysis.
+- [ ] **Inject cross-promo embed.js** — after traffic justifies it. Plan still in session 8 handover.
+- [ ] **Container name rename** — docker-compose.yml has appmanager->dockfolio rename NOT deployed. See warning below.
 
 ## CRITICAL WARNING: docker-compose.yml Container Name Change
 
@@ -106,54 +50,26 @@ To deploy safely:
 
 Or: revert the container name changes in docker-compose.yml for now.
 
+## Git State
+- **Branch:** master
+- **Latest commit:** `e784c89` (Sharpen launch posts and gitignore ACCOUNTS.md)
+- **Remote:** pushed to `dockfolio` (github.com/dockfolio/dockfolio)
+- **Working tree:** clean
+
 ## Files Modified This Session
 
 ### appManager repo
 | File | What Changed |
 |------|-------------|
-| `dashboard/public/index.html` | Removed em dashes from UI warnings + banner display |
-| `dashboard/server.js` | Removed em dashes from login title, content titles, briefing prompt, healing messages, playbook prompt |
-| `dashboard/config.yml` | Added Code With Rigor (14th app) |
-| `landing/index.html` | Removed em dashes, added screenshot showcase section, added Plausible script |
-| `README.md` | Added screenshots section, removed em dashes, fixed separators |
-| `CONTRIBUTING.md` | **NEW** — dev setup, architecture, branch strategy |
-| `LAUNCH.md` | **NEW** — Show HN, r/selfhosted, awesome-selfhosted drafts |
-| `nginx-appmanager.conf` | Renamed to `nginx-dockfolio.conf` |
-| `docker-compose.yml` | Container names: appmanager-* -> dockfolio-* (NOT YET DEPLOYED) |
-| `deploy.sh` | Updated references to new nginx config name |
-| `screenshots/*.png` | **NEW** — 6 dashboard screenshots |
-| `scripts/take-screenshots.js` | **NEW** — Playwright screenshot automation |
+| `LAUNCH.md` | Rewrote Show HN + r/selfhosted posts, fixed awesome-selfhosted category |
+| `.gitignore` | Added ACCOUNTS.md |
+| `handover.md` | Updated for session 9 |
 
 ### Crelvo website (C:\Users\kreyh\Projekte\slebständig)
 | File | What Changed |
 |------|-------------|
-| `src/components/Projects.astro` | Added 5 new projects (Dockfolio, BannerForge, LohnCheck, Code With Rigor, TheADHDMind), reordered (10 total) |
-
-### VM files (not in git)
-| File | What Changed |
-|------|-------------|
-| `/home/deploy/nginx-configs/sites/konradreyhe` | **NEW** — SSL redirect to crelvo.dev |
-| `/etc/letsencrypt/live/konradreyhe.de/` | **NEW** — SSL certificate |
-| `/var/www/crelvo/*` | Updated Crelvo website with 10 projects |
-| `/home/deploy/appmanager/dashboard/config.yml` | Added Code With Rigor |
-| `/home/deploy/dockfolio-landing/index.html` | Screenshots section + Plausible |
-| Dockfolio SQLite DB | 8 cross-promo campaigns created + activated |
-
-## Git State
-- **Branch:** master
-- **Latest commit:** `e7de9e7` (Add Code With Rigor to dashboard)
-- **Remote:** pushed to `dockfolio` (github.com/dockfolio/dockfolio)
-- **Uncommitted:** handover.md, possibly config.yml if not in e7de9e7
-
-## 22-Domain Audit Results
-
-All 22 INWX domains verified working:
-- **14 primary domains** returning 200 (all in config.yml)
-- **1 redirect** (konradreyhe.de -> crelvo.dev) — FIXED this session
-- **6 SEO redirects** for AbschlussCheck (abschlussarbeit-check.de, bachelorarbeit-check.de, bachelorpruefung.de, hausarbeitcheck.de, masterarbeit-check.de, notenprognose.de)
-- **1 alt domain** (promoforge.de -> promoforge.app)
-- **Plus:** oldworldlogos.com and agorahoch3.org (not on INWX, different registrar)
-- **21st INWX domain** on page 2 — unknown, user didn't provide
+| `src/components/Projects.astro` | Added Creative Programmer + AgoraHoch3 (now 12 projects) |
+| `src/components/Hero.astro` | Changed "6" to "12" Live Products |
 
 ## Key URLs
 
@@ -163,12 +79,3 @@ All 22 INWX domains verified working:
 | Landing page | https://dockfolio.dev |
 | GitHub (public) | https://github.com/dockfolio/dockfolio |
 | Crelvo | https://crelvo.dev |
-| Code With Rigor | https://codewithrigor.com |
-
-## Rollback Info
-
-- All commits pushed to github.com/dockfolio/dockfolio
-- konradreyhe.de nginx config: `/home/deploy/nginx-configs/sites/konradreyhe` — delete to disable
-- Cross-promo campaigns: delete via API `DELETE /api/marketing/crosspromo/:id` (IDs 1-8)
-- Crelvo website: old version not backed up, but changes are only in Projects.astro (added projects)
-- Container name change in docker-compose.yml: NOT deployed, revert locally if needed
