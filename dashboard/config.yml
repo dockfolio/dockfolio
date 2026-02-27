@@ -171,6 +171,19 @@ apps:
       targetAudience: Designers, Brand Builders, History Enthusiasts
       languages: [en]
 
+  - name: Code With Rigor
+    type: static
+    domain: codewithrigor.com
+    health: /
+    containers: []
+    description: AI-assisted coding education platform
+    tech: Astro
+    repo: /home/deploy/sites/codewithrigor
+    marketing:
+      tagline: Ship faster with AI-assisted coding
+      targetAudience: Developers, Software Engineers
+      languages: [en]
+
   - name: AgoraHoch3
     type: static
     domain: agorahoch3.org
