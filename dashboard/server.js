@@ -5,12 +5,17 @@ import yaml from 'js-yaml';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { createHash, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import Database from 'better-sqlite3';
 import cron from 'node-cron';
 import bcrypt from 'bcryptjs';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import {
+  slugify, containerName, hashValue, todayString, percent, safeJSON,
+  letterGrade, maskValue, parseEnvFile, serializeEnvVars,
+  getMarketableApps as _getMarketableApps, diskScore, securityScore, seoScore
+} from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -273,10 +278,6 @@ app.use(express.static(join(__dirname, 'public')));
 // --- Env file utilities ---
 const SENSITIVE_PATTERN = /SECRET|KEY|TOKEN|PASSWORD|PRIVATE|DSN|ROLE/i;
 
-function slugify(name) {
-  return name.toLowerCase().replace(/\s+/g, '-');
-}
-
 function findAppBySlug(slug) {
   return config.apps.find(a => slugify(a.name) === slug);
 }
@@ -288,33 +289,35 @@ function getBannerForgeUrl() {
   return null;
 }
 
-function parseEnvFile(filePath) {
-  if (!existsSync(filePath)) return [];
-  const content = readFileSync(filePath, 'utf8');
-  const vars = [];
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eqIdx = trimmed.indexOf('=');
-    if (eqIdx === -1) continue;
-    const key = trimmed.slice(0, eqIdx);
-    let value = trimmed.slice(eqIdx + 1);
-    // Strip surrounding quotes
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    vars.push({ key, value });
-  }
-  return vars;
+// --- Shared helpers (config-dependent, not in utils.js) ---
+
+function setCORS(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Max-Age', '86400');
 }
 
-function maskValue(value) {
-  if (!value || value.length <= 12) return '***';
-  return value.slice(0, 8) + '...' + value.slice(-4);
+async function sendTelegram(message) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }),
+      signal: AbortSignal.timeout(5000)
+    });
+  } catch { /* silent — Telegram is best-effort */ }
 }
 
-function serializeEnvVars(vars) {
-  return vars.map(v => `${v.key}=${v.value}`).join('\n') + '\n';
+function getMarketableApps() {
+  return config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
+}
+
+function getAppsWithEnv() {
+  return config.apps.filter(a => a.envFile && existsSync(a.envFile));
 }
 
 // GET /api/apps — all apps with their container status
@@ -323,7 +326,7 @@ app.get('/api/apps', async (_req, res) => {
     const containers = await docker.listContainers({ all: true });
     const containerMap = new Map();
     for (const c of containers) {
-      const name = c.Names[0]?.replace(/^\//, '');
+      const name = containerName(c);
       if (name) containerMap.set(name, c);
     }
 
@@ -448,7 +451,7 @@ app.get('/api/containers/stats', async (_req, res) => {
     const stats = {};
 
     await Promise.all(containers.map(async (c) => {
-      const name = c.Names[0]?.replace(/^\//, '');
+      const name = containerName(c);
       try {
         const container = docker.getContainer(c.Id);
         const s = await container.stats({ stream: false });
@@ -481,7 +484,7 @@ app.get('/api/containers/stats', async (_req, res) => {
 app.get('/api/containers/:name/logs', async (req, res) => {
   try {
     const containers = await docker.listContainers({ all: true });
-    const target = containers.find(c => c.Names[0]?.replace(/^\//, '') === req.params.name);
+    const target = containers.find(c => containerName(c) === req.params.name);
     if (!target) return res.status(404).json({ error: 'Container not found' });
 
     const container = docker.getContainer(target.Id);
@@ -536,7 +539,7 @@ app.get('/api/docker/overview', async (_req, res) => {
 app.post('/api/containers/:name/restart', async (req, res) => {
   try {
     const containers = await docker.listContainers({ all: true });
-    const target = containers.find(c => c.Names[0]?.replace(/^\//, '') === req.params.name);
+    const target = containers.find(c => containerName(c) === req.params.name);
     if (!target) return res.status(404).json({ error: 'Container not found' });
 
     const container = docker.getContainer(target.Id);
@@ -742,7 +745,7 @@ app.get('/api/disk', async (_req, res) => {
     ]);
 
     const containerSizes = containers.map(c => ({
-      name: c.Names[0]?.replace(/^\//, ''),
+      name: containerName(c),
       size: c.SizeRw || 0,
       rootSize: c.SizeRootFs || 0,
       image: c.Image,
@@ -797,7 +800,7 @@ app.get('/api/discover', async (_req, res) => {
     const untracked = [];
 
     for (const c of containers) {
-      const name = c.Names[0]?.replace(/^\//, '');
+      const name = containerName(c);
       if (!name || trackedContainers.has(name)) continue;
 
       const project = c.Labels?.['com.docker.compose.project'] || null;
@@ -1305,7 +1308,7 @@ app.get('/api/env/shared', (_req, res) => {
       const vars = parseEnvFile(appDef.envFile);
       for (const v of vars) {
         if (!SENSITIVE_PATTERN.test(v.key) || !v.value) continue;
-        const hash = createHash('sha256').update(v.value).digest('hex');
+        const hash = hashValue(v.value, 64);
         const mapKey = `${v.key}::${hash}`;
         if (!hashMap.has(mapKey)) {
           hashMap.set(mapKey, { key: v.key, maskedValue: maskValue(v.value), apps: [] });
@@ -1888,7 +1891,7 @@ app.get('/api/marketing/revenue', async (req, res) => {
     lastRevenueUpdate = now;
 
     // Store daily snapshot
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayString();
     try {
       upsertMetric.run('_total', today, 'mrr', totalMRR / 100, null);
       upsertMetric.run('_total', today, 'revenue_30d', totalRevenue30d / 100, null);
@@ -1975,7 +1978,7 @@ app.get('/api/marketing/analytics', async (req, res) => {
     lastAnalyticsUpdate = now;
 
     // Store daily snapshot
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayString();
     try {
       upsertMetric.run('_total', today, 'visitors', totalVisitors, null);
       upsertMetric.run('_total', today, 'pageviews', totalPageviews, null);
@@ -2077,7 +2080,7 @@ cron.schedule('0 */6 * * *', async () => {
   console.log('[CRON] Collecting revenue data...');
   try {
     const { keys, appKeys } = getStripeKeys();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayString();
     let totalMRR = 0;
     const keyResults = new Map();
     for (const [key, appNames] of keys) {
@@ -2101,7 +2104,7 @@ cron.schedule('0 2 * * *', async () => {
   console.log('[CRON] Running daily SEO audits...');
   try {
     const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayString();
     for (const appDef of marketableApps) {
       const audit = await auditSEO(appDef.domain);
       upsertSEOAudit.run(slugify(appDef.name), today, audit.score, audit.grade, JSON.stringify(audit.checks));
@@ -2320,8 +2323,6 @@ cron.schedule('0 3 * * 0', async () => {
 
 // === Feature: Cross-App Revenue Cohort Engine ===
 
-const CROSSSELL_PAIRS = [];
-
 function stripeHeaders(secretKey) {
   return { 'Authorization': 'Basic ' + Buffer.from(secretKey + ':').toString('base64') };
 }
@@ -2383,12 +2384,12 @@ const upsertCustomer = db.prepare(`
 async function collectCustomerGraph() {
   console.log('[CRON] Collecting customer graph...');
   const { keys } = getStripeKeys();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayString();
   let totalCustomers = 0;
 
   for (const [stripeKey, appNames] of keys) {
     try {
-      const keyHash = createHash('sha256').update(stripeKey).digest('hex').slice(0, 16);
+      const keyHash = hashValue(stripeKey);
       const [customers, mrrMap] = await Promise.all([
         fetchStripeCustomers(stripeKey),
         fetchStripeSubscriptionsMRR(stripeKey)
@@ -2396,7 +2397,7 @@ async function collectCustomerGraph() {
 
       for (const customer of customers) {
         if (!customer.email) continue;
-        const emailHash = createHash('sha256').update(customer.email.toLowerCase()).digest('hex');
+        const emailHash = hashValue(customer.email.toLowerCase(), 64);
         const mrr = mrrMap.get(customer.id) || 0;
         const firstSeen = new Date(customer.created * 1000).toISOString().slice(0, 10);
 
@@ -2451,42 +2452,6 @@ app.get('/api/marketing/cohorts', (_req, res) => {
       },
       overlapMatrix,
     });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/marketing/cohorts/crosssell', (_req, res) => {
-  try {
-    const opportunities = CROSSSELL_PAIRS.map(pair => {
-      const [appA, appB] = pair.apps;
-      // Customers who use both
-      const overlap = db.prepare(`
-        SELECT COUNT(*) as n FROM (
-          SELECT email_hash FROM customer_graph WHERE app_slug = ?
-          INTERSECT
-          SELECT email_hash FROM customer_graph WHERE app_slug = ?
-        )
-      `).get(appA, appB).n;
-
-      // Customers who use only one (potential cross-sell targets)
-      const onlyA = db.prepare(`
-        SELECT COUNT(*) as n FROM customer_graph WHERE app_slug = ?
-        AND email_hash NOT IN (SELECT email_hash FROM customer_graph WHERE app_slug = ?)
-      `).get(appA, appB).n;
-      const onlyB = db.prepare(`
-        SELECT COUNT(*) as n FROM customer_graph WHERE app_slug = ?
-        AND email_hash NOT IN (SELECT email_hash FROM customer_graph WHERE app_slug = ?)
-      `).get(appB, appA).n;
-
-      return {
-        ...pair,
-        existingOverlap: overlap,
-        potentialReach: onlyA + onlyB,
-      };
-    });
-
-    res.json({ opportunities });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2624,7 +2589,7 @@ async function sendEmail(toEmail, subject, htmlBody, appSlug) {
   if (!resendKey) throw new Error('No Resend API key found');
 
   // Enforce daily cap
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayString();
   const sentToday = db.prepare(
     "SELECT COUNT(*) as n FROM email_queue WHERE status='sent' AND sent_at >= ?"
   ).get(today + 'T00:00:00Z').n;
@@ -2699,7 +2664,7 @@ app.get('/api/marketing/emails/queue', (req, res) => {
       counts[row.status] = row.n;
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayString();
     const dailySentToday = db.prepare(
       "SELECT COUNT(*) as n FROM email_queue WHERE status='sent' AND sent_at >= ?"
     ).get(today + 'T00:00:00Z').n;
@@ -2826,8 +2791,8 @@ async function collectBriefingContext() {
     context.containers = {
       total: containers.length,
       running: containers.filter(c => c.State === 'running').length,
-      unhealthy: unhealthy.map(c => c.Names[0]?.replace(/^\//, '')),
-      restarting: restarting.map(c => c.Names[0]?.replace(/^\//, '')),
+      unhealthy: unhealthy.map(c => containerName(c)),
+      restarting: restarting.map(c => containerName(c)),
     };
   } catch { context.containers = { error: 'unavailable' }; }
 
@@ -3072,7 +3037,7 @@ const HEALING_PLAYBOOKS = [
     check: async () => {
       const containers = await docker.listContainers({ all: true, filters: { health: ['unhealthy'] } });
       return containers.map(c => ({
-        name: c.Names[0]?.replace(/^\//, ''),
+        name: containerName(c),
         id: c.Id,
         status: c.Status,
       })).filter(c => !c.name.includes('dockfolio'));  // Don't self-heal the dashboard
@@ -3091,7 +3056,7 @@ const HEALING_PLAYBOOKS = [
     check: async () => {
       const containers = await docker.listContainers({ all: true, filters: { status: ['restarting'] } });
       return containers.map(c => ({
-        name: c.Names[0]?.replace(/^\//, ''),
+        name: containerName(c),
         id: c.Id,
         status: c.Status,
       })).filter(c => !c.name.includes('dockfolio'));
@@ -3150,19 +3115,7 @@ async function runHealingCheck() {
             insertHealing.run(appSlug, playbook.condition, playbook.action, playbook.confidence, 'executed', 1, result);
             console.log(`[HEALING] Auto-executed: ${playbook.condition} on ${appSlug} — ${result}`);
 
-            // Notify via Telegram (if configured)
-            try {
-              const tgToken = process.env.TELEGRAM_BOT_TOKEN;
-              const tgChat = process.env.TELEGRAM_CHAT_ID;
-              if (tgToken && tgChat) {
-                await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ chat_id: tgChat, text: `🔧 Auto-Healing: ${playbook.condition}\nApp: ${appSlug}\nAction: ${result}`, parse_mode: 'HTML' }),
-                  signal: AbortSignal.timeout(5000),
-                });
-              }
-            } catch { /* Telegram notification best-effort */ }
+            await sendTelegram(`🔧 Auto-Healing: ${playbook.condition}\nApp: ${appSlug}\nAction: ${result}`);
           } catch (err) {
             insertHealing.run(appSlug, playbook.condition, playbook.action, playbook.confidence, 'failed', 1, err.message);
             console.error(`[HEALING] Failed: ${playbook.condition} on ${appSlug} — ${err.message}`);
@@ -3342,7 +3295,7 @@ async function scanContainerSecurity() {
   let totalWeight = 0, earnedWeight = 0;
 
   for (const c of containers) {
-    const name = c.Names[0]?.replace(/^\//, '');
+    const name = containerName(c);
     let inspect;
     try { inspect = await docker.getContainer(c.Id).inspect(); } catch { continue; }
 
@@ -3461,7 +3414,7 @@ async function scanNetworkSecurity() {
   let totalWeight = 0, earnedWeight = 0;
 
   for (const c of containers) {
-    const name = c.Names[0]?.replace(/^\//, '');
+    const name = containerName(c);
     const appDef = config.apps?.find(a => (a.containers || [name]).some(cn => name.includes(cn || slugify(a.name))));
     const slug = appDef ? slugify(appDef.name) : null;
 
@@ -3569,14 +3522,7 @@ cron.schedule('0 */6 * * *', async () => {
     const result = await scanCertificateSecurity();
     const critical = result.findings.filter(f => f.severity === 'critical');
     if (critical.length > 0) {
-      const tgToken = process.env.TELEGRAM_BOT_TOKEN;
-      const tgChat = process.env.TELEGRAM_CHAT_ID;
-      if (tgToken && tgChat) {
-        const msg = `Security: SSL Alert - ${critical.map(f => f.title).join(', ')}`;
-        await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, { method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: tgChat, text: msg }), signal: AbortSignal.timeout(5000) }).catch(() => {});
-      }
+      await sendTelegram(`Security: SSL Alert - ${critical.map(f => f.title).join(', ')}`);
     }
   } catch (err) { console.error('[CRON] SSL security check error:', err.message); }
 });
@@ -3600,17 +3546,11 @@ cron.schedule('0 5 * * 0', () => {
 
 // CORS preflight for public crosspromo endpoints (called from external sites)
 app.options('/api/crosspromo/:path', (_req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Max-Age', '86400');
+  setCORS(res);
   res.sendStatus(204);
 });
 app.options('/api/crosspromo/:id/:action', (_req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Max-Age', '86400');
+  setCORS(res);
   res.sendStatus(204);
 });
 
@@ -3763,7 +3703,7 @@ app.delete('/api/marketing/crosspromo/:id', (req, res) => {
 app.get('/api/crosspromo/embed.js', (_req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'public, max-age=300');
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  setCORS(res);
   res.send(`(function(){
   var s=document.currentScript;
   var app=s&&s.getAttribute('data-app');
@@ -3793,7 +3733,7 @@ app.get('/api/crosspromo/embed.js', (_req, res) => {
 
 app.get('/api/crosspromo/banner', (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    setCORS(res);
     const app = req.query.app;
     if (!app) return res.status(400).json({ error: 'app query param required' });
     // Find an active campaign where this app is the source (showing the banner)
@@ -3810,7 +3750,7 @@ app.get('/api/crosspromo/banner', (req, res) => {
 
 app.post('/api/crosspromo/:id/view', (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    setCORS(res);
     const id = parseInt(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
     db.prepare('UPDATE crosspromo_campaigns SET views = views + 1 WHERE id = ?').run(id);
@@ -3839,17 +3779,11 @@ app.get('/api/crosspromo/:id/click', (req, res) => {
 
 // CORS preflight for public banner endpoints
 app.options('/api/banners/:path', (_req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Max-Age', '86400');
+  setCORS(res);
   res.sendStatus(204);
 });
 app.options('/api/banners/:id/:action', (_req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Max-Age', '86400');
+  setCORS(res);
   res.sendStatus(204);
 });
 
@@ -4096,7 +4030,7 @@ app.delete('/api/marketing/placements/:id', (req, res) => {
 app.get('/api/banners/embed.js', (_req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'public, max-age=300');
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  setCORS(res);
   res.send(`(function(){
   var s=document.currentScript;
   var app=s&&s.getAttribute('data-app');
@@ -4136,7 +4070,7 @@ app.get('/api/banners/embed.js', (_req, res) => {
 
 app.get('/api/banners/serve', (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    setCORS(res);
     const app = req.query.app;
     const pos = req.query.pos || 'default';
     if (!app) return res.status(400).json({ error: 'app query param required' });
@@ -4188,7 +4122,7 @@ app.get('/api/banners/serve', (req, res) => {
 
 app.post('/api/banners/:placementId/view', (req, res) => {
   try {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    setCORS(res);
     const id = parseInt(req.params.placementId);
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
     db.prepare('UPDATE banner_placements SET views = views + 1 WHERE id = ?').run(id);
@@ -4330,9 +4264,6 @@ app.post('/api/marketing/playbooks/:appSlug/generate', async (req, res) => {
     const seoAudit = db.prepare('SELECT score, grade, checks FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slugify(appDef.name));
     const revenueData = db.prepare('SELECT value, metadata FROM metrics_daily WHERE app_slug = ? AND metric_type = ? ORDER BY date DESC LIMIT 1').get(slugify(appDef.name), 'revenue');
 
-    const bundles = CROSSSELL_PAIRS.filter(p => p.apps.includes(slugify(appDef.name)))
-      .map(p => `${p.label}: ${p.apps.join(' + ')} (${p.reason})`).join('\n');
-
     const prompt = `You are a marketing strategist for a portfolio of SaaS/tool apps.
 Generate a marketing playbook for ${appDef.name} (${appDef.domain}).
 
@@ -4344,7 +4275,6 @@ App details:
 - Tagline: ${appDef.marketing?.tagline || 'N/A'}
 ${seoAudit ? `- Current SEO score: ${seoAudit.score}/100 (Grade: ${seoAudit.grade})` : '- SEO: not yet audited'}
 ${revenueData ? `- Recent revenue data: ${revenueData.value}` : '- Revenue: no data yet'}
-${bundles ? `\nCross-sell bundles:\n${bundles}` : ''}
 
 Generate 6 sections. For each section, output a JSON object on its own line with fields: section, title, content (markdown).
 
@@ -4836,17 +4766,9 @@ cron.schedule('*/15 * * * *', async () => {
     const dueTasks = db.prepare("SELECT * FROM project_tasks WHERE reminder_at <= ? AND reminder_sent = 0 AND status NOT IN ('done','cancelled')").all(now);
     if (dueTasks.length === 0) return;
 
-    const tgToken = process.env.TELEGRAM_BOT_TOKEN;
-    const tgChat = process.env.TELEGRAM_CHAT_ID;
-    if (!tgToken || !tgChat) return;
-
     for (const task of dueTasks) {
       const appName = config.apps.find(a => slugify(a.name) === task.app_slug)?.name || 'Portfolio';
-      const msg = `📋 Reminder — ${appName}\nTask: ${task.title}${task.due_date ? `\nDue: ${task.due_date}` : ''}`;
-      await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: tgChat, text: msg }), signal: AbortSignal.timeout(5000),
-      }).catch(() => {});
+      await sendTelegram(`📋 Reminder — ${appName}\nTask: ${task.title}${task.due_date ? `\nDue: ${task.due_date}` : ''}`);
       db.prepare('UPDATE project_tasks SET reminder_sent = 1 WHERE id = ?').run(task.id);
     }
     console.log(`[PROJECTS] Sent ${dueTasks.length} reminder(s)`);
@@ -4860,20 +4782,12 @@ cron.schedule('0 8 * * *', async () => {
     const overdue = db.prepare("SELECT * FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled') ORDER BY due_date ASC LIMIT 10").all(today);
     if (overdue.length === 0) return;
 
-    const tgToken = process.env.TELEGRAM_BOT_TOKEN;
-    const tgChat = process.env.TELEGRAM_CHAT_ID;
-    if (!tgToken || !tgChat) return;
-
     const lines = overdue.map(t => {
       const appName = config.apps.find(a => slugify(a.name) === t.app_slug)?.name || 'Portfolio';
       const daysLate = Math.ceil((new Date(today) - new Date(t.due_date)) / 86400000);
       return `• ${appName}: ${t.title} (${daysLate}d late)`;
     });
-    const msg = `⚠ Overdue Tasks — ${overdue.length} task${overdue.length > 1 ? 's' : ''} past due:\n${lines.join('\n')}`;
-    await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: tgChat, text: msg }), signal: AbortSignal.timeout(5000),
-    }).catch(() => {});
+    await sendTelegram(`⚠ Overdue Tasks — ${overdue.length} task${overdue.length > 1 ? 's' : ''} past due:\n${lines.join('\n')}`);
     console.log(`[PROJECTS] Overdue alert sent (${overdue.length} tasks)`);
   } catch (err) { console.error('[PROJECTS] Overdue cron error:', err.message); }
 });
@@ -4895,7 +4809,7 @@ cron.schedule('0 6 * * 1', async () => {
       if (appDef.containers?.length > 0) {
         try {
           const containers = await docker.listContainers({ all: true });
-          const appContainers = containers.filter(c => appDef.containers.includes(c.Names[0]?.replace(/^\//, '')));
+          const appContainers = containers.filter(c => appDef.containers.includes(containerName(c)));
           if (appContainers.length === 0) healthStatus = 'unknown';
           else if (appContainers.every(c => c.State === 'running')) healthStatus = 'healthy';
           else healthStatus = 'degraded';
@@ -4945,13 +4859,6 @@ cron.schedule('0 4 * * 0', async () => {
 
 // ========== OPS INTELLIGENCE ==========
 
-function letterGrade(score) {
-  if (score >= 90) return 'A';
-  if (score >= 80) return 'B';
-  if (score >= 70) return 'C';
-  if (score >= 60) return 'D';
-  return 'F';
-}
 
 async function calculateWorryScore() {
   const breakdown = { containers: 0, keys: 0, disk: 0, backups: 0, security: 0, healing: 0, seo: 0 };
@@ -4962,7 +4869,7 @@ async function calculateWorryScore() {
     const containers = await docker.listContainers({ all: true });
     const appNames = new Set();
     config.apps.forEach(a => (a.containers || []).forEach(c => appNames.add(c)));
-    const appContainers = containers.filter(c => appNames.has(c.Names[0]?.replace(/^\//, '')));
+    const appContainers = containers.filter(c => appNames.has(containerName(c)));
     const unhealthy = appContainers.filter(c => c.Status?.includes('unhealthy')).length;
     const restarting = appContainers.filter(c => c.State === 'restarting').length;
     const stopped = appContainers.filter(c => c.State !== 'running').length;
@@ -5048,7 +4955,7 @@ async function snapshotBaseline(type = 'auto') {
     envHashes[slug] = {};
     for (const v of vars) {
       if (SENSITIVE_PATTERN.test(v.key) && v.value) {
-        envHashes[slug][v.key] = createHash('sha256').update(v.value).digest('hex').slice(0, 16);
+        envHashes[slug][v.key] = hashValue(v.value);
       }
     }
   }
@@ -5057,12 +4964,12 @@ async function snapshotBaseline(type = 'auto') {
   try {
     const containers = await docker.listContainers({ all: true });
     for (const c of containers) {
-      const name = c.Names[0]?.replace(/^\//, '');
+      const name = containerName(c);
       containerStates[name] = { state: c.State, image: c.Image, imageId: (c.ImageID || '').slice(0, 24) };
     }
   } catch {}
 
-  const configHash = createHash('sha256').update(readFileSync(configPath, 'utf8')).digest('hex').slice(0, 16);
+  const configHash = hashValue(readFileSync(configPath, 'utf8'));
   let diskPct = 0;
   try {
     diskPct = parseInt(execSync('df -B1 / | tail -1').toString().trim().split(/\s+/)[4]);
@@ -5090,7 +4997,7 @@ async function detectDrift() {
     const currentHashes = {};
     for (const v of vars) {
       if (SENSITIVE_PATTERN.test(v.key) && v.value) {
-        currentHashes[v.key] = createHash('sha256').update(v.value).digest('hex').slice(0, 16);
+        currentHashes[v.key] = hashValue(v.value);
       }
     }
     const baseAppEnv = baseEnv[slug] || {};
@@ -5112,7 +5019,7 @@ async function detectDrift() {
   try {
     const containers = await docker.listContainers({ all: true });
     for (const c of containers) {
-      const name = c.Names[0]?.replace(/^\//, '');
+      const name = containerName(c);
       const base = baseContainers[name];
       if (base && base.state !== c.State) {
         drifts.push({ type: 'drift_container', severity: c.State === 'running' ? 'info' : 'warning', title: `${name}: ${base.state} → ${c.State}`, details: JSON.stringify({ container: name, was: base.state, now: c.State }) });
@@ -5124,7 +5031,7 @@ async function detectDrift() {
   } catch {}
 
   // Config.yml change
-  const currentConfigHash = createHash('sha256').update(readFileSync(configPath, 'utf8')).digest('hex').slice(0, 16);
+  const currentConfigHash = hashValue(readFileSync(configPath, 'utf8'));
   if (baseline.config_hash && baseline.config_hash !== currentConfigHash) {
     drifts.push({ type: 'drift_config', severity: 'info', title: 'config.yml changed since baseline', details: JSON.stringify({ oldHash: baseline.config_hash, newHash: currentConfigHash }) });
   }
@@ -5210,7 +5117,7 @@ function getAppDependencyMap() {
     const vars = parseEnvFile(appDef.envFile);
     for (const v of vars) {
       if (!SENSITIVE_PATTERN.test(v.key) || !v.value) continue;
-      const hash = createHash('sha256').update(v.value).digest('hex');
+      const hash = hashValue(v.value, 64);
       const mapKey = `${v.key}::${hash}`;
       if (!hashMap.has(mapKey)) hashMap.set(mapKey, { key: v.key, maskedValue: maskValue(v.value), apps: [] });
       hashMap.get(mapKey).apps.push(slug);
@@ -5246,7 +5153,7 @@ app.get('/api/ops/heartbeat', async (_req, res) => {
     const apps = config.apps.map(appDef => {
       const slug = slugify(appDef.name);
       const appContainers = (appDef.containers || []).map(name => {
-        const c = containers.find(cn => cn.Names[0]?.replace(/^\//, '') === name);
+        const c = containers.find(cn => containerName(cn) === name);
         return { name, state: c?.State || 'not_found', health: c?.Status?.includes('healthy') ? 'healthy' : c?.Status?.includes('unhealthy') ? 'unhealthy' : c?.State || 'unknown' };
       });
       const health = appContainers.length === 0 ? 'static'
@@ -5359,13 +5266,7 @@ cron.schedule('0 2 * * *', async () => {
       db.prepare("INSERT INTO ops_events (event_type, app_slug, severity, title, details) VALUES (?, ?, ?, ?, ?)").run(d.type, d.app_slug || null, d.severity, d.title, d.details || null);
     }
     if (criticalDrifts.length > 0) {
-      const tgToken = process.env.TELEGRAM_BOT_TOKEN;
-      const tgChat = process.env.TELEGRAM_CHAT_ID;
-      if (tgToken && tgChat) {
-        const msg = `⚠️ Dockfolio Drift Alert — ${criticalDrifts.length} critical drift(s):\n${criticalDrifts.map(d => '• ' + d.title).join('\n')}`;
-        await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: tgChat, text: msg }), signal: AbortSignal.timeout(5000) }).catch(() => {});
-      }
+      await sendTelegram(`⚠️ Dockfolio Drift Alert — ${criticalDrifts.length} critical drift(s):\n${criticalDrifts.map(d => '• ' + d.title).join('\n')}`);
     }
     console.log(`[OPS] Daily baseline: ${drifts.length} drifts (${criticalDrifts.length} critical)`);
     // Cleanup old scores (>30 days)
@@ -5392,13 +5293,7 @@ cron.schedule('0 9 * * 1', async () => {
       }
     }
     if (staleKeys.length > 0) {
-      const tgToken = process.env.TELEGRAM_BOT_TOKEN;
-      const tgChat = process.env.TELEGRAM_CHAT_ID;
-      if (tgToken && tgChat) {
-        const msg = `🔑 Key Rotation Reminder — ${staleKeys.length} key(s) may need rotation:\n${staleKeys.map(k => '• ' + k).join('\n')}`;
-        await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: tgChat, text: msg }), signal: AbortSignal.timeout(5000) }).catch(() => {});
-      }
+      await sendTelegram(`🔑 Key Rotation Reminder — ${staleKeys.length} key(s) may need rotation:\n${staleKeys.map(k => '• ' + k).join('\n')}`);
       db.prepare("INSERT INTO ops_events (event_type, severity, title, details) VALUES ('key_rotation', 'warning', ?, ?)").run(
         `${staleKeys.length} key(s) may need rotation`, JSON.stringify(staleKeys));
     }
