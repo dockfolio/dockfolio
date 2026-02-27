@@ -1,8 +1,25 @@
 # Dockfolio
 
-**The dashboard your Docker apps deserve.** Monitor containers, track revenue, automate marketing, and heal your infrastructure — all from one keyboard-driven interface.
+**The dashboard your Docker apps deserve.** Monitor containers, track revenue, automate marketing, and heal your infrastructure. All from one keyboard-driven interface.
 
 Unlike Portainer or Coolify, Dockfolio combines infrastructure management with business intelligence. Know how your apps are performing *as a business*, not just whether they're running.
+
+## Screenshots
+
+![Dashboard Overview](screenshots/01-dashboard-overview.png)
+*System metrics, container status, and app cards organized by category*
+
+![Revenue Tracking](screenshots/02-marketing-revenue.png)
+*Per-app Stripe revenue with MRR, charges, and shared account detection*
+
+![Command Palette](screenshots/03-command-palette.png)
+*Ctrl+K fuzzy search across apps, commands, and actions*
+
+![Morning Briefing](screenshots/04-morning-briefing.png)
+*AI-generated daily ops summary via Claude Haiku*
+
+![Settings & Auto-Discovery](screenshots/06-settings.png)
+*Manage apps and auto-discover untracked Docker containers*
 
 ## Features
 
@@ -23,10 +40,10 @@ Unlike Portainer or Coolify, Dockfolio combines infrastructure management with b
 - Banner/ad management (3 types, weighted rotation, embeddable script)
 
 **AI-Powered Operations**
-- Morning Briefing — AI-generated daily ops summary via Claude Haiku (~$0.001 per briefing)
+- Morning Briefing: AI-generated daily ops summary via Claude Haiku (~$0.001 per briefing)
 - AI content pipeline for SEO (blog posts, comparison pages)
-- AI Marketing Playbook — per-app strategy generation
-- Command Palette (Ctrl+K) — fuzzy search across apps, commands, and actions
+- AI Marketing Playbook: per-app strategy generation
+- Command Palette (Ctrl+K): fuzzy search across apps, commands, and actions
 
 **Developer Experience**
 - Keyboard-first UX (15 shortcuts)
@@ -80,13 +97,13 @@ PLAUSIBLE_API_KEY=your-api-key
 
 | Integration | What it does | Required? |
 |---|---|---|
-| **Stripe** | Revenue tracking, MRR, customer cohorts | No — reads keys from your apps' .env files |
-| **Plausible** | Traffic analytics, bounce rate, top pages | No — set PLAUSIBLE_URL and API key |
-| **Anthropic** | AI morning briefings, content generation | No — reads key from your apps' .env files |
-| **Resend** | Email sequence sending | No — reads key from your apps' .env files |
-| **Telegram** | Auto-healing and system alert notifications | No — set bot token and chat ID |
-| **BannerForge** | AI-generated promotional banners | No — optional for banner creation |
-| **Uptime Kuma** | Uptime monitoring and status page | No — runs alongside as separate container |
+| **Stripe** | Revenue tracking, MRR, customer cohorts | No, reads keys from your apps' .env files |
+| **Plausible** | Traffic analytics, bounce rate, top pages | No, set PLAUSIBLE_URL and API key |
+| **Anthropic** | AI morning briefings, content generation | No, reads key from your apps' .env files |
+| **Resend** | Email sequence sending | No, reads key from your apps' .env files |
+| **Telegram** | Auto-healing and system alert notifications | No, set bot token and chat ID |
+| **BannerForge** | AI-generated promotional banners | No, optional for banner creation |
+| **Uptime Kuma** | Uptime monitoring and status page | No, runs alongside as separate container |
 
 ## How It Compares
 
@@ -124,7 +141,7 @@ PLAUSIBLE_API_KEY=your-api-key
 
 ## Architecture
 
-Single-container Node.js app (~140KB frontend, ~3,850 line backend). SQLite for data persistence. No external dependencies required — connects to your Docker socket and reads your apps' .env files for API keys.
+Single-container Node.js app (~140KB frontend, ~3,850 line backend). SQLite for data persistence. No external dependencies required. Connects to your Docker socket and reads your apps' .env files for API keys.
 
 ```
 Dockfolio
@@ -148,19 +165,19 @@ Requires Docker running locally for container management features.
 
 ## Known Limitations
 
-- **Single server only** — multi-server support is planned but not yet implemented
-- **No automated tests** — the codebase has zero test coverage
-- **Monolithic architecture** — single server.js and single index.html
-- **No git deployments** — no push-to-deploy or webhook-based builds
-- **No RBAC** — single admin user only, no team or role support
+- **Single server only**: multi-server support is planned but not yet implemented
+- **No automated tests**: the codebase has zero test coverage
+- **Monolithic architecture**: single server.js and single index.html
+- **No git deployments**: no push-to-deploy or webhook-based builds
+- **No RBAC**: single admin user only, no team or role support
 
 ## License
 
-AGPL-3.0 — Free to use, self-host, and modify. If you offer it as a hosted service, you must open-source your changes.
+AGPL-3.0. Free to use, self-host, and modify. If you offer it as a hosted service, you must open-source your changes.
 
 ## Contributing
 
-Contributions welcome! Please read the codebase first — it's a monolith by design (KISS > architecture astronautics).
+Contributions welcome! Please read the codebase first. It's a monolith by design (KISS > architecture astronautics).
 
 Areas where help is most wanted:
 - Multi-server support (SSH-based remote Docker management)

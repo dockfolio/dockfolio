@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy App Manager to VM (single SSH connection to avoid fail2ban)
+# Deploy Dockfolio to VM (single SSH connection to avoid fail2ban)
 # Usage: bash deploy.sh [--rebuild]
 # Works from both Linux (rsync) and Windows/Git Bash (scp fallback)
 
@@ -27,7 +27,7 @@ else
         dashboard/config.yml \
         dashboard/public/ \
         "${SERVER}:${REMOTE_DIR}/dashboard/"
-    scp docker-compose.yml nginx-appmanager.conf deploy.sh .env "${SERVER}:${REMOTE_DIR}/"
+    scp docker-compose.yml nginx-dockfolio.conf deploy.sh .env "${SERVER}:${REMOTE_DIR}/"
     scp scripts/system-alert.sh scripts/backup-databases.sh "${SERVER}:${REMOTE_DIR}/scripts/"
 fi
 
@@ -49,8 +49,8 @@ fi
 
 # Nginx config
 echo "[2/4] Updating nginx..."
-cp nginx-appmanager.conf /home/deploy/nginx-configs/sites/appmanager
-cp nginx-appmanager.conf /home/deploy/nginx-extra/appmanager.conf 2>/dev/null || true
+cp nginx-dockfolio.conf /home/deploy/nginx-configs/sites/appmanager
+cp nginx-dockfolio.conf /home/deploy/nginx-extra/appmanager.conf 2>/dev/null || true
 sudo /usr/sbin/nginx -t -c /home/deploy/nginx-configs/nginx.conf && \
 sudo /usr/sbin/nginx -s reload -c /home/deploy/nginx-configs/nginx.conf
 
@@ -66,7 +66,7 @@ mkdir -p /home/deploy/backups/{promoforge,lohncheck,sacredlens,plausible-pg,plau
 mkdir -p /home/deploy/marketing
 
 # Clear alert state to trigger initial alerts on deploy
-rm -f /tmp/appmanager-alert-state
+rm -f /tmp/dockfolio-alert-state
 
 CRON_UPDATED=false
 CURRENT_CRON=$(crontab -l 2>/dev/null || true)

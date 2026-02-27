@@ -1,7 +1,7 @@
 services:
   uptime-kuma:
     image: louislam/uptime-kuma:1
-    container_name: appmanager-uptime-kuma
+    container_name: dockfolio-uptime-kuma
     restart: unless-stopped
     ports:
       - "127.0.0.1:9090:3001"
@@ -20,7 +20,7 @@ services:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
-    container_name: appmanager-dashboard
+    container_name: dockfolio-dashboard
     restart: unless-stopped
     ports:
       - "127.0.0.1:9091:3000"
