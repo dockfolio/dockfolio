@@ -5,7 +5,8 @@ import { fileURLToPath } from 'url';
 import {
   slugify, containerName, hashValue, todayString, percent, safeJSON,
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
-  getMarketableApps, diskScore, securityScore, seoScore
+  getMarketableApps, diskScore, securityScore, seoScore,
+  parseId, asyncRoute
 } from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -255,6 +256,39 @@ console.log('\nseoScore()');
 test('5 for avg under 40', () => { assert.equal(seoScore(30), 5); });
 test('3 for avg 40-59', () => { assert.equal(seoScore(50), 3); });
 test('0 for avg 60+', () => { assert.equal(seoScore(70), 0); });
+
+// --- parseId ---
+console.log('\nparseId()');
+
+test('parses valid integer', () => { assert.equal(parseId('42'), 42); });
+test('parses zero', () => { assert.equal(parseId('0'), 0); });
+test('returns NaN for non-numeric', () => { assert.equal(isNaN(parseId('abc')), true); });
+test('returns NaN for empty string', () => { assert.equal(isNaN(parseId('')), true); });
+test('returns NaN for undefined', () => { assert.equal(isNaN(parseId(undefined)), true); });
+test('parses negative', () => { assert.equal(parseId('-1'), -1); });
+
+// --- asyncRoute ---
+console.log('\nasyncRoute()');
+
+test('calls handler and resolves', async () => {
+  let called = false;
+  const handler = asyncRoute(async (req, res) => { called = true; });
+  await handler({method: 'GET', path: '/test'}, {headersSent: false, status() { return { json() {} }; }}, () => {});
+  assert.equal(called, true);
+});
+
+test('catches errors and sends 500', async () => {
+  let statusCode = null;
+  let errorMsg = null;
+  const res = {
+    headersSent: false,
+    status(code) { statusCode = code; return { json(body) { errorMsg = body.error; } }; }
+  };
+  const handler = asyncRoute(async () => { throw new Error('boom'); });
+  await handler({method: 'GET', path: '/test'}, res, () => {});
+  assert.equal(statusCode, 500);
+  assert.equal(errorMsg, 'boom');
+});
 
 // --- Summary ---
 console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed\n`);

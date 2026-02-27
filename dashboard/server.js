@@ -14,7 +14,8 @@ import helmet from 'helmet';
 import {
   slugify, containerName, hashValue, todayString, percent, safeJSON,
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
-  getMarketableApps as _getMarketableApps, diskScore, securityScore, seoScore
+  getMarketableApps as _getMarketableApps, diskScore, securityScore, seoScore,
+  parseId, asyncRoute
 } from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -321,234 +322,210 @@ function getAppsWithEnv() {
 }
 
 // GET /api/apps — all apps with their container status
-app.get('/api/apps', async (_req, res) => {
-  try {
-    const containers = await docker.listContainers({ all: true });
-    const containerMap = new Map();
-    for (const c of containers) {
-      const name = containerName(c);
-      if (name) containerMap.set(name, c);
-    }
+app.get('/api/apps', asyncRoute(async (_req, res) => {
+  const containers = await docker.listContainers({ all: true });
+  const containerMap = new Map();
+  for (const c of containers) {
+    const name = containerName(c);
+    if (name) containerMap.set(name, c);
+  }
 
-    const apps = config.apps.map(appDef => {
-      const containerStatuses = (appDef.containers || []).map(name => {
-        const c = containerMap.get(name);
-        if (!c) return { name, status: 'not_found', health: 'unknown' };
-        const health = c.Status?.includes('healthy') ? 'healthy'
-          : c.Status?.includes('unhealthy') ? 'unhealthy'
-          : c.Status?.includes('Restarting') ? 'restarting'
-          : c.State === 'running' ? 'running'
-          : 'stopped';
-        return {
-          name,
-          status: c.State,
-          health,
-          image: c.Image,
-          uptime: c.Status,
-          ports: c.Ports?.map(p => p.PublicPort).filter(Boolean),
-        };
-      });
-
-      const overallHealth = containerStatuses.length === 0
-        ? 'static'
-        : containerStatuses.every(c => c.health === 'healthy') ? 'healthy'
-        : containerStatuses.some(c => c.health === 'restarting') ? 'restarting'
-        : containerStatuses.some(c => c.health === 'unhealthy') ? 'unhealthy'
-        : containerStatuses.every(c => c.status === 'running' || c.health === 'running') ? 'running'
-        : 'degraded';
-
-      // Check for Sentry DSN in env file
-      let hasSentry = false;
-      let hasEnvFile = !!appDef.envFile;
-      if (appDef.envFile && existsSync(appDef.envFile)) {
-        const envVars = parseEnvFile(appDef.envFile);
-        const sentryVar = envVars.find(v => v.key === 'SENTRY_DSN' || v.key === 'NEXT_PUBLIC_SENTRY_DSN');
-        hasSentry = !!(sentryVar && sentryVar.value);
-      }
-
+  const apps = config.apps.map(appDef => {
+    const containerStatuses = (appDef.containers || []).map(name => {
+      const c = containerMap.get(name);
+      if (!c) return { name, status: 'not_found', health: 'unknown' };
+      const health = c.Status?.includes('healthy') ? 'healthy'
+        : c.Status?.includes('unhealthy') ? 'unhealthy'
+        : c.Status?.includes('Restarting') ? 'restarting'
+        : c.State === 'running' ? 'running'
+        : 'stopped';
       return {
-        ...appDef,
-        containerStatuses,
-        overallHealth,
-        hasSentry,
-        hasEnvFile,
+        name,
+        status: c.State,
+        health,
+        image: c.Image,
+        uptime: c.Status,
+        ports: c.Ports?.map(p => p.PublicPort).filter(Boolean),
       };
     });
 
-    res.json(apps);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    const overallHealth = containerStatuses.length === 0
+      ? 'static'
+      : containerStatuses.every(c => c.health === 'healthy') ? 'healthy'
+      : containerStatuses.some(c => c.health === 'restarting') ? 'restarting'
+      : containerStatuses.some(c => c.health === 'unhealthy') ? 'unhealthy'
+      : containerStatuses.every(c => c.status === 'running' || c.health === 'running') ? 'running'
+      : 'degraded';
 
-// GET /api/system — system metrics
-app.get('/api/system', async (_req, res) => {
-  try {
-    const meminfo = readFileSync('/proc/meminfo', 'utf8');
-    const parse = key => {
-      const match = meminfo.match(new RegExp(`${key}:\\s+(\\d+)`));
-      return match ? parseInt(match[1], 10) : 0;
-    };
-
-    const memTotal = parse('MemTotal');
-    const memAvailable = parse('MemAvailable');
-    const swapTotal = parse('SwapTotal');
-    const swapFree = parse('SwapFree');
-
-    // Disk usage
-    const dfOutput = execSync('df -B1 / | tail -1').toString().trim();
-    const dfParts = dfOutput.split(/\s+/);
-    const diskTotal = parseInt(dfParts[1], 10);
-    const diskUsed = parseInt(dfParts[2], 10);
-
-    // Load average
-    const loadavg = readFileSync('/proc/loadavg', 'utf8').split(' ');
-    const cpuCount = parseInt(execSync('nproc').toString().trim(), 10);
-
-    // Uptime
-    const uptimeRaw = readFileSync('/proc/uptime', 'utf8').split(' ')[0];
-    const uptimeSeconds = parseFloat(uptimeRaw);
-
-    res.json({
-      memory: {
-        total: memTotal * 1024,
-        available: memAvailable * 1024,
-        used: (memTotal - memAvailable) * 1024,
-        percent: Math.round(((memTotal - memAvailable) / memTotal) * 100),
-      },
-      swap: {
-        total: swapTotal * 1024,
-        used: (swapTotal - swapFree) * 1024,
-        percent: swapTotal > 0 ? Math.round(((swapTotal - swapFree) / swapTotal) * 100) : 0,
-      },
-      disk: {
-        total: diskTotal,
-        used: diskUsed,
-        percent: Math.round((diskUsed / diskTotal) * 100),
-      },
-      load: {
-        avg1: parseFloat(loadavg[0]),
-        avg5: parseFloat(loadavg[1]),
-        avg15: parseFloat(loadavg[2]),
-        cpuCount,
-      },
-      uptime: uptimeSeconds,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/containers/stats — container resource usage
-app.get('/api/containers/stats', async (_req, res) => {
-  try {
-    const now = Date.now();
-    if (cachedStats && (now - lastStatsUpdate) < STATS_TTL) {
-      return res.json(cachedStats);
+    // Check for Sentry DSN in env file
+    let hasSentry = false;
+    let hasEnvFile = !!appDef.envFile;
+    if (appDef.envFile && existsSync(appDef.envFile)) {
+      const envVars = parseEnvFile(appDef.envFile);
+      const sentryVar = envVars.find(v => v.key === 'SENTRY_DSN' || v.key === 'NEXT_PUBLIC_SENTRY_DSN');
+      hasSentry = !!(sentryVar && sentryVar.value);
     }
 
-    const containers = await docker.listContainers();
-    const stats = {};
+    return {
+      ...appDef,
+      containerStatuses,
+      overallHealth,
+      hasSentry,
+      hasEnvFile,
+    };
+  });
 
-    await Promise.all(containers.map(async (c) => {
-      const name = containerName(c);
-      try {
-        const container = docker.getContainer(c.Id);
-        const s = await container.stats({ stream: false });
-        const cpuDelta = s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage;
-        const systemDelta = s.cpu_stats.system_cpu_usage - s.precpu_stats.system_cpu_usage;
-        const cpuCount = s.cpu_stats.online_cpus || 1;
-        const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * cpuCount * 100 : 0;
+  res.json(apps);
+}));
 
-        stats[name] = {
-          cpu: Math.round(cpuPercent * 100) / 100,
-          memory: s.memory_stats.usage || 0,
-          memoryLimit: s.memory_stats.limit || 0,
-          netRx: s.networks ? Object.values(s.networks).reduce((sum, n) => sum + n.rx_bytes, 0) : 0,
-          netTx: s.networks ? Object.values(s.networks).reduce((sum, n) => sum + n.tx_bytes, 0) : 0,
-        };
-      } catch {
-        stats[name] = { cpu: 0, memory: 0, memoryLimit: 0, netRx: 0, netTx: 0 };
-      }
-    }));
+// GET /api/system — system metrics
+app.get('/api/system', asyncRoute(async (_req, res) => {
+  const meminfo = readFileSync('/proc/meminfo', 'utf8');
+  const parse = key => {
+    const match = meminfo.match(new RegExp(`${key}:\\s+(\\d+)`));
+    return match ? parseInt(match[1], 10) : 0;
+  };
 
-    cachedStats = stats;
-    lastStatsUpdate = now;
-    res.json(stats);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  const memTotal = parse('MemTotal');
+  const memAvailable = parse('MemAvailable');
+  const swapTotal = parse('SwapTotal');
+  const swapFree = parse('SwapFree');
+
+  // Disk usage
+  const dfOutput = execSync('df -B1 / | tail -1').toString().trim();
+  const dfParts = dfOutput.split(/\s+/);
+  const diskTotal = parseInt(dfParts[1], 10);
+  const diskUsed = parseInt(dfParts[2], 10);
+
+  // Load average
+  const loadavg = readFileSync('/proc/loadavg', 'utf8').split(' ');
+  const cpuCount = parseInt(execSync('nproc').toString().trim(), 10);
+
+  // Uptime
+  const uptimeRaw = readFileSync('/proc/uptime', 'utf8').split(' ')[0];
+  const uptimeSeconds = parseFloat(uptimeRaw);
+
+  res.json({
+    memory: {
+      total: memTotal * 1024,
+      available: memAvailable * 1024,
+      used: (memTotal - memAvailable) * 1024,
+      percent: Math.round(((memTotal - memAvailable) / memTotal) * 100),
+    },
+    swap: {
+      total: swapTotal * 1024,
+      used: (swapTotal - swapFree) * 1024,
+      percent: swapTotal > 0 ? Math.round(((swapTotal - swapFree) / swapTotal) * 100) : 0,
+    },
+    disk: {
+      total: diskTotal,
+      used: diskUsed,
+      percent: Math.round((diskUsed / diskTotal) * 100),
+    },
+    load: {
+      avg1: parseFloat(loadavg[0]),
+      avg5: parseFloat(loadavg[1]),
+      avg15: parseFloat(loadavg[2]),
+      cpuCount,
+    },
+    uptime: uptimeSeconds,
+  });
+}));
+
+// GET /api/containers/stats — container resource usage
+app.get('/api/containers/stats', asyncRoute(async (_req, res) => {
+  const now = Date.now();
+  if (cachedStats && (now - lastStatsUpdate) < STATS_TTL) {
+    return res.json(cachedStats);
   }
-});
+
+  const containers = await docker.listContainers();
+  const stats = {};
+
+  await Promise.all(containers.map(async (c) => {
+    const name = containerName(c);
+    try {
+      const container = docker.getContainer(c.Id);
+      const s = await container.stats({ stream: false });
+      const cpuDelta = s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage;
+      const systemDelta = s.cpu_stats.system_cpu_usage - s.precpu_stats.system_cpu_usage;
+      const cpuCount = s.cpu_stats.online_cpus || 1;
+      const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * cpuCount * 100 : 0;
+
+      stats[name] = {
+        cpu: Math.round(cpuPercent * 100) / 100,
+        memory: s.memory_stats.usage || 0,
+        memoryLimit: s.memory_stats.limit || 0,
+        netRx: s.networks ? Object.values(s.networks).reduce((sum, n) => sum + n.rx_bytes, 0) : 0,
+        netTx: s.networks ? Object.values(s.networks).reduce((sum, n) => sum + n.tx_bytes, 0) : 0,
+      };
+    } catch {
+      stats[name] = { cpu: 0, memory: 0, memoryLimit: 0, netRx: 0, netTx: 0 };
+    }
+  }));
+
+  cachedStats = stats;
+  lastStatsUpdate = now;
+  res.json(stats);
+}));
 
 // GET /api/containers/:name/logs — last N lines of container logs
-app.get('/api/containers/:name/logs', async (req, res) => {
-  try {
-    const containers = await docker.listContainers({ all: true });
-    const target = containers.find(c => containerName(c) === req.params.name);
-    if (!target) return res.status(404).json({ error: 'Container not found' });
+app.get('/api/containers/:name/logs', asyncRoute(async (req, res) => {
+  const containers = await docker.listContainers({ all: true });
+  const target = containers.find(c => containerName(c) === req.params.name);
+  if (!target) return res.status(404).json({ error: 'Container not found' });
 
-    const container = docker.getContainer(target.Id);
-    const logs = await container.logs({
-      stdout: true,
-      stderr: true,
-      tail: parseInt(req.query.lines) || 100,
-      timestamps: true,
-    });
+  const container = docker.getContainer(target.Id);
+  const logs = await container.logs({
+    stdout: true,
+    stderr: true,
+    tail: parseInt(req.query.lines) || 100,
+    timestamps: true,
+  });
 
-    // Strip Docker stream headers (8-byte prefix per line)
-    const clean = logs.toString('utf8')
-      .split('\n')
-      .map(line => line.length > 8 ? line.slice(8) : line)
-      .join('\n');
+  // Strip Docker stream headers (8-byte prefix per line)
+  const clean = logs.toString('utf8')
+    .split('\n')
+    .map(line => line.length > 8 ? line.slice(8) : line)
+    .join('\n');
 
-    res.type('text/plain').send(clean);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  res.type('text/plain').send(clean);
+}));
 
 // GET /api/docker/overview — Docker disk usage summary
-app.get('/api/docker/overview', async (_req, res) => {
-  try {
-    const [images, containers, volumes] = await Promise.all([
-      docker.listImages(),
-      docker.listContainers({ all: true }),
-      docker.listVolumes(),
-    ]);
+app.get('/api/docker/overview', asyncRoute(async (_req, res) => {
+  const [images, containers, volumes] = await Promise.all([
+    docker.listImages(),
+    docker.listContainers({ all: true }),
+    docker.listVolumes(),
+  ]);
 
-    const imageList = images.map(i => ({
-      id: i.Id?.slice(7, 19),
-      tags: i.RepoTags || [],
-      size: i.Size,
-      created: i.Created,
-    })).sort((a, b) => b.size - a.size);
+  const imageList = images.map(i => ({
+    id: i.Id?.slice(7, 19),
+    tags: i.RepoTags || [],
+    size: i.Size,
+    created: i.Created,
+  })).sort((a, b) => b.size - a.size);
 
-    const totalImageSize = images.reduce((s, i) => s + i.Size, 0);
+  const totalImageSize = images.reduce((s, i) => s + i.Size, 0);
 
-    res.json({
-      images: { count: images.length, totalSize: totalImageSize, list: imageList },
-      containers: { count: containers.length, running: containers.filter(c => c.State === 'running').length },
-      volumes: { count: volumes.Volumes?.length || 0 },
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  res.json({
+    images: { count: images.length, totalSize: totalImageSize, list: imageList },
+    containers: { count: containers.length, running: containers.filter(c => c.State === 'running').length },
+    volumes: { count: volumes.Volumes?.length || 0 },
+  });
+}));
 
 // POST /api/containers/:name/restart — restart a container
-app.post('/api/containers/:name/restart', async (req, res) => {
-  try {
-    const containers = await docker.listContainers({ all: true });
-    const target = containers.find(c => containerName(c) === req.params.name);
-    if (!target) return res.status(404).json({ error: 'Container not found' });
+app.post('/api/containers/:name/restart', asyncRoute(async (req, res) => {
+  const containers = await docker.listContainers({ all: true });
+  const target = containers.find(c => containerName(c) === req.params.name);
+  if (!target) return res.status(404).json({ error: 'Container not found' });
 
-    const container = docker.getContainer(target.Id);
-    await container.restart({ t: 10 });
-    res.json({ ok: true, message: `Container ${req.params.name} restarted` });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  const container = docker.getContainer(target.Id);
+  await container.restart({ t: 10 });
+  res.json({ ok: true, message: `Container ${req.params.name} restarted` });
+}));
 
 // GET /api/health — detailed health check
 app.get('/api/health', async (_req, res) => {
@@ -571,109 +548,101 @@ let cachedUptime = null;
 let lastUptimeUpdate = 0;
 const UPTIME_TTL = 60_000;
 
-app.get('/api/uptime', async (_req, res) => {
-  try {
-    const now = Date.now();
-    if (cachedUptime && (now - lastUptimeUpdate) < UPTIME_TTL) {
-      return res.json(cachedUptime);
-    }
-
-    const kumaBase = process.env.UPTIME_KUMA_URL || 'http://dockfolio-uptime-kuma:3001';
-    const [statusRes, heartbeatRes] = await Promise.all([
-      fetch(`${kumaBase}/api/status-page/status`),
-      fetch(`${kumaBase}/api/status-page/heartbeat/status`),
-    ]);
-
-    const statusData = await statusRes.json();
-    const heartbeatData = await heartbeatRes.json();
-
-    // Map monitor data: id -> { name, uptime24h, avgPing, status }
-    const monitors = {};
-    const groups = statusData.publicGroupList || [];
-    for (const group of groups) {
-      for (const mon of group.monitorList || []) {
-        const beats = heartbeatData.heartbeatList?.[String(mon.id)] || [];
-        const lastBeat = beats[beats.length - 1];
-        const pings = beats.filter(b => b.ping > 0).map(b => b.ping);
-        const avgPing = pings.length > 0 ? Math.round(pings.reduce((a, b) => a + b, 0) / pings.length) : null;
-        const uptime24 = heartbeatData.uptimeList?.[`${mon.id}_24`];
-
-        // Last 24 heartbeats for sparkline (sampled)
-        const totalBeats = beats.length;
-        const sampleSize = 24;
-        const step = Math.max(1, Math.floor(totalBeats / sampleSize));
-        const sparkline = [];
-        for (let i = 0; i < totalBeats; i += step) {
-          sparkline.push(beats[i].status === 1 ? 'up' : beats[i].status === 0 ? 'down' : 'pending');
-        }
-
-        // Ping history for response time chart (last 30 points)
-        const pingHistory = beats
-          .filter(b => b.ping > 0)
-          .slice(-30)
-          .map(b => b.ping);
-
-        monitors[mon.name] = {
-          id: mon.id,
-          status: lastBeat?.status === 1 ? 'up' : lastBeat?.status === 0 ? 'down' : 'pending',
-          uptime24h: uptime24 != null ? Math.round(uptime24 * 10000) / 100 : null,
-          avgPing,
-          lastPing: lastBeat?.ping || null,
-          sparkline: sparkline.slice(-24),
-          pingHistory,
-        };
-      }
-    }
-
-    cachedUptime = { monitors, timestamp: new Date().toISOString() };
-    lastUptimeUpdate = now;
-    res.json(cachedUptime);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.get('/api/uptime', asyncRoute(async (_req, res) => {
+  const now = Date.now();
+  if (cachedUptime && (now - lastUptimeUpdate) < UPTIME_TTL) {
+    return res.json(cachedUptime);
   }
-});
+
+  const kumaBase = process.env.UPTIME_KUMA_URL || 'http://dockfolio-uptime-kuma:3001';
+  const [statusRes, heartbeatRes] = await Promise.all([
+    fetch(`${kumaBase}/api/status-page/status`),
+    fetch(`${kumaBase}/api/status-page/heartbeat/status`),
+  ]);
+
+  const statusData = await statusRes.json();
+  const heartbeatData = await heartbeatRes.json();
+
+  // Map monitor data: id -> { name, uptime24h, avgPing, status }
+  const monitors = {};
+  const groups = statusData.publicGroupList || [];
+  for (const group of groups) {
+    for (const mon of group.monitorList || []) {
+      const beats = heartbeatData.heartbeatList?.[String(mon.id)] || [];
+      const lastBeat = beats[beats.length - 1];
+      const pings = beats.filter(b => b.ping > 0).map(b => b.ping);
+      const avgPing = pings.length > 0 ? Math.round(pings.reduce((a, b) => a + b, 0) / pings.length) : null;
+      const uptime24 = heartbeatData.uptimeList?.[`${mon.id}_24`];
+
+      // Last 24 heartbeats for sparkline (sampled)
+      const totalBeats = beats.length;
+      const sampleSize = 24;
+      const step = Math.max(1, Math.floor(totalBeats / sampleSize));
+      const sparkline = [];
+      for (let i = 0; i < totalBeats; i += step) {
+        sparkline.push(beats[i].status === 1 ? 'up' : beats[i].status === 0 ? 'down' : 'pending');
+      }
+
+      // Ping history for response time chart (last 30 points)
+      const pingHistory = beats
+        .filter(b => b.ping > 0)
+        .slice(-30)
+        .map(b => b.ping);
+
+      monitors[mon.name] = {
+        id: mon.id,
+        status: lastBeat?.status === 1 ? 'up' : lastBeat?.status === 0 ? 'down' : 'pending',
+        uptime24h: uptime24 != null ? Math.round(uptime24 * 10000) / 100 : null,
+        avgPing,
+        lastPing: lastBeat?.ping || null,
+        sparkline: sparkline.slice(-24),
+        pingHistory,
+      };
+    }
+  }
+
+  cachedUptime = { monitors, timestamp: new Date().toISOString() };
+  lastUptimeUpdate = now;
+  res.json(cachedUptime);
+}));
 
 // GET /api/ssl — check SSL certificate expiry for all domains
 let cachedSSL = null;
 let lastSSLUpdate = 0;
 const SSL_TTL = 3600_000; // 1 hour
 
-app.get('/api/ssl', async (_req, res) => {
-  try {
-    const now = Date.now();
-    if (cachedSSL && (now - lastSSLUpdate) < SSL_TTL) {
-      return res.json(cachedSSL);
-    }
-
-    const https = await import('https');
-    const domains = config.apps
-      .filter(a => a.domain && a.type !== 'redirect')
-      .map(a => a.domain);
-
-    const results = {};
-    await Promise.all(domains.map(domain => new Promise((resolve) => {
-      const req = https.default.request({ hostname: domain, port: 443, method: 'HEAD', timeout: 5000 }, (response) => {
-        const cert = response.socket?.getPeerCertificate?.();
-        if (cert?.valid_to) {
-          const expiry = new Date(cert.valid_to);
-          const daysLeft = Math.floor((expiry - now) / 86400000);
-          results[domain] = { expiry: cert.valid_to, daysLeft, issuer: cert.issuer?.O || '' };
-        }
-        response.destroy();
-        resolve();
-      });
-      req.on('error', () => { results[domain] = { error: 'unreachable' }; resolve(); });
-      req.on('timeout', () => { req.destroy(); resolve(); });
-      req.end();
-    })));
-
-    cachedSSL = { domains: results, timestamp: new Date().toISOString() };
-    lastSSLUpdate = now;
-    res.json(cachedSSL);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.get('/api/ssl', asyncRoute(async (_req, res) => {
+  const now = Date.now();
+  if (cachedSSL && (now - lastSSLUpdate) < SSL_TTL) {
+    return res.json(cachedSSL);
   }
-});
+
+  const https = await import('https');
+  const domains = config.apps
+    .filter(a => a.domain && a.type !== 'redirect')
+    .map(a => a.domain);
+
+  const results = {};
+  await Promise.all(domains.map(domain => new Promise((resolve) => {
+    const req = https.default.request({ hostname: domain, port: 443, method: 'HEAD', timeout: 5000 }, (response) => {
+      const cert = response.socket?.getPeerCertificate?.();
+      if (cert?.valid_to) {
+        const expiry = new Date(cert.valid_to);
+        const daysLeft = Math.floor((expiry - now) / 86400000);
+        results[domain] = { expiry: cert.valid_to, daysLeft, issuer: cert.issuer?.O || '' };
+      }
+      response.destroy();
+      resolve();
+    });
+    req.on('error', () => { results[domain] = { error: 'unreachable' }; resolve(); });
+    req.on('timeout', () => { req.destroy(); resolve(); });
+    req.end();
+  })));
+
+  cachedSSL = { domains: results, timestamp: new Date().toISOString() };
+  lastSSLUpdate = now;
+  res.json(cachedSSL);
+}));
 
 // GET /api/events — recent Docker events (starts, stops, health changes)
 let cachedEvents = null;
@@ -732,190 +701,174 @@ let cachedDisk = null;
 let lastDiskUpdate = 0;
 const DISK_TTL = 120_000;
 
-app.get('/api/disk', async (_req, res) => {
-  try {
-    const now = Date.now();
-    if (cachedDisk && (now - lastDiskUpdate) < DISK_TTL) {
-      return res.json(cachedDisk);
-    }
-
-    const [containers, images] = await Promise.all([
-      docker.listContainers({ all: true, size: true }),
-      docker.listImages(),
-    ]);
-
-    const containerSizes = containers.map(c => ({
-      name: containerName(c),
-      size: c.SizeRw || 0,
-      rootSize: c.SizeRootFs || 0,
-      image: c.Image,
-    })).sort((a, b) => b.rootSize - a.rootSize);
-
-    const imageSizes = images.map(i => ({
-      name: (i.RepoTags?.[0] || i.Id?.slice(7, 19)),
-      size: i.Size,
-      shared: i.SharedSize || 0,
-    })).sort((a, b) => b.size - a.size);
-
-    cachedDisk = { containers: containerSizes, images: imageSizes, timestamp: new Date().toISOString() };
-    lastDiskUpdate = now;
-    res.json(cachedDisk);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.get('/api/disk', asyncRoute(async (_req, res) => {
+  const now = Date.now();
+  if (cachedDisk && (now - lastDiskUpdate) < DISK_TTL) {
+    return res.json(cachedDisk);
   }
-});
+
+  const [containers, images] = await Promise.all([
+    docker.listContainers({ all: true, size: true }),
+    docker.listImages(),
+  ]);
+
+  const containerSizes = containers.map(c => ({
+    name: containerName(c),
+    size: c.SizeRw || 0,
+    rootSize: c.SizeRootFs || 0,
+    image: c.Image,
+  })).sort((a, b) => b.rootSize - a.rootSize);
+
+  const imageSizes = images.map(i => ({
+    name: (i.RepoTags?.[0] || i.Id?.slice(7, 19)),
+    size: i.Size,
+    shared: i.SharedSize || 0,
+  })).sort((a, b) => b.size - a.size);
+
+  cachedDisk = { containers: containerSizes, images: imageSizes, timestamp: new Date().toISOString() };
+  lastDiskUpdate = now;
+  res.json(cachedDisk);
+}));
 
 // POST /api/actions/prune — clean up Docker resources
-app.post('/api/actions/prune', async (_req, res) => {
-  try {
-    const result = {};
-    const pruneContainers = await docker.pruneContainers();
-    result.containers = pruneContainers.ContainersDeleted?.length || 0;
+app.post('/api/actions/prune', asyncRoute(async (_req, res) => {
+  const result = {};
+  const pruneContainers = await docker.pruneContainers();
+  result.containers = pruneContainers.ContainersDeleted?.length || 0;
 
-    const pruneImages = await docker.pruneImages();
-    result.images = pruneImages.ImagesDeleted?.length || 0;
-    result.spaceReclaimed = pruneImages.SpaceReclaimed || 0;
+  const pruneImages = await docker.pruneImages();
+  result.images = pruneImages.ImagesDeleted?.length || 0;
+  result.spaceReclaimed = pruneImages.SpaceReclaimed || 0;
 
-    result.buildCache = execSync('docker builder prune -f 2>&1 | tail -1').toString().trim();
+  result.buildCache = execSync('docker builder prune -f 2>&1 | tail -1').toString().trim();
 
-    res.json({ ok: true, ...result });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  res.json({ ok: true, ...result });
+}));
 
 // GET /api/discover — auto-discover Docker containers not in config
-app.get('/api/discover', async (_req, res) => {
-  try {
-    const containers = await docker.listContainers({ all: true });
-    const trackedContainers = new Set();
-    for (const appDef of config.apps) {
-      for (const name of (appDef.containers || [])) {
-        trackedContainers.add(name);
-      }
+app.get('/api/discover', asyncRoute(async (_req, res) => {
+  const containers = await docker.listContainers({ all: true });
+  const trackedContainers = new Set();
+  for (const appDef of config.apps) {
+    for (const name of (appDef.containers || [])) {
+      trackedContainers.add(name);
     }
-
-    // Group containers by compose project
-    const projects = new Map();
-    const untracked = [];
-
-    for (const c of containers) {
-      const name = containerName(c);
-      if (!name || trackedContainers.has(name)) continue;
-
-      const project = c.Labels?.['com.docker.compose.project'] || null;
-      const service = c.Labels?.['com.docker.compose.service'] || name;
-      const state = c.State;
-      const status = c.Status;
-      const image = c.Image;
-      const ports = (c.Ports || []).filter(p => p.PublicPort).map(p => p.PublicPort);
-
-      const entry = { name, service, state, status, image, ports };
-
-      if (project) {
-        if (!projects.has(project)) projects.set(project, []);
-        projects.get(project).push(entry);
-      } else {
-        untracked.push(entry);
-      }
-    }
-
-    // Convert projects to suggested apps
-    const suggestions = [];
-    for (const [project, containers] of projects) {
-      const webPort = containers.find(c => c.ports.length > 0)?.ports[0];
-      suggestions.push({
-        suggestedName: project.charAt(0).toUpperCase() + project.slice(1),
-        project,
-        containers: containers.map(c => c.name),
-        services: containers.map(c => c.service),
-        state: containers.every(c => c.state === 'running') ? 'running' : 'partial',
-        webPort,
-      });
-    }
-
-    // Standalone containers as individual suggestions
-    for (const c of untracked) {
-      suggestions.push({
-        suggestedName: c.name.charAt(0).toUpperCase() + c.name.slice(1).replace(/-/g, ' '),
-        project: null,
-        containers: [c.name],
-        services: [c.service],
-        state: c.state,
-        webPort: c.ports[0] || null,
-      });
-    }
-
-    res.json({ suggestions, trackedCount: trackedContainers.size, totalContainers: containers.length });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
-});
+
+  // Group containers by compose project
+  const projects = new Map();
+  const untracked = [];
+
+  for (const c of containers) {
+    const name = containerName(c);
+    if (!name || trackedContainers.has(name)) continue;
+
+    const project = c.Labels?.['com.docker.compose.project'] || null;
+    const service = c.Labels?.['com.docker.compose.service'] || name;
+    const state = c.State;
+    const status = c.Status;
+    const image = c.Image;
+    const ports = (c.Ports || []).filter(p => p.PublicPort).map(p => p.PublicPort);
+
+    const entry = { name, service, state, status, image, ports };
+
+    if (project) {
+      if (!projects.has(project)) projects.set(project, []);
+      projects.get(project).push(entry);
+    } else {
+      untracked.push(entry);
+    }
+  }
+
+  // Convert projects to suggested apps
+  const suggestions = [];
+  for (const [project, containers] of projects) {
+    const webPort = containers.find(c => c.ports.length > 0)?.ports[0];
+    suggestions.push({
+      suggestedName: project.charAt(0).toUpperCase() + project.slice(1),
+      project,
+      containers: containers.map(c => c.name),
+      services: containers.map(c => c.service),
+      state: containers.every(c => c.state === 'running') ? 'running' : 'partial',
+      webPort,
+    });
+  }
+
+  // Standalone containers as individual suggestions
+  for (const c of untracked) {
+    suggestions.push({
+      suggestedName: c.name.charAt(0).toUpperCase() + c.name.slice(1).replace(/-/g, ' '),
+      project: null,
+      containers: [c.name],
+      services: [c.service],
+      state: c.state,
+      webPort: c.ports[0] || null,
+    });
+  }
+
+  res.json({ suggestions, trackedCount: trackedContainers.size, totalContainers: containers.length });
+}));
 
 // GET /api/backups — backup status for all apps
-app.get('/api/backups', (_req, res) => {
+app.get('/api/backups', asyncRoute((_req, res) => {
+  const backupRoot = process.env.BACKUP_DIR || '/home/deploy/backups';
+  // Dynamically scan backup directory for subdirectories
+  let apps = [];
   try {
-    const backupRoot = process.env.BACKUP_DIR || '/home/deploy/backups';
-    // Dynamically scan backup directory for subdirectories
-    let apps = [];
-    try {
-      if (existsSync(backupRoot)) {
-        apps = readdirSync(backupRoot, { withFileTypes: true })
-          .filter(d => d.isDirectory())
-          .map(d => d.name);
-      }
-    } catch { apps = []; }
-    const results = {};
+    if (existsSync(backupRoot)) {
+      apps = readdirSync(backupRoot, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name);
+    }
+  } catch { apps = []; }
+  const results = {};
 
-    for (const app of apps) {
-      const dir = join(backupRoot, app);
-      if (!existsSync(dir)) {
+  for (const app of apps) {
+    const dir = join(backupRoot, app);
+    if (!existsSync(dir)) {
+      results[app] = { status: 'no_backups', files: [] };
+      continue;
+    }
+
+    try {
+      const files = execSync(`ls -lt "${dir}" 2>/dev/null | grep -E '\\.(sql\\.gz|gz)$'`).toString().trim().split('\n').filter(Boolean);
+      if (files.length === 0) {
         results[app] = { status: 'no_backups', files: [] };
         continue;
       }
 
-      try {
-        const files = execSync(`ls -lt "${dir}" 2>/dev/null | grep -E '\\.(sql\\.gz|gz)$'`).toString().trim().split('\n').filter(Boolean);
-        if (files.length === 0) {
-          results[app] = { status: 'no_backups', files: [] };
-          continue;
+      const parsed = files.map(line => {
+        const parts = line.split(/\s+/);
+        const name = parts[parts.length - 1];
+        const size = parseInt(parts[4], 10) || 0;
+        // Get mtime via stat
+        let mtime;
+        try {
+          mtime = statSync(join(dir, name)).mtime.toISOString();
+        } catch {
+          mtime = null;
         }
+        return { name, size, mtime };
+      });
 
-        const parsed = files.map(line => {
-          const parts = line.split(/\s+/);
-          const name = parts[parts.length - 1];
-          const size = parseInt(parts[4], 10) || 0;
-          // Get mtime via stat
-          let mtime;
-          try {
-            mtime = statSync(join(dir, name)).mtime.toISOString();
-          } catch {
-            mtime = null;
-          }
-          return { name, size, mtime };
-        });
+      const latest = parsed[0];
+      const ageMs = latest.mtime ? Date.now() - new Date(latest.mtime).getTime() : null;
+      const ageHours = ageMs ? Math.round(ageMs / 3600000) : null;
 
-        const latest = parsed[0];
-        const ageMs = latest.mtime ? Date.now() - new Date(latest.mtime).getTime() : null;
-        const ageHours = ageMs ? Math.round(ageMs / 3600000) : null;
-
-        results[app] = {
-          status: ageHours !== null && ageHours <= 25 ? 'ok' : 'stale',
-          count: parsed.length,
-          latest: latest,
-          ageHours,
-          totalSize: parsed.reduce((s, f) => s + f.size, 0),
-        };
-      } catch {
-        results[app] = { status: 'no_backups', files: [] };
-      }
+      results[app] = {
+        status: ageHours !== null && ageHours <= 25 ? 'ok' : 'stale',
+        count: parsed.length,
+        latest: latest,
+        ageHours,
+        totalSize: parsed.reduce((s, f) => s + f.size, 0),
+      };
+    } catch {
+      results[app] = { status: 'no_backups', files: [] };
     }
-
-    res.json({ backups: results, timestamp: new Date().toISOString() });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
-});
+
+  res.json({ backups: results, timestamp: new Date().toISOString() });
+}));
 
 // --- Marketing Manager ---
 
@@ -1056,140 +1009,124 @@ let lastSEOUpdate = 0;
 const SEO_TTL = 3600_000; // 1 hour
 
 // GET /api/marketing/seo — SEO audit for all marketable apps
-app.get('/api/marketing/seo', async (req, res) => {
-  try {
-    const now = Date.now();
-    const force = req.query.force === 'true';
-    if (!force && cachedSEO && (now - lastSEOUpdate) < SEO_TTL) {
-      return res.json(cachedSEO);
-    }
-
-    const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
-    const results = {};
-
-    // Run audits in parallel (all at once since they're different domains)
-    await Promise.all(marketableApps.map(async (appDef) => {
-      const audit = await auditSEO(appDef.domain);
-      results[appDef.name] = {
-        domain: appDef.domain,
-        ...audit,
-        marketing: appDef.marketing || null,
-      };
-    }));
-
-    // Overall stats
-    const scores = Object.values(results).map(r => r.score);
-    const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-    const totalIssues = Object.values(results).reduce((sum, r) => sum + r.issues.length, 0);
-
-    cachedSEO = {
-      apps: results,
-      summary: { avgScore, totalIssues, appCount: scores.length },
-      timestamp: new Date().toISOString(),
-    };
-    lastSEOUpdate = now;
-    res.json(cachedSEO);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.get('/api/marketing/seo', asyncRoute(async (req, res) => {
+  const now = Date.now();
+  const force = req.query.force === 'true';
+  if (!force && cachedSEO && (now - lastSEOUpdate) < SEO_TTL) {
+    return res.json(cachedSEO);
   }
-});
+
+  const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
+  const results = {};
+
+  // Run audits in parallel (all at once since they're different domains)
+  await Promise.all(marketableApps.map(async (appDef) => {
+    const audit = await auditSEO(appDef.domain);
+    results[appDef.name] = {
+      domain: appDef.domain,
+      ...audit,
+      marketing: appDef.marketing || null,
+    };
+  }));
+
+  // Overall stats
+  const scores = Object.values(results).map(r => r.score);
+  const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+  const totalIssues = Object.values(results).reduce((sum, r) => sum + r.issues.length, 0);
+
+  cachedSEO = {
+    apps: results,
+    summary: { avgScore, totalIssues, appCount: scores.length },
+    timestamp: new Date().toISOString(),
+  };
+  lastSEOUpdate = now;
+  res.json(cachedSEO);
+}));
 
 // GET /api/marketing/overview — combined marketing overview
-app.get('/api/marketing/overview', (_req, res) => {
-  try {
-    const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
-    const overview = marketableApps.map(appDef => ({
-      name: appDef.name,
-      type: appDef.type,
-      domain: appDef.domain,
-      description: appDef.description,
-      marketing: appDef.marketing || null,
-      hasEnvFile: !!appDef.envFile,
-    }));
-    res.json({ apps: overview });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.get('/api/marketing/overview', asyncRoute((_req, res) => {
+  const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
+  const overview = marketableApps.map(appDef => ({
+    name: appDef.name,
+    type: appDef.type,
+    domain: appDef.domain,
+    description: appDef.description,
+    marketing: appDef.marketing || null,
+    hasEnvFile: !!appDef.envFile,
+  }));
+  res.json({ apps: overview });
+}));
 
 // --- Environment Variable Management ---
 
 // GET /api/apps/:slug/env — read env vars for an app
-app.get('/api/apps/:slug/env', (req, res) => {
-  try {
-    const appDef = findAppBySlug(req.params.slug);
-    if (!appDef) return res.status(404).json({ error: 'App not found' });
-    if (!appDef.envFile) return res.status(400).json({ error: 'No env file configured for this app' });
-    if (!existsSync(appDef.envFile)) return res.status(404).json({ error: 'Env file not found on disk' });
+app.get('/api/apps/:slug/env', asyncRoute((req, res) => {
+  const appDef = findAppBySlug(req.params.slug);
+  if (!appDef) return res.status(404).json({ error: 'App not found' });
+  if (!appDef.envFile) return res.status(400).json({ error: 'No env file configured for this app' });
+  if (!existsSync(appDef.envFile)) return res.status(404).json({ error: 'Env file not found on disk' });
 
-    const vars = parseEnvFile(appDef.envFile);
-    const reveal = req.query.reveal === 'true';
+  const vars = parseEnvFile(appDef.envFile);
+  const reveal = req.query.reveal === 'true';
 
-    const result = vars.map(v => {
-      const sensitive = SENSITIVE_PATTERN.test(v.key);
-      return {
-        key: v.key,
-        value: (!reveal && sensitive) ? maskValue(v.value) : v.value,
-        sensitive,
-        empty: !v.value,
-      };
-    });
+  const result = vars.map(v => {
+    const sensitive = SENSITIVE_PATTERN.test(v.key);
+    return {
+      key: v.key,
+      value: (!reveal && sensitive) ? maskValue(v.value) : v.value,
+      sensitive,
+      empty: !v.value,
+    };
+  });
 
-    const hasSentry = vars.some(v => (v.key === 'SENTRY_DSN' || v.key === 'NEXT_PUBLIC_SENTRY_DSN') && v.value);
-    res.json({ vars: result, hasSentry, appName: appDef.name });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  const hasSentry = vars.some(v => (v.key === 'SENTRY_DSN' || v.key === 'NEXT_PUBLIC_SENTRY_DSN') && v.value);
+  res.json({ vars: result, hasSentry, appName: appDef.name });
+}));
 
 // PUT /api/apps/:slug/env — update env vars
-app.put('/api/apps/:slug/env', (req, res) => {
-  try {
-    const appDef = findAppBySlug(req.params.slug);
-    if (!appDef) return res.status(404).json({ error: 'App not found' });
-    if (!appDef.envFile) return res.status(400).json({ error: 'No env file configured' });
+app.put('/api/apps/:slug/env', asyncRoute((req, res) => {
+  const appDef = findAppBySlug(req.params.slug);
+  if (!appDef) return res.status(404).json({ error: 'App not found' });
+  if (!appDef.envFile) return res.status(400).json({ error: 'No env file configured' });
 
-    const { changes, deletes } = req.body;
-    if (!changes && !deletes) return res.status(400).json({ error: 'No changes provided' });
+  const { changes, deletes } = req.body;
+  if (!changes && !deletes) return res.status(400).json({ error: 'No changes provided' });
 
-    // Backup current file
-    const bakPath = appDef.envFile + '.bak';
-    if (existsSync(appDef.envFile)) {
-      copyFileSync(appDef.envFile, bakPath);
-    }
-
-    // Read current vars
-    const vars = parseEnvFile(appDef.envFile);
-    const varMap = new Map(vars.map(v => [v.key, v.value]));
-
-    // Apply changes
-    if (changes) {
-      for (const [key, value] of Object.entries(changes)) {
-        const oldValue = varMap.get(key);
-        varMap.set(key, value);
-        console.log(`[ENV] ${appDef.name}: ${key} ${oldValue !== undefined ? 'updated' : 'added'}`);
-      }
-    }
-
-    // Apply deletes
-    if (deletes) {
-      for (const key of deletes) {
-        if (varMap.has(key)) {
-          varMap.delete(key);
-          console.log(`[ENV] ${appDef.name}: ${key} deleted`);
-        }
-      }
-    }
-
-    // Write updated file
-    const newVars = Array.from(varMap.entries()).map(([key, value]) => ({ key, value }));
-    writeFileSync(appDef.envFile, serializeEnvVars(newVars), 'utf8');
-
-    res.json({ ok: true, message: `Updated ${appDef.name} env file` });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  // Backup current file
+  const bakPath = appDef.envFile + '.bak';
+  if (existsSync(appDef.envFile)) {
+    copyFileSync(appDef.envFile, bakPath);
   }
-});
+
+  // Read current vars
+  const vars = parseEnvFile(appDef.envFile);
+  const varMap = new Map(vars.map(v => [v.key, v.value]));
+
+  // Apply changes
+  if (changes) {
+    for (const [key, value] of Object.entries(changes)) {
+      const oldValue = varMap.get(key);
+      varMap.set(key, value);
+      console.log(`[ENV] ${appDef.name}: ${key} ${oldValue !== undefined ? 'updated' : 'added'}`);
+    }
+  }
+
+  // Apply deletes
+  if (deletes) {
+    for (const key of deletes) {
+      if (varMap.has(key)) {
+        varMap.delete(key);
+        console.log(`[ENV] ${appDef.name}: ${key} deleted`);
+      }
+    }
+  }
+
+  // Write updated file
+  const newVars = Array.from(varMap.entries()).map(([key, value]) => ({ key, value }));
+  writeFileSync(appDef.envFile, serializeEnvVars(newVars), 'utf8');
+
+  res.json({ ok: true, message: `Updated ${appDef.name} env file` });
+}));
 
 // POST /api/apps/:slug/recreate — recreate container with new env
 app.post('/api/apps/:slug/recreate', (req, res) => {
@@ -1252,78 +1189,70 @@ async function validateKey(type, value) {
 
 const VALIDATABLE_KEYS = ['STRIPE_SECRET_KEY', 'ANTHROPIC_API_KEY', 'RESEND_API_KEY', 'REPLICATE_API_TOKEN'];
 
-app.get('/api/env/health', async (req, res) => {
-  try {
-    const now = Date.now();
-    const force = req.query.force === 'true';
-    if (!force && cachedKeyHealth && (now - lastKeyHealthUpdate) < KEY_HEALTH_TTL) {
-      return res.json(cachedKeyHealth);
-    }
-
-    const results = {};
-    const appsWithEnv = config.apps.filter(a => a.envFile && existsSync(a.envFile));
-
-    // Deduplicate keys: validate each unique key+value only once to avoid rate limiting
-    const uniqueKeys = new Map(); // "type::value" -> { type, value, apps: [{name, key}] }
-    for (const appDef of appsWithEnv) {
-      const vars = parseEnvFile(appDef.envFile);
-      for (const v of vars) {
-        if (VALIDATABLE_KEYS.includes(v.key) && v.value) {
-          const dedupeKey = `${v.key}::${v.value}`;
-          if (!uniqueKeys.has(dedupeKey)) {
-            uniqueKeys.set(dedupeKey, { type: v.key, value: v.value, apps: [] });
-          }
-          uniqueKeys.get(dedupeKey).apps.push({ name: appDef.name, key: v.key });
-        }
-      }
-    }
-
-    // Validate each unique key once
-    for (const [, entry] of uniqueKeys) {
-      const status = await validateKey(entry.type, entry.value);
-      if (status) {
-        for (const app of entry.apps) {
-          if (!results[app.name]) results[app.name] = {};
-          results[app.name][app.key] = { status, maskedValue: maskValue(entry.value) };
-        }
-      }
-    }
-
-    cachedKeyHealth = { results, timestamp: new Date().toISOString() };
-    lastKeyHealthUpdate = now;
-    res.json(cachedKeyHealth);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.get('/api/env/health', asyncRoute(async (req, res) => {
+  const now = Date.now();
+  const force = req.query.force === 'true';
+  if (!force && cachedKeyHealth && (now - lastKeyHealthUpdate) < KEY_HEALTH_TTL) {
+    return res.json(cachedKeyHealth);
   }
-});
+
+  const results = {};
+  const appsWithEnv = config.apps.filter(a => a.envFile && existsSync(a.envFile));
+
+  // Deduplicate keys: validate each unique key+value only once to avoid rate limiting
+  const uniqueKeys = new Map(); // "type::value" -> { type, value, apps: [{name, key}] }
+  for (const appDef of appsWithEnv) {
+    const vars = parseEnvFile(appDef.envFile);
+    for (const v of vars) {
+      if (VALIDATABLE_KEYS.includes(v.key) && v.value) {
+        const dedupeKey = `${v.key}::${v.value}`;
+        if (!uniqueKeys.has(dedupeKey)) {
+          uniqueKeys.set(dedupeKey, { type: v.key, value: v.value, apps: [] });
+        }
+        uniqueKeys.get(dedupeKey).apps.push({ name: appDef.name, key: v.key });
+      }
+    }
+  }
+
+  // Validate each unique key once
+  for (const [, entry] of uniqueKeys) {
+    const status = await validateKey(entry.type, entry.value);
+    if (status) {
+      for (const app of entry.apps) {
+        if (!results[app.name]) results[app.name] = {};
+        results[app.name][app.key] = { status, maskedValue: maskValue(entry.value) };
+      }
+    }
+  }
+
+  cachedKeyHealth = { results, timestamp: new Date().toISOString() };
+  lastKeyHealthUpdate = now;
+  res.json(cachedKeyHealth);
+}));
 
 // GET /api/env/shared — detect shared keys across apps
-app.get('/api/env/shared', (_req, res) => {
-  try {
-    const appsWithEnv = config.apps.filter(a => a.envFile && existsSync(a.envFile));
-    // Map: hash -> { key, maskedValue, apps[] }
-    const hashMap = new Map();
+app.get('/api/env/shared', asyncRoute((_req, res) => {
+  const appsWithEnv = config.apps.filter(a => a.envFile && existsSync(a.envFile));
+  // Map: hash -> { key, maskedValue, apps[] }
+  const hashMap = new Map();
 
-    for (const appDef of appsWithEnv) {
-      const vars = parseEnvFile(appDef.envFile);
-      for (const v of vars) {
-        if (!SENSITIVE_PATTERN.test(v.key) || !v.value) continue;
-        const hash = hashValue(v.value, 64);
-        const mapKey = `${v.key}::${hash}`;
-        if (!hashMap.has(mapKey)) {
-          hashMap.set(mapKey, { key: v.key, maskedValue: maskValue(v.value), apps: [] });
-        }
-        hashMap.get(mapKey).apps.push(appDef.name);
+  for (const appDef of appsWithEnv) {
+    const vars = parseEnvFile(appDef.envFile);
+    for (const v of vars) {
+      if (!SENSITIVE_PATTERN.test(v.key) || !v.value) continue;
+      const hash = hashValue(v.value, 64);
+      const mapKey = `${v.key}::${hash}`;
+      if (!hashMap.has(mapKey)) {
+        hashMap.set(mapKey, { key: v.key, maskedValue: maskValue(v.value), apps: [] });
       }
+      hashMap.get(mapKey).apps.push(appDef.name);
     }
-
-    // Only return entries shared by 2+ apps
-    const shared = Array.from(hashMap.values()).filter(e => e.apps.length > 1);
-    res.json({ shared });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
-});
+
+  // Only return entries shared by 2+ apps
+  const shared = Array.from(hashMap.values()).filter(e => e.apps.length > 1);
+  res.json({ shared });
+}));
 
 // --- App Configuration Management ---
 
@@ -1840,71 +1769,67 @@ let cachedRevenue = null;
 let lastRevenueUpdate = 0;
 const REVENUE_TTL = 300_000; // 5 min
 
-app.get('/api/marketing/revenue', async (req, res) => {
-  try {
-    const now = Date.now();
-    const force = req.query.force === 'true';
-    if (!force && cachedRevenue && (now - lastRevenueUpdate) < REVENUE_TTL) {
-      return res.json(cachedRevenue);
-    }
-
-    const { keys, appKeys } = getStripeKeys();
-    const results = {};
-    let totalMRR = 0, totalRevenue30d = 0, totalBalance = 0;
-
-    // Deduplicate: fetch each unique key once
-    const keyResults = new Map();
-    for (const [key, appNames] of keys) {
-      const data = await fetchStripeData(key);
-      keyResults.set(key, data);
-    }
-
-    // Map results to apps
-    for (const [appName, key] of appKeys) {
-      const data = keyResults.get(key);
-      if (!data) continue;
-      const appsWithKey = keys.get(key);
-      // For shared keys, show full data but mark as shared
-      results[appName] = {
-        ...data,
-        shared: appsWithKey.length > 1,
-        sharedWith: appsWithKey.filter(n => n !== appName),
-      };
-      // Only count revenue once per unique key (attribute to first app)
-      if (appsWithKey[0] === appName) {
-        totalMRR += data.mrr || 0;
-        totalRevenue30d += data.revenue30d || 0;
-        totalBalance += data.balance || 0;
-      }
-    }
-
-    cachedRevenue = {
-      apps: results,
-      totals: {
-        mrr: totalMRR,
-        revenue30d: totalRevenue30d,
-        balance: totalBalance,
-        currency: 'eur',
-      },
-      timestamp: new Date().toISOString(),
-    };
-    lastRevenueUpdate = now;
-
-    // Store daily snapshot
-    const today = todayString();
-    try {
-      upsertMetric.run('_total', today, 'mrr', totalMRR / 100, null);
-      upsertMetric.run('_total', today, 'revenue_30d', totalRevenue30d / 100, null);
-      for (const [appName, data] of Object.entries(results)) {
-        if (data.mrr != null) upsertMetric.run(slugify(appName), today, 'mrr', data.mrr / 100, null);
-      }
-    } catch {}
-
-    res.json(cachedRevenue);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.get('/api/marketing/revenue', asyncRoute(async (req, res) => {
+  const now = Date.now();
+  const force = req.query.force === 'true';
+  if (!force && cachedRevenue && (now - lastRevenueUpdate) < REVENUE_TTL) {
+    return res.json(cachedRevenue);
   }
-});
+
+  const { keys, appKeys } = getStripeKeys();
+  const results = {};
+  let totalMRR = 0, totalRevenue30d = 0, totalBalance = 0;
+
+  // Deduplicate: fetch each unique key once
+  const keyResults = new Map();
+  for (const [key, appNames] of keys) {
+    const data = await fetchStripeData(key);
+    keyResults.set(key, data);
+  }
+
+  // Map results to apps
+  for (const [appName, key] of appKeys) {
+    const data = keyResults.get(key);
+    if (!data) continue;
+    const appsWithKey = keys.get(key);
+    // For shared keys, show full data but mark as shared
+    results[appName] = {
+      ...data,
+      shared: appsWithKey.length > 1,
+      sharedWith: appsWithKey.filter(n => n !== appName),
+    };
+    // Only count revenue once per unique key (attribute to first app)
+    if (appsWithKey[0] === appName) {
+      totalMRR += data.mrr || 0;
+      totalRevenue30d += data.revenue30d || 0;
+      totalBalance += data.balance || 0;
+    }
+  }
+
+  cachedRevenue = {
+    apps: results,
+    totals: {
+      mrr: totalMRR,
+      revenue30d: totalRevenue30d,
+      balance: totalBalance,
+      currency: 'eur',
+    },
+    timestamp: new Date().toISOString(),
+  };
+  lastRevenueUpdate = now;
+
+  // Store daily snapshot
+  const today = todayString();
+  try {
+    upsertMetric.run('_total', today, 'mrr', totalMRR / 100, null);
+    upsertMetric.run('_total', today, 'revenue_30d', totalRevenue30d / 100, null);
+    for (const [appName, data] of Object.entries(results)) {
+      if (data.mrr != null) upsertMetric.run(slugify(appName), today, 'mrr', data.mrr / 100, null);
+    }
+  } catch {}
+
+  res.json(cachedRevenue);
+}));
 
 // --- Plausible Analytics ---
 
@@ -1947,132 +1872,120 @@ let cachedAnalytics = null;
 let lastAnalyticsUpdate = 0;
 const ANALYTICS_TTL = 300_000; // 5 min
 
-app.get('/api/marketing/analytics', async (req, res) => {
-  try {
-    const now = Date.now();
-    const force = req.query.force === 'true';
-    if (!force && cachedAnalytics && (now - lastAnalyticsUpdate) < ANALYTICS_TTL) {
-      return res.json(cachedAnalytics);
-    }
-
-    const trackableApps = config.apps.filter(a =>
-      (a.type === 'saas' || a.type === 'tool' || a.type === 'static') && a.domain
-    );
-
-    const results = {};
-    let totalVisitors = 0, totalPageviews = 0, totalRealtime = 0;
-
-    await Promise.all(trackableApps.map(async (appDef) => {
-      const stats = await fetchPlausibleStats(appDef.domain);
-      results[appDef.name] = { domain: appDef.domain, ...stats };
-      totalVisitors += stats.visitors || 0;
-      totalPageviews += stats.pageviews || 0;
-      totalRealtime += stats.realtime || 0;
-    }));
-
-    cachedAnalytics = {
-      apps: results,
-      totals: { visitors: totalVisitors, pageviews: totalPageviews, realtime: totalRealtime },
-      timestamp: new Date().toISOString(),
-    };
-    lastAnalyticsUpdate = now;
-
-    // Store daily snapshot
-    const today = todayString();
-    try {
-      upsertMetric.run('_total', today, 'visitors', totalVisitors, null);
-      upsertMetric.run('_total', today, 'pageviews', totalPageviews, null);
-      for (const [appName, data] of Object.entries(results)) {
-        if (data.visitors != null) upsertMetric.run(slugify(appName), today, 'visitors', data.visitors, null);
-      }
-    } catch {}
-
-    res.json(cachedAnalytics);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.get('/api/marketing/analytics', asyncRoute(async (req, res) => {
+  const now = Date.now();
+  const force = req.query.force === 'true';
+  if (!force && cachedAnalytics && (now - lastAnalyticsUpdate) < ANALYTICS_TTL) {
+    return res.json(cachedAnalytics);
   }
-});
+
+  const trackableApps = config.apps.filter(a =>
+    (a.type === 'saas' || a.type === 'tool' || a.type === 'static') && a.domain
+  );
+
+  const results = {};
+  let totalVisitors = 0, totalPageviews = 0, totalRealtime = 0;
+
+  await Promise.all(trackableApps.map(async (appDef) => {
+    const stats = await fetchPlausibleStats(appDef.domain);
+    results[appDef.name] = { domain: appDef.domain, ...stats };
+    totalVisitors += stats.visitors || 0;
+    totalPageviews += stats.pageviews || 0;
+    totalRealtime += stats.realtime || 0;
+  }));
+
+  cachedAnalytics = {
+    apps: results,
+    totals: { visitors: totalVisitors, pageviews: totalPageviews, realtime: totalRealtime },
+    timestamp: new Date().toISOString(),
+  };
+  lastAnalyticsUpdate = now;
+
+  // Store daily snapshot
+  const today = todayString();
+  try {
+    upsertMetric.run('_total', today, 'visitors', totalVisitors, null);
+    upsertMetric.run('_total', today, 'pageviews', totalPageviews, null);
+    for (const [appName, data] of Object.entries(results)) {
+      if (data.visitors != null) upsertMetric.run(slugify(appName), today, 'visitors', data.visitors, null);
+    }
+  } catch {}
+
+  res.json(cachedAnalytics);
+}));
 
 // GET /api/marketing/trends — historical metric data from SQLite
-app.get('/api/marketing/trends', (req, res) => {
-  try {
-    const days = parseInt(req.query.days) || 30;
-    const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+app.get('/api/marketing/trends', asyncRoute((req, res) => {
+  const days = parseInt(req.query.days) || 30;
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 
-    const rows = db.prepare(`
-      SELECT app_slug, date, metric_type, value
-      FROM metrics_daily
-      WHERE date >= ?
-      ORDER BY date ASC
-    `).all(cutoff);
+  const rows = db.prepare(`
+    SELECT app_slug, date, metric_type, value
+    FROM metrics_daily
+    WHERE date >= ?
+    ORDER BY date ASC
+  `).all(cutoff);
 
-    // Group by metric type
-    const grouped = {};
-    for (const row of rows) {
-      const key = `${row.app_slug}::${row.metric_type}`;
-      if (!grouped[key]) grouped[key] = { app: row.app_slug, metric: row.metric_type, data: [] };
-      grouped[key].data.push({ date: row.date, value: row.value });
-    }
-
-    res.json({ trends: Object.values(grouped), days });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  // Group by metric type
+  const grouped = {};
+  for (const row of rows) {
+    const key = `${row.app_slug}::${row.metric_type}`;
+    if (!grouped[key]) grouped[key] = { app: row.app_slug, metric: row.metric_type, data: [] };
+    grouped[key].data.push({ date: row.date, value: row.value });
   }
-});
+
+  res.json({ trends: Object.values(grouped), days });
+}));
 
 // GET /api/marketing/health — portfolio health scores
-app.get('/api/marketing/health', async (req, res) => {
-  try {
-    const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
-    const scores = {};
+app.get('/api/marketing/health', asyncRoute(async (req, res) => {
+  const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
+  const scores = {};
 
-    for (const appDef of marketableApps) {
-      let score = 50; // base
-      const factors = {};
+  for (const appDef of marketableApps) {
+    let score = 50; // base
+    const factors = {};
 
-      // SEO score (from cache)
-      if (cachedSEO?.apps?.[appDef.name]) {
-        const seoScore = cachedSEO.apps[appDef.name].score;
-        factors.seo = seoScore;
-        score += (seoScore - 50) * 0.3; // weight 30%
-      }
-
-      // Revenue (from cache)
-      if (cachedRevenue?.apps?.[appDef.name]) {
-        const rev = cachedRevenue.apps[appDef.name];
-        if (rev.mrr > 0) {
-          factors.mrr = rev.mrr / 100;
-          score += 15; // has revenue = +15
-        }
-        if (rev.activeSubscriptions > 0) {
-          factors.subscriptions = rev.activeSubscriptions;
-          score += 5;
-        }
-      }
-
-      // Analytics (from cache)
-      if (cachedAnalytics?.apps?.[appDef.name]) {
-        const analytics = cachedAnalytics.apps[appDef.name];
-        if (analytics.visitors > 100) score += 10;
-        else if (analytics.visitors > 10) score += 5;
-        factors.visitors = analytics.visitors;
-      }
-
-      scores[appDef.name] = {
-        score: Math.max(0, Math.min(100, Math.round(score))),
-        factors,
-      };
+    // SEO score (from cache)
+    if (cachedSEO?.apps?.[appDef.name]) {
+      const seoScore = cachedSEO.apps[appDef.name].score;
+      factors.seo = seoScore;
+      score += (seoScore - 50) * 0.3; // weight 30%
     }
 
-    const avgScore = Object.values(scores).length > 0
-      ? Math.round(Object.values(scores).reduce((s, v) => s + v.score, 0) / Object.values(scores).length)
-      : 0;
+    // Revenue (from cache)
+    if (cachedRevenue?.apps?.[appDef.name]) {
+      const rev = cachedRevenue.apps[appDef.name];
+      if (rev.mrr > 0) {
+        factors.mrr = rev.mrr / 100;
+        score += 15; // has revenue = +15
+      }
+      if (rev.activeSubscriptions > 0) {
+        factors.subscriptions = rev.activeSubscriptions;
+        score += 5;
+      }
+    }
 
-    res.json({ apps: scores, avgScore, timestamp: new Date().toISOString() });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    // Analytics (from cache)
+    if (cachedAnalytics?.apps?.[appDef.name]) {
+      const analytics = cachedAnalytics.apps[appDef.name];
+      if (analytics.visitors > 100) score += 10;
+      else if (analytics.visitors > 10) score += 5;
+      factors.visitors = analytics.visitors;
+    }
+
+    scores[appDef.name] = {
+      score: Math.max(0, Math.min(100, Math.round(score))),
+      factors,
+    };
   }
-});
+
+  const avgScore = Object.values(scores).length > 0
+    ? Math.round(Object.values(scores).reduce((s, v) => s + v.score, 0) / Object.values(scores).length)
+    : 0;
+
+  res.json({ apps: scores, avgScore, timestamp: new Date().toISOString() });
+}));
 
 // --- Cron: collect data periodically ---
 // Every 6 hours: collect revenue + analytics
@@ -2220,70 +2133,58 @@ async function generateContent(appSlug, contentType, keyword) {
 }
 
 // Content Pipeline endpoints
-app.get('/api/marketing/content', (_req, res) => {
-  try {
-    const { app_slug, status } = _req.query;
-    let where = '1=1';
-    const params = [];
-    if (app_slug) { where += ' AND app_slug = ?'; params.push(app_slug); }
-    if (status) { where += ' AND status = ?'; params.push(status); }
+app.get('/api/marketing/content', asyncRoute((_req, res) => {
+  const { app_slug, status } = _req.query;
+  let where = '1=1';
+  const params = [];
+  if (app_slug) { where += ' AND app_slug = ?'; params.push(app_slug); }
+  if (status) { where += ' AND status = ?'; params.push(status); }
 
-    const items = db.prepare(`SELECT * FROM content_queue WHERE ${where} ORDER BY created_at DESC LIMIT 100`).all(...params);
-    const counts = db.prepare(`SELECT status, COUNT(*) as count FROM content_queue GROUP BY status`).all();
-    const countMap = {};
-    for (const c of counts) countMap[c.status] = c.count;
+  const items = db.prepare(`SELECT * FROM content_queue WHERE ${where} ORDER BY created_at DESC LIMIT 100`).all(...params);
+  const counts = db.prepare(`SELECT status, COUNT(*) as count FROM content_queue GROUP BY status`).all();
+  const countMap = {};
+  for (const c of counts) countMap[c.status] = c.count;
 
-    res.json({ items, counts: countMap });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  res.json({ items, counts: countMap });
+}));
+
+app.post('/api/marketing/content/generate', asyncRoute(async (req, res) => {
+  const { app_slug, content_type, keyword } = req.body;
+  if (!app_slug || !content_type || !keyword) {
+    return res.status(400).json({ error: 'app_slug, content_type, and keyword are required' });
   }
-});
 
-app.post('/api/marketing/content/generate', async (req, res) => {
-  try {
-    const { app_slug, content_type, keyword } = req.body;
-    if (!app_slug || !content_type || !keyword) {
-      return res.status(400).json({ error: 'app_slug, content_type, and keyword are required' });
-    }
+  console.log(`[CONTENT] Generating ${content_type} for ${app_slug} (keyword: ${keyword})`);
+  const { body, tokenCount } = await generateContent(app_slug, content_type, keyword);
+  const title = formatContentTitle(content_type, keyword);
 
-    console.log(`[CONTENT] Generating ${content_type} for ${app_slug} (keyword: ${keyword})`);
-    const { body, tokenCount } = await generateContent(app_slug, content_type, keyword);
-    const title = formatContentTitle(content_type, keyword);
+  const result = db.prepare(`
+    INSERT INTO content_queue (app_slug, content_type, keyword, title, body, token_count)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(app_slug, content_type, keyword, title, body, tokenCount);
 
-    const result = db.prepare(`
-      INSERT INTO content_queue (app_slug, content_type, keyword, title, body, token_count)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(app_slug, content_type, keyword, title, body, tokenCount);
+  console.log(`[CONTENT] Generated id=${result.lastInsertRowid}, tokens=${tokenCount}`);
+  res.json({ ok: true, id: result.lastInsertRowid, body, tokenCount });
+}));
 
-    console.log(`[CONTENT] Generated id=${result.lastInsertRowid}, tokens=${tokenCount}`);
-    res.json({ ok: true, id: result.lastInsertRowid, body, tokenCount });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.patch('/api/marketing/content/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid content ID' });
+
+  const { status, published_at } = req.body;
+  const validStatuses = ['draft', 'approved', 'published', 'rejected'];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
   }
-});
 
-app.patch('/api/marketing/content/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid content ID' });
-
-    const { status, published_at } = req.body;
-    const validStatuses = ['draft', 'approved', 'published', 'rejected'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
-    }
-
-    if (status === 'published' && published_at) {
-      db.prepare('UPDATE content_queue SET status = ?, published_at = ? WHERE id = ?').run(status, published_at, id);
-    } else {
-      db.prepare('UPDATE content_queue SET status = ? WHERE id = ?').run(status, id);
-    }
-
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  if (status === 'published' && published_at) {
+    db.prepare('UPDATE content_queue SET status = ?, published_at = ? WHERE id = ?').run(status, published_at, id);
+  } else {
+    db.prepare('UPDATE content_queue SET status = ? WHERE id = ?').run(status, id);
   }
-});
+
+  res.json({ ok: true });
+}));
 
 // Weekly content generation cron — Sunday 3AM
 cron.schedule('0 3 * * 0', async () => {
@@ -2415,47 +2316,43 @@ async function collectCustomerGraph() {
 }
 
 // Cohort endpoints
-app.get('/api/marketing/cohorts', (_req, res) => {
-  try {
-    const totalUnique = db.prepare('SELECT COUNT(DISTINCT email_hash) as n FROM customer_graph').get().n;
-    const multiApp = db.prepare(`
-      SELECT email_hash, COUNT(DISTINCT app_slug) as app_count, GROUP_CONCAT(DISTINCT app_slug) as apps
-      FROM customer_graph GROUP BY email_hash HAVING app_count >= 2
-    `).all();
+app.get('/api/marketing/cohorts', asyncRoute((_req, res) => {
+  const totalUnique = db.prepare('SELECT COUNT(DISTINCT email_hash) as n FROM customer_graph').get().n;
+  const multiApp = db.prepare(`
+    SELECT email_hash, COUNT(DISTINCT app_slug) as app_count, GROUP_CONCAT(DISTINCT app_slug) as apps
+    FROM customer_graph GROUP BY email_hash HAVING app_count >= 2
+  `).all();
 
-    const singleAppCustomers = totalUnique - multiApp.length;
-    const powerUsers = multiApp.filter(r => r.app_count >= 3).length;
+  const singleAppCustomers = totalUnique - multiApp.length;
+  const powerUsers = multiApp.filter(r => r.app_count >= 3).length;
 
-    // Build overlap matrix
-    const overlapMatrix = {};
-    for (const row of multiApp) {
-      const apps = row.apps.split(',');
-      for (let i = 0; i < apps.length; i++) {
-        for (let j = i + 1; j < apps.length; j++) {
-          if (!overlapMatrix[apps[i]]) overlapMatrix[apps[i]] = {};
-          if (!overlapMatrix[apps[j]]) overlapMatrix[apps[j]] = {};
-          overlapMatrix[apps[i]][apps[j]] = (overlapMatrix[apps[i]][apps[j]] || 0) + 1;
-          overlapMatrix[apps[j]][apps[i]] = (overlapMatrix[apps[j]][apps[i]] || 0) + 1;
-        }
+  // Build overlap matrix
+  const overlapMatrix = {};
+  for (const row of multiApp) {
+    const apps = row.apps.split(',');
+    for (let i = 0; i < apps.length; i++) {
+      for (let j = i + 1; j < apps.length; j++) {
+        if (!overlapMatrix[apps[i]]) overlapMatrix[apps[i]] = {};
+        if (!overlapMatrix[apps[j]]) overlapMatrix[apps[j]] = {};
+        overlapMatrix[apps[i]][apps[j]] = (overlapMatrix[apps[i]][apps[j]] || 0) + 1;
+        overlapMatrix[apps[j]][apps[i]] = (overlapMatrix[apps[j]][apps[i]] || 0) + 1;
       }
     }
-
-    const lastUpdated = db.prepare('SELECT MAX(last_active) as d FROM customer_graph').get()?.d;
-
-    res.json({
-      summary: {
-        totalUniqueCustomers: totalUnique,
-        singleAppCustomers,
-        multiAppCustomers: multiApp.length,
-        powerUsers,
-        lastUpdated,
-      },
-      overlapMatrix,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
-});
+
+  const lastUpdated = db.prepare('SELECT MAX(last_active) as d FROM customer_graph').get()?.d;
+
+  res.json({
+    summary: {
+      totalUniqueCustomers: totalUnique,
+      singleAppCustomers,
+      multiAppCustomers: multiApp.length,
+      powerUsers,
+      lastUpdated,
+    },
+    overlapMatrix,
+  });
+}));
 
 // Customer graph cron — daily 3:30AM
 cron.schedule('30 3 * * *', async () => {
@@ -2622,106 +2519,86 @@ async function sendEmail(toEmail, subject, htmlBody, appSlug) {
 }
 
 // Email sequence endpoints
-app.get('/api/marketing/emails/sequences', (_req, res) => {
-  try {
-    const sequences = db.prepare('SELECT * FROM email_sequences ORDER BY id').all();
+app.get('/api/marketing/emails/sequences', asyncRoute((_req, res) => {
+  const sequences = db.prepare('SELECT * FROM email_sequences ORDER BY id').all();
 
-    // Batch query: get all queue counts grouped by sequence_id + status (avoids N+1)
-    const queueCounts = db.prepare(
-      'SELECT sequence_id, status, COUNT(*) as n FROM email_queue GROUP BY sequence_id, status'
-    ).all();
-    const countsBySeq = {};
-    for (const row of queueCounts) {
-      if (!countsBySeq[row.sequence_id]) countsBySeq[row.sequence_id] = {};
-      countsBySeq[row.sequence_id][row.status] = row.n;
-    }
-
-    const result = sequences.map(seq => ({
-      ...seq,
-      steps: JSON.parse(seq.steps || '[]'),
-      active: !!seq.active,
-      queuedCount: countsBySeq[seq.id]?.pending || 0,
-      sentCount: countsBySeq[seq.id]?.sent || 0,
-    }));
-    res.json({ sequences: result });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  // Batch query: get all queue counts grouped by sequence_id + status (avoids N+1)
+  const queueCounts = db.prepare(
+    'SELECT sequence_id, status, COUNT(*) as n FROM email_queue GROUP BY sequence_id, status'
+  ).all();
+  const countsBySeq = {};
+  for (const row of queueCounts) {
+    if (!countsBySeq[row.sequence_id]) countsBySeq[row.sequence_id] = {};
+    countsBySeq[row.sequence_id][row.status] = row.n;
   }
-});
 
-app.get('/api/marketing/emails/queue', (req, res) => {
-  try {
-    const status = req.query.status || 'pending';
-    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
-    const offset = parseInt(req.query.offset) || 0;
+  const result = sequences.map(seq => ({
+    ...seq,
+    steps: safeJSON(seq.steps, []),
+    active: !!seq.active,
+    queuedCount: countsBySeq[seq.id]?.pending || 0,
+    sentCount: countsBySeq[seq.id]?.sent || 0,
+  }));
+  res.json({ sequences: result });
+}));
 
-    const queue = db.prepare(
-      'SELECT * FROM email_queue WHERE status = ? ORDER BY scheduled_at ASC LIMIT ? OFFSET ?'
-    ).all(status, limit, offset);
+app.get('/api/marketing/emails/queue', asyncRoute((req, res) => {
+  const status = req.query.status || 'pending';
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const offset = parseInt(req.query.offset) || 0;
 
-    const counts = {};
-    for (const row of db.prepare('SELECT status, COUNT(*) as n FROM email_queue GROUP BY status').all()) {
-      counts[row.status] = row.n;
-    }
+  const queue = db.prepare(
+    'SELECT * FROM email_queue WHERE status = ? ORDER BY scheduled_at ASC LIMIT ? OFFSET ?'
+  ).all(status, limit, offset);
 
-    const today = todayString();
-    const dailySentToday = db.prepare(
-      "SELECT COUNT(*) as n FROM email_queue WHERE status='sent' AND sent_at >= ?"
-    ).get(today + 'T00:00:00Z').n;
-
-    res.json({ queue, counts, dailySentToday, dailyLimit: 100 });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  const counts = {};
+  for (const row of db.prepare('SELECT status, COUNT(*) as n FROM email_queue GROUP BY status').all()) {
+    counts[row.status] = row.n;
   }
-});
 
-app.post('/api/marketing/emails/send-test', async (req, res) => {
-  try {
-    const { template_key, app_slug, to_email } = req.body;
-    if (!template_key || !app_slug || !to_email) {
-      return res.status(400).json({ error: 'template_key, app_slug, and to_email are required' });
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to_email)) {
-      return res.status(400).json({ error: 'Invalid email address' });
-    }
+  const today = todayString();
+  const dailySentToday = db.prepare(
+    "SELECT COUNT(*) as n FROM email_queue WHERE status='sent' AND sent_at >= ?"
+  ).get(today + 'T00:00:00Z').n;
 
-    console.log(`[EMAIL] Sending test email to ${to_email} (template: ${template_key}, app: ${app_slug})`);
-    const template = getEmailTemplate(template_key, app_slug);
-    const result = await sendEmail(to_email, template.subject, template.html, app_slug);
-    console.log(`[EMAIL] Test email sent, messageId=${result.id}`);
-    res.json({ ok: true, messageId: result.id });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  res.json({ queue, counts, dailySentToday, dailyLimit: 100 });
+}));
+
+app.post('/api/marketing/emails/send-test', asyncRoute(async (req, res) => {
+  const { template_key, app_slug, to_email } = req.body;
+  if (!template_key || !app_slug || !to_email) {
+    return res.status(400).json({ error: 'template_key, app_slug, and to_email are required' });
   }
-});
-
-app.post('/api/marketing/emails/pause/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid sequence ID' });
-
-    db.prepare('UPDATE email_sequences SET active = 0 WHERE id = ?').run(id);
-    db.prepare("UPDATE email_queue SET status = 'paused' WHERE sequence_id = ? AND status = 'pending'").run(id);
-    console.log(`[EMAIL] Sequence ${id} paused`);
-    res.json({ ok: true, paused: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to_email)) {
+    return res.status(400).json({ error: 'Invalid email address' });
   }
-});
 
-app.post('/api/marketing/emails/resume/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid sequence ID' });
+  console.log(`[EMAIL] Sending test email to ${to_email} (template: ${template_key}, app: ${app_slug})`);
+  const template = getEmailTemplate(template_key, app_slug);
+  const result = await sendEmail(to_email, template.subject, template.html, app_slug);
+  console.log(`[EMAIL] Test email sent, messageId=${result.id}`);
+  res.json({ ok: true, messageId: result.id });
+}));
 
-    db.prepare('UPDATE email_sequences SET active = 1 WHERE id = ?').run(id);
-    db.prepare("UPDATE email_queue SET status = 'pending' WHERE sequence_id = ? AND status = 'paused'").run(id);
-    console.log(`[EMAIL] Sequence ${id} resumed`);
-    res.json({ ok: true, active: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/api/marketing/emails/pause/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid sequence ID' });
+
+  db.prepare('UPDATE email_sequences SET active = 0 WHERE id = ?').run(id);
+  db.prepare("UPDATE email_queue SET status = 'paused' WHERE sequence_id = ? AND status = 'pending'").run(id);
+  console.log(`[EMAIL] Sequence ${id} paused`);
+  res.json({ ok: true, paused: true });
+}));
+
+app.post('/api/marketing/emails/resume/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid sequence ID' });
+
+  db.prepare('UPDATE email_sequences SET active = 1 WHERE id = ?').run(id);
+  db.prepare("UPDATE email_queue SET status = 'pending' WHERE sequence_id = ? AND status = 'paused'").run(id);
+  console.log(`[EMAIL] Sequence ${id} resumed`);
+  res.json({ ok: true, active: true });
+}));
 
 // Process email queue — hourly cron
 cron.schedule('0 * * * *', async () => {
@@ -2886,25 +2763,24 @@ async function collectBriefingContext() {
   return context;
 }
 
-app.get('/api/briefing', async (req, res) => {
-  try {
-    const force = req.query.force === 'true';
-    const now = Date.now();
-    if (!force && cachedBriefing && (now - lastBriefingUpdate) < BRIEFING_TTL) {
-      return res.json(cachedBriefing);
-    }
+app.get('/api/briefing', asyncRoute(async (req, res) => {
+  const force = req.query.force === 'true';
+  const now = Date.now();
+  if (!force && cachedBriefing && (now - lastBriefingUpdate) < BRIEFING_TTL) {
+    return res.json(cachedBriefing);
+  }
 
-    const context = await collectBriefingContext();
-    const anthropicKey = getAnthropicKey();
+  const context = await collectBriefingContext();
+  const anthropicKey = getAnthropicKey();
 
-    if (!anthropicKey) {
-      // No AI key — return raw context as structured briefing
-      cachedBriefing = { type: 'raw', context, generated: new Date().toISOString() };
-      lastBriefingUpdate = now;
-      return res.json(cachedBriefing);
-    }
+  if (!anthropicKey) {
+    // No AI key — return raw context as structured briefing
+    cachedBriefing = { type: 'raw', context, generated: new Date().toISOString() };
+    lastBriefingUpdate = now;
+    return res.json(cachedBriefing);
+  }
 
-    const prompt = `You are an operations briefing officer for a portfolio of 13 web apps running on a single Hetzner VM.
+  const prompt = `You are an operations briefing officer for a portfolio of 13 web apps running on a single Hetzner VM.
 Generate a concise morning briefing based on this operational data:
 
 ${JSON.stringify(context, null, 2)}
@@ -2918,38 +2794,35 @@ Format your response as a brief, scannable report:
 
 Be direct, no fluff. Use markdown formatting. If backups are stale or containers unhealthy, that's priority 1.`;
 
-    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 512,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
+  const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': anthropicKey,
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
 
-    if (!aiRes.ok) {
-      const err = await aiRes.json().catch(() => ({}));
-      throw new Error(err.error?.message || `Anthropic API error ${aiRes.status}`);
-    }
-
-    const aiData = await aiRes.json();
-    const briefingText = aiData.content?.[0]?.text || 'Unable to generate briefing.';
-    const tokens = (aiData.usage?.input_tokens || 0) + (aiData.usage?.output_tokens || 0);
-
-    cachedBriefing = { type: 'ai', briefing: briefingText, context, tokens, generated: new Date().toISOString() };
-    lastBriefingUpdate = now;
-    console.log(`[BRIEFING] Generated (${tokens} tokens)`);
-    res.json(cachedBriefing);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  if (!aiRes.ok) {
+    const err = await aiRes.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Anthropic API error ${aiRes.status}`);
   }
-});
+
+  const aiData = await aiRes.json();
+  const briefingText = aiData.content?.[0]?.text || 'Unable to generate briefing.';
+  const tokens = (aiData.usage?.input_tokens || 0) + (aiData.usage?.output_tokens || 0);
+
+  cachedBriefing = { type: 'ai', briefing: briefingText, context, tokens, generated: new Date().toISOString() };
+  lastBriefingUpdate = now;
+  console.log(`[BRIEFING] Generated (${tokens} tokens)`);
+  res.json(cachedBriefing);
+}));
 
 // === Feature: Command Palette ===
 
@@ -3139,60 +3012,48 @@ cron.schedule('*/2 * * * *', () => {
 });
 
 // Healing API endpoints
-app.get('/api/healing/log', (_req, res) => {
-  try {
-    const limit = parseInt(_req.query.limit) || 50;
-    const logs = db.prepare('SELECT * FROM healing_log ORDER BY timestamp DESC LIMIT ?').all(limit);
-    const pending = db.prepare("SELECT COUNT(*) as n FROM healing_log WHERE result = 'pending'").get().n;
-    res.json({ logs, pending });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.get('/api/healing/log', asyncRoute((_req, res) => {
+  const limit = parseInt(_req.query.limit) || 50;
+  const logs = db.prepare('SELECT * FROM healing_log ORDER BY timestamp DESC LIMIT ?').all(limit);
+  const pending = db.prepare("SELECT COUNT(*) as n FROM healing_log WHERE result = 'pending'").get().n;
+  res.json({ logs, pending });
+}));
 
-app.post('/api/healing/approve/:id', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+app.post('/api/healing/approve/:id', asyncRoute(async (req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
 
-    const entry = db.prepare('SELECT * FROM healing_log WHERE id = ?').get(id);
-    if (!entry) return res.status(404).json({ error: 'Not found' });
-    if (entry.result !== 'pending') return res.status(400).json({ error: 'Not pending' });
+  const entry = db.prepare('SELECT * FROM healing_log WHERE id = ?').get(id);
+  if (!entry) return res.status(404).json({ error: 'Not found' });
+  if (entry.result !== 'pending') return res.status(400).json({ error: 'Not pending' });
 
-    // Find matching playbook and execute
-    const playbook = HEALING_PLAYBOOKS.find(p => p.action === entry.action_taken);
-    if (playbook && playbook.confidence !== 'high') {
-      try {
-        const targets = await playbook.check();
-        const target = targets.find(t => (t.name || 'system') === entry.app_slug);
-        if (target) {
-          const result = await playbook.execute(target);
-          db.prepare('UPDATE healing_log SET result = ?, details = ? WHERE id = ?').run('executed', result, id);
-          return res.json({ ok: true, result });
-        }
-      } catch (err) {
-        db.prepare('UPDATE healing_log SET result = ?, details = ? WHERE id = ?').run('failed', err.message, id);
-        return res.json({ ok: false, error: err.message });
+  // Find matching playbook and execute
+  const playbook = HEALING_PLAYBOOKS.find(p => p.action === entry.action_taken);
+  if (playbook && playbook.confidence !== 'high') {
+    try {
+      const targets = await playbook.check();
+      const target = targets.find(t => (t.name || 'system') === entry.app_slug);
+      if (target) {
+        const result = await playbook.execute(target);
+        db.prepare('UPDATE healing_log SET result = ?, details = ? WHERE id = ?').run('executed', result, id);
+        return res.json({ ok: true, result });
       }
+    } catch (err) {
+      db.prepare('UPDATE healing_log SET result = ?, details = ? WHERE id = ?').run('failed', err.message, id);
+      return res.json({ ok: false, error: err.message });
     }
-
-    db.prepare("UPDATE healing_log SET result = 'dismissed' WHERE id = ?").run(id);
-    res.json({ ok: true, result: 'dismissed' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
-});
 
-app.post('/api/healing/dismiss/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    db.prepare("UPDATE healing_log SET result = 'dismissed' WHERE id = ? AND result = 'pending'").run(id);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  db.prepare("UPDATE healing_log SET result = 'dismissed' WHERE id = ?").run(id);
+  res.json({ ok: true, result: 'dismissed' });
+}));
+
+app.post('/api/healing/dismiss/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  db.prepare("UPDATE healing_log SET result = 'dismissed' WHERE id = ? AND result = 'pending'").run(id);
+  res.json({ ok: true });
+}));
 
 // =============================================
 // Security Manager
@@ -3470,45 +3331,35 @@ async function runSecurityScan(category = 'full') {
 
 // --- Security Manager API ---
 
-app.get('/api/security/scan', async (req, res) => {
-  try {
-    const result = await runSecurityScan(req.query.category || 'full');
-    res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.get('/api/security/scan', asyncRoute(async (req, res) => {
+  const result = await runSecurityScan(req.query.category || 'full');
+  res.json(result);
+}));
 
-app.get('/api/security/status', (_req, res) => {
-  try {
-    const scan = db.prepare('SELECT * FROM security_scans ORDER BY timestamp DESC LIMIT 1').get();
-    if (!scan) return res.json({ status: 'no_scan', message: 'No security scan has been run yet' });
-    const findings = db.prepare(`SELECT * FROM security_findings WHERE scan_id = ? ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`).all(scan.id);
-    res.json({ ...scan, category_scores: JSON.parse(scan.category_scores || '{}'), findings });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.get('/api/security/status', asyncRoute((_req, res) => {
+  const scan = db.prepare('SELECT * FROM security_scans ORDER BY timestamp DESC LIMIT 1').get();
+  if (!scan) return res.json({ status: 'no_scan', message: 'No security scan has been run yet' });
+  const findings = db.prepare(`SELECT * FROM security_findings WHERE scan_id = ? ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`).all(scan.id);
+  res.json({ ...scan, category_scores: safeJSON(scan.category_scores, {}), findings });
+}));
 
-app.get('/api/security/history', (req, res) => {
-  try {
-    const limit = parseInt(req.query.limit) || 30;
-    const scans = db.prepare('SELECT * FROM security_scans ORDER BY timestamp DESC LIMIT ?').all(limit);
-    res.json(scans.map(s => ({ ...s, category_scores: JSON.parse(s.category_scores || '{}') })));
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.get('/api/security/history', asyncRoute((req, res) => {
+  const limit = parseInt(req.query.limit) || 30;
+  const scans = db.prepare('SELECT * FROM security_scans ORDER BY timestamp DESC LIMIT ?').all(limit);
+  res.json(scans.map(s => ({ ...s, category_scores: safeJSON(s.category_scores, {}) })));
+}));
 
-app.get('/api/security/app/:slug', (req, res) => {
-  try {
-    const scan = db.prepare('SELECT * FROM security_scans ORDER BY timestamp DESC LIMIT 1').get();
-    if (!scan) return res.json({ findings: [] });
-    const findings = db.prepare('SELECT * FROM security_findings WHERE scan_id = ? AND app_slug = ?').all(scan.id, req.params.slug);
-    res.json({ scan_id: scan.id, app_slug: req.params.slug, findings });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.get('/api/security/app/:slug', asyncRoute((req, res) => {
+  const scan = db.prepare('SELECT * FROM security_scans ORDER BY timestamp DESC LIMIT 1').get();
+  if (!scan) return res.json({ findings: [] });
+  const findings = db.prepare('SELECT * FROM security_findings WHERE scan_id = ? AND app_slug = ?').all(scan.id, req.params.slug);
+  res.json({ scan_id: scan.id, app_slug: req.params.slug, findings });
+}));
 
-app.post('/api/security/dismiss/:id', (req, res) => {
-  try {
-    db.prepare("UPDATE security_findings SET status = 'dismissed', dismissed_at = datetime('now') WHERE id = ?").run(parseInt(req.params.id));
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.post('/api/security/dismiss/:id', asyncRoute((req, res) => {
+  db.prepare("UPDATE security_findings SET status = 'dismissed', dismissed_at = datetime('now') WHERE id = ?").run(parseId(req.params.id));
+  res.json({ ok: true });
+}));
 
 // Security crons
 cron.schedule('0 1 * * *', async () => {
@@ -3556,147 +3407,131 @@ app.options('/api/crosspromo/:id/:action', (_req, res) => {
 
 // --- Authenticated endpoints (admin manages campaigns) ---
 
-app.get('/api/marketing/crosspromo', (_req, res) => {
-  try {
-    const campaigns = db.prepare('SELECT * FROM crosspromo_campaigns ORDER BY created_at DESC').all();
-    campaigns.forEach(c => { if (c.banner_data) c.banner_data = JSON.parse(c.banner_data); });
-    res.json(campaigns);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.get('/api/marketing/crosspromo', asyncRoute((_req, res) => {
+  const campaigns = db.prepare('SELECT * FROM crosspromo_campaigns ORDER BY created_at DESC').all();
+  campaigns.forEach(c => { c.banner_data = safeJSON(c.banner_data); });
+  res.json(campaigns);
+}));
+
+app.post('/api/marketing/crosspromo', asyncRoute(async (req, res) => {
+  const { name, source_app, target_app, headline, cta_text } = req.body;
+  if (!name || !source_app || !target_app) {
+    return res.status(400).json({ error: 'name, source_app, target_app required' });
   }
-});
+  if (source_app === target_app) {
+    return res.status(400).json({ error: 'source_app and target_app must be different' });
+  }
 
-app.post('/api/marketing/crosspromo', async (req, res) => {
+  const sourceApp = findAppBySlug(source_app);
+  const targetApp = findAppBySlug(target_app);
+  if (!sourceApp || !targetApp) {
+    return res.status(400).json({ error: 'Unknown app slug' });
+  }
+
+  const campaignHeadline = headline || targetApp.marketing?.tagline || targetApp.description || targetApp.name;
+  const campaignCta = cta_text || 'Learn More';
+
+  // Insert campaign, then update with UTM-enriched URL (needs campaign ID)
+  const insertCampaign = db.transaction(() => {
+    const result = db.prepare(`
+      INSERT INTO crosspromo_campaigns (name, source_app, target_app, headline, cta_text, cta_url, status)
+      VALUES (?, ?, ?, ?, ?, ?, 'draft')
+    `).run(name, source_app, target_app, campaignHeadline, campaignCta, 'https://' + targetApp.domain);
+    const campaignId = result.lastInsertRowid;
+    const ctaUrl = `https://${targetApp.domain}?utm_source=${encodeURIComponent(source_app)}&utm_medium=crosspromo&utm_campaign=${campaignId}`;
+    db.prepare('UPDATE crosspromo_campaigns SET cta_url = ? WHERE id = ?').run(ctaUrl, campaignId);
+    return campaignId;
+  });
+  const campaignId = insertCampaign();
+
+  // Try to generate banners via BannerForge
+  let bannerData = null;
   try {
-    const { name, source_app, target_app, headline, cta_text } = req.body;
-    if (!name || !source_app || !target_app) {
-      return res.status(400).json({ error: 'name, source_app, target_app required' });
-    }
-    if (source_app === target_app) {
-      return res.status(400).json({ error: 'source_app and target_app must be different' });
-    }
+    const bannerforgeUrl = getBannerForgeUrl();
+    if (!bannerforgeUrl) throw new Error('BannerForge not configured');
+    const brandColors = ['#1a1a2e', '#e94560', '#0f3460'];
+    const sizes = [
+      { name: 'leaderboard', width: 728, height: 90 },
+      { name: 'medium-rectangle', width: 300, height: 250 },
+      { name: 'square', width: 1080, height: 1080 },
+    ];
 
-    const sourceApp = findAppBySlug(source_app);
-    const targetApp = findAppBySlug(target_app);
-    if (!sourceApp || !targetApp) {
-      return res.status(400).json({ error: 'Unknown app slug' });
-    }
+    const banners = [];
+    for (const size of sizes) {
+      try {
+        const renderResp = await fetch(bannerforgeUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            layout: 'centered-bold',
+            brand: {
+              companyName: targetApp.name,
+              colors: brandColors,
+              tagline: campaignHeadline,
+            },
+            copy: {
+              headline: campaignHeadline,
+              cta: campaignCta,
+            },
+            size: { width: size.width, height: size.height },
+            format: 'png',
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
 
-    const campaignHeadline = headline || targetApp.marketing?.tagline || targetApp.description || targetApp.name;
-    const campaignCta = cta_text || 'Learn More';
-
-    // Insert campaign, then update with UTM-enriched URL (needs campaign ID)
-    const insertCampaign = db.transaction(() => {
-      const result = db.prepare(`
-        INSERT INTO crosspromo_campaigns (name, source_app, target_app, headline, cta_text, cta_url, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'draft')
-      `).run(name, source_app, target_app, campaignHeadline, campaignCta, 'https://' + targetApp.domain);
-      const campaignId = result.lastInsertRowid;
-      const ctaUrl = `https://${targetApp.domain}?utm_source=${encodeURIComponent(source_app)}&utm_medium=crosspromo&utm_campaign=${campaignId}`;
-      db.prepare('UPDATE crosspromo_campaigns SET cta_url = ? WHERE id = ?').run(ctaUrl, campaignId);
-      return campaignId;
-    });
-    const campaignId = insertCampaign();
-
-    // Try to generate banners via BannerForge
-    let bannerData = null;
-    try {
-      const bannerforgeUrl = getBannerForgeUrl();
-      if (!bannerforgeUrl) throw new Error('BannerForge not configured');
-      const brandColors = ['#1a1a2e', '#e94560', '#0f3460'];
-      const sizes = [
-        { name: 'leaderboard', width: 728, height: 90 },
-        { name: 'medium-rectangle', width: 300, height: 250 },
-        { name: 'square', width: 1080, height: 1080 },
-      ];
-
-      const banners = [];
-      for (const size of sizes) {
-        try {
-          const renderResp = await fetch(bannerforgeUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              layout: 'centered-bold',
-              brand: {
-                companyName: targetApp.name,
-                colors: brandColors,
-                tagline: campaignHeadline,
-              },
-              copy: {
-                headline: campaignHeadline,
-                cta: campaignCta,
-              },
-              size: { width: size.width, height: size.height },
-              format: 'png',
-            }),
-            signal: AbortSignal.timeout(15000),
-          });
-
-          if (renderResp.ok) {
-            const renderResult = await renderResp.json();
-            banners.push({ ...size, dataUrl: renderResult.dataUrl || renderResult.url || null });
-          }
-        } catch (renderErr) {
-          console.log(`BannerForge render failed for ${size.name}: ${renderErr.message}`);
+        if (renderResp.ok) {
+          const renderResult = await renderResp.json();
+          banners.push({ ...size, dataUrl: renderResult.dataUrl || renderResult.url || null });
         }
+      } catch (renderErr) {
+        console.log(`BannerForge render failed for ${size.name}: ${renderErr.message}`);
       }
-
-      if (banners.length > 0) {
-        bannerData = JSON.stringify({ sizes: banners });
-      }
-    } catch (bfErr) {
-      console.log(`BannerForge integration unavailable: ${bfErr.message}`);
     }
 
-    // Fallback: generate simple HTML banners if BannerForge didn't work
-    if (!bannerData) {
-      const fallbackBanners = [
-        { name: 'leaderboard', width: 728, height: 90, html: true },
-        { name: 'medium-rectangle', width: 300, height: 250, html: true },
-      ];
-      bannerData = JSON.stringify({ sizes: fallbackBanners, fallback: true });
+    if (banners.length > 0) {
+      bannerData = JSON.stringify({ sizes: banners });
     }
-
-    db.prepare('UPDATE crosspromo_campaigns SET banner_data = ? WHERE id = ?').run(bannerData, campaignId);
-
-    const campaign = db.prepare('SELECT * FROM crosspromo_campaigns WHERE id = ?').get(campaignId);
-    if (campaign.banner_data) campaign.banner_data = JSON.parse(campaign.banner_data);
-    res.json(campaign);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (bfErr) {
+    console.log(`BannerForge integration unavailable: ${bfErr.message}`);
   }
-});
 
-app.patch('/api/marketing/crosspromo/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    const { status } = req.body;
-    if (!['draft', 'active', 'paused', 'ended'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
-    }
-    db.prepare('UPDATE crosspromo_campaigns SET status = ?, updated_at = datetime(\'now\') WHERE id = ?').run(status, id);
-    const campaign = db.prepare('SELECT * FROM crosspromo_campaigns WHERE id = ?').get(id);
-    if (!campaign) return res.status(404).json({ error: 'Not found' });
-    if (campaign.banner_data) campaign.banner_data = JSON.parse(campaign.banner_data);
-    res.json(campaign);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  // Fallback: generate simple HTML banners if BannerForge didn't work
+  if (!bannerData) {
+    const fallbackBanners = [
+      { name: 'leaderboard', width: 728, height: 90, html: true },
+      { name: 'medium-rectangle', width: 300, height: 250, html: true },
+    ];
+    bannerData = JSON.stringify({ sizes: fallbackBanners, fallback: true });
   }
-});
 
-app.delete('/api/marketing/crosspromo/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    const result = db.prepare('DELETE FROM crosspromo_campaigns WHERE id = ?').run(id);
-    if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  db.prepare('UPDATE crosspromo_campaigns SET banner_data = ? WHERE id = ?').run(bannerData, campaignId);
+
+  const campaign = db.prepare('SELECT * FROM crosspromo_campaigns WHERE id = ?').get(campaignId);
+  campaign.banner_data = safeJSON(campaign.banner_data);
+  res.json(campaign);
+}));
+
+app.patch('/api/marketing/crosspromo/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  const { status } = req.body;
+  if (!['draft', 'active', 'paused', 'ended'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
   }
-});
+  db.prepare('UPDATE crosspromo_campaigns SET status = ?, updated_at = datetime(\'now\') WHERE id = ?').run(status, id);
+  const campaign = db.prepare('SELECT * FROM crosspromo_campaigns WHERE id = ?').get(id);
+  if (!campaign) return res.status(404).json({ error: 'Not found' });
+  campaign.banner_data = safeJSON(campaign.banner_data);
+  res.json(campaign);
+}));
+
+app.delete('/api/marketing/crosspromo/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  const result = db.prepare('DELETE FROM crosspromo_campaigns WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+}));
 
 // --- Public endpoints (no auth — served to external sites) ---
 
@@ -3731,38 +3566,30 @@ app.get('/api/crosspromo/embed.js', (_req, res) => {
 })();`);
 });
 
-app.get('/api/crosspromo/banner', (req, res) => {
-  try {
-    setCORS(res);
-    const app = req.query.app;
-    if (!app) return res.status(400).json({ error: 'app query param required' });
-    // Find an active campaign where this app is the source (showing the banner)
-    const campaign = db.prepare(
-      'SELECT id, headline, cta_text, cta_url, banner_data FROM crosspromo_campaigns WHERE source_app = ? AND status = \'active\' ORDER BY created_at DESC LIMIT 1'
-    ).get(app);
-    if (!campaign) return res.json(null);
-    if (campaign.banner_data) campaign.banner_data = JSON.parse(campaign.banner_data);
-    res.json(campaign);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.get('/api/crosspromo/banner', asyncRoute((req, res) => {
+  setCORS(res);
+  const app = req.query.app;
+  if (!app) return res.status(400).json({ error: 'app query param required' });
+  // Find an active campaign where this app is the source (showing the banner)
+  const campaign = db.prepare(
+    'SELECT id, headline, cta_text, cta_url, banner_data FROM crosspromo_campaigns WHERE source_app = ? AND status = \'active\' ORDER BY created_at DESC LIMIT 1'
+  ).get(app);
+  if (!campaign) return res.json(null);
+  campaign.banner_data = safeJSON(campaign.banner_data);
+  res.json(campaign);
+}));
 
-app.post('/api/crosspromo/:id/view', (req, res) => {
-  try {
-    setCORS(res);
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    db.prepare('UPDATE crosspromo_campaigns SET views = views + 1 WHERE id = ?').run(id);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/api/crosspromo/:id/view', asyncRoute((req, res) => {
+  setCORS(res);
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  db.prepare('UPDATE crosspromo_campaigns SET views = views + 1 WHERE id = ?').run(id);
+  res.json({ ok: true });
+}));
 
 app.get('/api/crosspromo/:id/click', (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseId(req.params.id);
     if (isNaN(id)) return res.redirect('/');
     const campaign = db.prepare('SELECT cta_url FROM crosspromo_campaigns WHERE id = ?').get(id);
     if (!campaign) return res.redirect('/');
@@ -3789,241 +3616,204 @@ app.options('/api/banners/:id/:action', (_req, res) => {
 
 // --- Authenticated banner endpoints ---
 
-app.get('/api/marketing/banners', (_req, res) => {
-  try {
-    const banners = db.prepare('SELECT * FROM banners ORDER BY created_at DESC').all();
-    const placements = db.prepare('SELECT * FROM banner_placements ORDER BY created_at DESC').all();
-    banners.forEach(b => {
-      if (b.bannerforge_config) try { b.bannerforge_config = JSON.parse(b.bannerforge_config); } catch (_) { b.bannerforge_config = null; }
-      b.placements = placements.filter(p => p.banner_id === b.id);
-      b.total_views = b.placements.reduce((s, p) => s + p.views, 0);
-      b.total_clicks = b.placements.reduce((s, p) => s + p.clicks, 0);
-    });
-    res.json(banners);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.get('/api/marketing/banners', asyncRoute((_req, res) => {
+  const banners = db.prepare('SELECT * FROM banners ORDER BY created_at DESC').all();
+  const placements = db.prepare('SELECT * FROM banner_placements ORDER BY created_at DESC').all();
+  banners.forEach(b => {
+    b.bannerforge_config = safeJSON(b.bannerforge_config);
+    b.placements = placements.filter(p => p.banner_id === b.id);
+    b.total_views = b.placements.reduce((s, p) => s + p.views, 0);
+    b.total_clicks = b.placements.reduce((s, p) => s + p.clicks, 0);
+  });
+  res.json(banners);
+}));
 
-app.post('/api/marketing/banners', async (req, res) => {
-  try {
-    const { name, type, width, height, click_url, tags, content: rawContent, bannerforge_config } = req.body;
-    if (!name) return res.status(400).json({ error: 'name required' });
+app.post('/api/marketing/banners', asyncRoute(async (req, res) => {
+  const { name, type, width, height, click_url, tags, content: rawContent, bannerforge_config } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
 
-    const bannerType = type || 'bannerforge';
-    const w = Math.max(1, Math.min(10000, parseInt(width) || 728));
-    const h = Math.max(1, Math.min(10000, parseInt(height) || 90));
-    let content = rawContent || '';
-    let bfConfig = null;
+  const bannerType = type || 'bannerforge';
+  const w = Math.max(1, Math.min(10000, parseInt(width) || 728));
+  const h = Math.max(1, Math.min(10000, parseInt(height) || 90));
+  let content = rawContent || '';
+  let bfConfig = null;
 
-    if (bannerType === 'bannerforge') {
-      // Generate via BannerForge API
-      const bfc = bannerforge_config || {};
-      bfConfig = JSON.stringify(bfc);
-      const bfUrl = getBannerForgeUrl();
-      if (!bfUrl) return res.status(400).json({ error: 'BannerForge not configured. Set BANNERFORGE_URL or add BannerForge to your apps.' });
-      try {
-        const renderResp = await fetch(bfUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            layout: bfc.layout || 'centered-bold',
-            brand: bfc.brand || { companyName: name, colors: ['#1a1a2e', '#e94560', '#0f3460'] },
-            copy: bfc.copy || { headline: name, cta: 'Learn More' },
-            size: { width: w, height: h },
-            format: 'png',
-          }),
-          signal: AbortSignal.timeout(15000),
-        });
-        if (renderResp.ok) {
-          const result = await renderResp.json();
-          content = result.dataUrl || result.url || '';
-        }
-      } catch (bfErr) {
-        console.log(`BannerForge render failed: ${bfErr.message}`);
-      }
-      // Fallback to placeholder HTML
-      if (!content) {
-        const colors = bfc.brand?.colors || ['#1a1a2e', '#e94560'];
-        const headline = bfc.copy?.headline || name;
-        const cta = bfc.copy?.cta || 'Learn More';
-        content = `<div style="width:${w}px;height:${h}px;background:linear-gradient(135deg,${colors[0]},${colors[1] || colors[0]});display:flex;align-items:center;justify-content:center;color:#fff;font-family:system-ui;border-radius:8px;padding:12px"><strong>${headline}</strong>&nbsp;&mdash;&nbsp;${cta}</div>`;
-      }
-    } else if (bannerType === 'image_url') {
-      if (!content) return res.status(400).json({ error: 'content (image URL) required for image_url type' });
-    } else if (bannerType === 'custom_html') {
-      if (!content) return res.status(400).json({ error: 'content (HTML) required for custom_html type' });
-    } else {
-      return res.status(400).json({ error: 'type must be bannerforge, image_url, or custom_html' });
-    }
-
-    const result = db.prepare(`
-      INSERT INTO banners (name, type, width, height, content, bannerforge_config, click_url, tags)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(name, bannerType, w, h, content, bfConfig, click_url || null, tags || null);
-
-    const banner = db.prepare('SELECT * FROM banners WHERE id = ?').get(result.lastInsertRowid);
-    if (banner.bannerforge_config) try { banner.bannerforge_config = JSON.parse(banner.bannerforge_config); } catch (_) { banner.bannerforge_config = null; }
-    banner.placements = [];
-    banner.total_views = 0;
-    banner.total_clicks = 0;
-    res.json(banner);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/marketing/banners/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    const banner = db.prepare('SELECT * FROM banners WHERE id = ?').get(id);
-    if (!banner) return res.status(404).json({ error: 'Not found' });
-
-    const { name, click_url, tags } = req.body;
-    db.prepare(`UPDATE banners SET name = ?, click_url = ?, tags = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(name || banner.name, click_url !== undefined ? click_url : banner.click_url, tags !== undefined ? tags : banner.tags, id);
-    const updated = db.prepare('SELECT * FROM banners WHERE id = ?').get(id);
-    if (updated.bannerforge_config) try { updated.bannerforge_config = JSON.parse(updated.bannerforge_config); } catch (_) { updated.bannerforge_config = null; }
-    res.json(updated);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/marketing/banners/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    db.prepare('DELETE FROM banner_placements WHERE banner_id = ?').run(id);
-    const result = db.prepare('DELETE FROM banners WHERE id = ?').run(id);
-    if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/marketing/banners/:id/regenerate', async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    const banner = db.prepare('SELECT * FROM banners WHERE id = ?').get(id);
-    if (!banner) return res.status(404).json({ error: 'Not found' });
-    if (banner.type !== 'bannerforge') return res.status(400).json({ error: 'Only BannerForge banners can be regenerated' });
-
-    let bfc = {};
-    if (banner.bannerforge_config) try { bfc = JSON.parse(banner.bannerforge_config); } catch (_) {}
+  if (bannerType === 'bannerforge') {
+    // Generate via BannerForge API
+    const bfc = bannerforge_config || {};
+    bfConfig = JSON.stringify(bfc);
     const bfUrl = getBannerForgeUrl();
     if (!bfUrl) return res.status(400).json({ error: 'BannerForge not configured. Set BANNERFORGE_URL or add BannerForge to your apps.' });
-    const renderResp = await fetch(bfUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        layout: bfc.layout || 'centered-bold',
-        brand: bfc.brand || { companyName: banner.name, colors: ['#1a1a2e', '#e94560', '#0f3460'] },
-        copy: bfc.copy || { headline: banner.name, cta: 'Learn More' },
-        size: { width: banner.width, height: banner.height },
-        format: 'png',
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (!renderResp.ok) throw new Error('BannerForge render failed');
-    const result = await renderResp.json();
-    const content = result.dataUrl || result.url || '';
-    if (!content) throw new Error('BannerForge returned empty result');
-
-    db.prepare(`UPDATE banners SET content = ?, updated_at = datetime('now') WHERE id = ?`).run(content, id);
-    const updated = db.prepare('SELECT * FROM banners WHERE id = ?').get(id);
-    if (updated.bannerforge_config) try { updated.bannerforge_config = JSON.parse(updated.bannerforge_config); } catch (_) { updated.bannerforge_config = null; }
-    res.json(updated);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    try {
+      const renderResp = await fetch(bfUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          layout: bfc.layout || 'centered-bold',
+          brand: bfc.brand || { companyName: name, colors: ['#1a1a2e', '#e94560', '#0f3460'] },
+          copy: bfc.copy || { headline: name, cta: 'Learn More' },
+          size: { width: w, height: h },
+          format: 'png',
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (renderResp.ok) {
+        const result = await renderResp.json();
+        content = result.dataUrl || result.url || '';
+      }
+    } catch (bfErr) {
+      console.log(`BannerForge render failed: ${bfErr.message}`);
+    }
+    // Fallback to placeholder HTML
+    if (!content) {
+      const colors = bfc.brand?.colors || ['#1a1a2e', '#e94560'];
+      const headline = bfc.copy?.headline || name;
+      const cta = bfc.copy?.cta || 'Learn More';
+      content = `<div style="width:${w}px;height:${h}px;background:linear-gradient(135deg,${colors[0]},${colors[1] || colors[0]});display:flex;align-items:center;justify-content:center;color:#fff;font-family:system-ui;border-radius:8px;padding:12px"><strong>${headline}</strong>&nbsp;&mdash;&nbsp;${cta}</div>`;
+    }
+  } else if (bannerType === 'image_url') {
+    if (!content) return res.status(400).json({ error: 'content (image URL) required for image_url type' });
+  } else if (bannerType === 'custom_html') {
+    if (!content) return res.status(400).json({ error: 'content (HTML) required for custom_html type' });
+  } else {
+    return res.status(400).json({ error: 'type must be bannerforge, image_url, or custom_html' });
   }
-});
+
+  const result = db.prepare(`
+    INSERT INTO banners (name, type, width, height, content, bannerforge_config, click_url, tags)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(name, bannerType, w, h, content, bfConfig, click_url || null, tags || null);
+
+  const banner = db.prepare('SELECT * FROM banners WHERE id = ?').get(result.lastInsertRowid);
+  banner.bannerforge_config = safeJSON(banner.bannerforge_config);
+  banner.placements = [];
+  banner.total_views = 0;
+  banner.total_clicks = 0;
+  res.json(banner);
+}));
+
+app.put('/api/marketing/banners/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  const banner = db.prepare('SELECT * FROM banners WHERE id = ?').get(id);
+  if (!banner) return res.status(404).json({ error: 'Not found' });
+
+  const { name, click_url, tags } = req.body;
+  db.prepare(`UPDATE banners SET name = ?, click_url = ?, tags = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(name || banner.name, click_url !== undefined ? click_url : banner.click_url, tags !== undefined ? tags : banner.tags, id);
+  const updated = db.prepare('SELECT * FROM banners WHERE id = ?').get(id);
+  updated.bannerforge_config = safeJSON(updated.bannerforge_config);
+  res.json(updated);
+}));
+
+app.delete('/api/marketing/banners/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  db.prepare('DELETE FROM banner_placements WHERE banner_id = ?').run(id);
+  const result = db.prepare('DELETE FROM banners WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+}));
+
+app.post('/api/marketing/banners/:id/regenerate', asyncRoute(async (req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  const banner = db.prepare('SELECT * FROM banners WHERE id = ?').get(id);
+  if (!banner) return res.status(404).json({ error: 'Not found' });
+  if (banner.type !== 'bannerforge') return res.status(400).json({ error: 'Only BannerForge banners can be regenerated' });
+
+  const bfc = safeJSON(banner.bannerforge_config, {});
+  const bfUrl = getBannerForgeUrl();
+  if (!bfUrl) return res.status(400).json({ error: 'BannerForge not configured. Set BANNERFORGE_URL or add BannerForge to your apps.' });
+  const renderResp = await fetch(bfUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      layout: bfc.layout || 'centered-bold',
+      brand: bfc.brand || { companyName: banner.name, colors: ['#1a1a2e', '#e94560', '#0f3460'] },
+      copy: bfc.copy || { headline: banner.name, cta: 'Learn More' },
+      size: { width: banner.width, height: banner.height },
+      format: 'png',
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!renderResp.ok) throw new Error('BannerForge render failed');
+  const result = await renderResp.json();
+  const content = result.dataUrl || result.url || '';
+  if (!content) throw new Error('BannerForge returned empty result');
+
+  db.prepare(`UPDATE banners SET content = ?, updated_at = datetime('now') WHERE id = ?`).run(content, id);
+  const updated = db.prepare('SELECT * FROM banners WHERE id = ?').get(id);
+  updated.bannerforge_config = safeJSON(updated.bannerforge_config);
+  res.json(updated);
+}));
 
 // --- Placement endpoints ---
 
-app.get('/api/marketing/placements', (req, res) => {
-  try {
-    const appFilter = req.query.app;
-    let placements;
-    if (appFilter) {
-      placements = db.prepare('SELECT bp.*, b.name as banner_name, b.type as banner_type, b.width, b.height FROM banner_placements bp JOIN banners b ON bp.banner_id = b.id WHERE bp.app_slug = ? ORDER BY bp.priority DESC, bp.created_at DESC').all(appFilter);
-    } else {
-      placements = db.prepare('SELECT bp.*, b.name as banner_name, b.type as banner_type, b.width, b.height FROM banner_placements bp JOIN banners b ON bp.banner_id = b.id ORDER BY bp.priority DESC, bp.created_at DESC').all();
-    }
-    res.json(placements);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.get('/api/marketing/placements', asyncRoute((req, res) => {
+  const appFilter = req.query.app;
+  let placements;
+  if (appFilter) {
+    placements = db.prepare('SELECT bp.*, b.name as banner_name, b.type as banner_type, b.width, b.height FROM banner_placements bp JOIN banners b ON bp.banner_id = b.id WHERE bp.app_slug = ? ORDER BY bp.priority DESC, bp.created_at DESC').all(appFilter);
+  } else {
+    placements = db.prepare('SELECT bp.*, b.name as banner_name, b.type as banner_type, b.width, b.height FROM banner_placements bp JOIN banners b ON bp.banner_id = b.id ORDER BY bp.priority DESC, bp.created_at DESC').all();
   }
-});
+  res.json(placements);
+}));
 
-app.post('/api/marketing/placements', (req, res) => {
-  try {
-    const { banner_id, app_slug, position, weight, click_url, start_date, end_date } = req.body;
-    if (!banner_id || !app_slug) return res.status(400).json({ error: 'banner_id and app_slug required' });
+app.post('/api/marketing/placements', asyncRoute((req, res) => {
+  const { banner_id, app_slug, position, weight, click_url, start_date, end_date } = req.body;
+  if (!banner_id || !app_slug) return res.status(400).json({ error: 'banner_id and app_slug required' });
 
-    const banner = db.prepare('SELECT id FROM banners WHERE id = ?').get(banner_id);
-    if (!banner) return res.status(400).json({ error: 'Banner not found' });
+  const banner = db.prepare('SELECT id FROM banners WHERE id = ?').get(banner_id);
+  if (!banner) return res.status(400).json({ error: 'Banner not found' });
 
-    const app = findAppBySlug(app_slug);
-    if (!app) return res.status(400).json({ error: 'Unknown app slug' });
+  const app = findAppBySlug(app_slug);
+  if (!app) return res.status(400).json({ error: 'Unknown app slug' });
 
-    const result = db.prepare(`
-      INSERT INTO banner_placements (banner_id, app_slug, position, weight, click_url, start_date, end_date)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(banner_id, app_slug, position || 'default', parseInt(weight) || 100, click_url || null, start_date || null, end_date || null);
+  const result = db.prepare(`
+    INSERT INTO banner_placements (banner_id, app_slug, position, weight, click_url, start_date, end_date)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(banner_id, app_slug, position || 'default', parseInt(weight) || 100, click_url || null, start_date || null, end_date || null);
 
-    const placement = db.prepare('SELECT * FROM banner_placements WHERE id = ?').get(result.lastInsertRowid);
-    res.json(placement);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  const placement = db.prepare('SELECT * FROM banner_placements WHERE id = ?').get(result.lastInsertRowid);
+  res.json(placement);
+}));
+
+app.patch('/api/marketing/placements/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  const placement = db.prepare('SELECT * FROM banner_placements WHERE id = ?').get(id);
+  if (!placement) return res.status(404).json({ error: 'Not found' });
+
+  const { status, weight, priority, click_url, start_date, end_date } = req.body;
+  if (status && !['draft', 'active', 'paused', 'ended'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
   }
-});
+  db.prepare(`UPDATE banner_placements SET
+    status = ?, weight = ?, priority = ?, click_url = ?, start_date = ?, end_date = ?, updated_at = datetime('now')
+    WHERE id = ?`).run(
+    status || placement.status,
+    weight !== undefined ? parseInt(weight) : placement.weight,
+    priority !== undefined ? parseInt(priority) : placement.priority,
+    click_url !== undefined ? click_url : placement.click_url,
+    start_date !== undefined ? start_date : placement.start_date,
+    end_date !== undefined ? end_date : placement.end_date,
+    id
+  );
 
-app.patch('/api/marketing/placements/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    const placement = db.prepare('SELECT * FROM banner_placements WHERE id = ?').get(id);
-    if (!placement) return res.status(404).json({ error: 'Not found' });
+  const updated = db.prepare('SELECT * FROM banner_placements WHERE id = ?').get(id);
+  res.json(updated);
+}));
 
-    const { status, weight, priority, click_url, start_date, end_date } = req.body;
-    if (status && !['draft', 'active', 'paused', 'ended'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
-    }
-    db.prepare(`UPDATE banner_placements SET
-      status = ?, weight = ?, priority = ?, click_url = ?, start_date = ?, end_date = ?, updated_at = datetime('now')
-      WHERE id = ?`).run(
-      status || placement.status,
-      weight !== undefined ? parseInt(weight) : placement.weight,
-      priority !== undefined ? parseInt(priority) : placement.priority,
-      click_url !== undefined ? click_url : placement.click_url,
-      start_date !== undefined ? start_date : placement.start_date,
-      end_date !== undefined ? end_date : placement.end_date,
-      id
-    );
-
-    const updated = db.prepare('SELECT * FROM banner_placements WHERE id = ?').get(id);
-    res.json(updated);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/marketing/placements/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    const result = db.prepare('DELETE FROM banner_placements WHERE id = ?').run(id);
-    if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.delete('/api/marketing/placements/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  const result = db.prepare('DELETE FROM banner_placements WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+}));
 
 // --- Public banner serve endpoints ---
 
@@ -4068,73 +3858,65 @@ app.get('/api/banners/embed.js', (_req, res) => {
 })();`);
 });
 
-app.get('/api/banners/serve', (req, res) => {
-  try {
-    setCORS(res);
-    const app = req.query.app;
-    const pos = req.query.pos || 'default';
-    if (!app) return res.status(400).json({ error: 'app query param required' });
+app.get('/api/banners/serve', asyncRoute((req, res) => {
+  setCORS(res);
+  const app = req.query.app;
+  const pos = req.query.pos || 'default';
+  if (!app) return res.status(400).json({ error: 'app query param required' });
 
-    const now = new Date().toISOString();
-    const placements = db.prepare(`
-      SELECT bp.id as placement_id, bp.weight, bp.click_url as placement_click_url,
-             b.id as banner_id, b.name, b.type, b.width, b.height, b.content, b.click_url as banner_click_url
-      FROM banner_placements bp
-      JOIN banners b ON bp.banner_id = b.id
-      WHERE bp.app_slug = ? AND bp.status = 'active'
-        AND (bp.position = ? OR bp.position = 'default')
-        AND (bp.start_date IS NULL OR bp.start_date <= ?)
-        AND (bp.end_date IS NULL OR bp.end_date >= ?)
-      ORDER BY bp.priority DESC
-    `).all(app, pos, now, now);
+  const now = new Date().toISOString();
+  const placements = db.prepare(`
+    SELECT bp.id as placement_id, bp.weight, bp.click_url as placement_click_url,
+           b.id as banner_id, b.name, b.type, b.width, b.height, b.content, b.click_url as banner_click_url
+    FROM banner_placements bp
+    JOIN banners b ON bp.banner_id = b.id
+    WHERE bp.app_slug = ? AND bp.status = 'active'
+      AND (bp.position = ? OR bp.position = 'default')
+      AND (bp.start_date IS NULL OR bp.start_date <= ?)
+      AND (bp.end_date IS NULL OR bp.end_date >= ?)
+    ORDER BY bp.priority DESC
+  `).all(app, pos, now, now);
 
-    if (placements.length === 0) return res.json(null);
+  if (placements.length === 0) return res.json(null);
 
-    // Weighted random selection
-    let selected = placements[0];
-    if (placements.length > 1) {
-      const totalWeight = placements.reduce((s, p) => s + p.weight, 0);
-      if (totalWeight > 0) {
-        let rand = Math.random() * totalWeight;
-        for (const p of placements) {
-          rand -= p.weight;
-          if (rand <= 0) { selected = p; break; }
-        }
-      } else {
-        selected = placements[Math.floor(Math.random() * placements.length)];
+  // Weighted random selection
+  let selected = placements[0];
+  if (placements.length > 1) {
+    const totalWeight = placements.reduce((s, p) => s + p.weight, 0);
+    if (totalWeight > 0) {
+      let rand = Math.random() * totalWeight;
+      for (const p of placements) {
+        rand -= p.weight;
+        if (rand <= 0) { selected = p; break; }
       }
+    } else {
+      selected = placements[Math.floor(Math.random() * placements.length)];
     }
-
-    res.json({
-      placement_id: selected.placement_id,
-      banner_id: selected.banner_id,
-      name: selected.name,
-      type: selected.type,
-      width: selected.width,
-      height: selected.height,
-      content: selected.content,
-      click_url: selected.placement_click_url || selected.banner_click_url || '#',
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
-});
 
-app.post('/api/banners/:placementId/view', (req, res) => {
-  try {
-    setCORS(res);
-    const id = parseInt(req.params.placementId);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    db.prepare('UPDATE banner_placements SET views = views + 1 WHERE id = ?').run(id);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  res.json({
+    placement_id: selected.placement_id,
+    banner_id: selected.banner_id,
+    name: selected.name,
+    type: selected.type,
+    width: selected.width,
+    height: selected.height,
+    content: selected.content,
+    click_url: selected.placement_click_url || selected.banner_click_url || '#',
+  });
+}));
+
+app.post('/api/banners/:placementId/view', asyncRoute((req, res) => {
+  setCORS(res);
+  const id = parseId(req.params.placementId);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  db.prepare('UPDATE banner_placements SET views = views + 1 WHERE id = ?').run(id);
+  res.json({ ok: true });
+}));
 
 app.get('/api/banners/:placementId/click', (req, res) => {
   try {
-    const id = parseInt(req.params.placementId);
+    const id = parseId(req.params.placementId);
     if (isNaN(id)) return res.redirect('/');
     const placement = db.prepare(`
       SELECT bp.click_url as p_url, b.click_url as b_url
@@ -4150,105 +3932,85 @@ app.get('/api/banners/:placementId/click', (req, res) => {
 });
 
 // Banner injection status — checks which sites have embed.js deployed
-app.get('/api/banners/injection-status', async (_req, res) => {
-  try {
-    const results = [];
-    for (const app of config.apps || []) {
-      if (!app.domain || app.type === 'infra' || app.type === 'redirect') continue;
-      const slug = slugify(app.name);
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 5000);
-        const resp = await fetch(`https://${app.domain}/`, {
-          headers: { 'Accept-Encoding': '' },
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        const html = await resp.text();
-        const injected = html.includes('banners/embed.js') && html.includes(`data-app="${slug}"`);
-        const proxyWorks = html.includes('/api/banners/embed.js');
-        results.push({ slug, domain: app.domain, injected, proxyWorks });
-      } catch {
-        results.push({ slug, domain: app.domain, injected: null, error: 'unreachable' });
-      }
+app.get('/api/banners/injection-status', asyncRoute(async (_req, res) => {
+  const results = [];
+  for (const app of config.apps || []) {
+    if (!app.domain || app.type === 'infra' || app.type === 'redirect') continue;
+    const slug = slugify(app.name);
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const resp = await fetch(`https://${app.domain}/`, {
+        headers: { 'Accept-Encoding': '' },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      const html = await resp.text();
+      const injected = html.includes('banners/embed.js') && html.includes(`data-app="${slug}"`);
+      const proxyWorks = html.includes('/api/banners/embed.js');
+      results.push({ slug, domain: app.domain, injected, proxyWorks });
+    } catch {
+      results.push({ slug, domain: app.domain, injected: null, error: 'unreachable' });
     }
-    res.json(results);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
-});
+  res.json(results);
+}));
 
 // =============================================
 // Marketing Playbook
 // =============================================
 
-app.get('/api/marketing/playbooks', (req, res) => {
-  try {
-    const appSlug = req.query.app;
-    let entries;
-    if (appSlug) {
-      entries = db.prepare('SELECT * FROM marketing_playbooks WHERE app_slug = ? ORDER BY section, priority DESC, created_at').all(appSlug);
-    } else {
-      entries = db.prepare('SELECT * FROM marketing_playbooks ORDER BY app_slug, section, priority DESC, created_at').all();
-    }
-    res.json(entries);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.get('/api/marketing/playbooks', asyncRoute((req, res) => {
+  const appSlug = req.query.app;
+  let entries;
+  if (appSlug) {
+    entries = db.prepare('SELECT * FROM marketing_playbooks WHERE app_slug = ? ORDER BY section, priority DESC, created_at').all(appSlug);
+  } else {
+    entries = db.prepare('SELECT * FROM marketing_playbooks ORDER BY app_slug, section, priority DESC, created_at').all();
   }
-});
+  res.json(entries);
+}));
 
-app.post('/api/marketing/playbooks', (req, res) => {
-  try {
-    const { app_slug, section, title, content, status, priority } = req.body;
-    if (!app_slug || !section || !title || !content) {
-      return res.status(400).json({ error: 'app_slug, section, title, content required' });
-    }
-    const validSections = ['strategy', 'channels', 'content', 'seo', 'email', 'crosssell', 'notes'];
-    if (!validSections.includes(section)) {
-      return res.status(400).json({ error: `Invalid section. Must be one of: ${validSections.join(', ')}` });
-    }
-
-    const result = db.prepare(`
-      INSERT INTO marketing_playbooks (app_slug, section, title, content, status, priority)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(app_slug, section, title, content, status || 'draft', parseInt(priority) || 0);
-
-    const entry = db.prepare('SELECT * FROM marketing_playbooks WHERE id = ?').get(result.lastInsertRowid);
-    res.json(entry);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+app.post('/api/marketing/playbooks', asyncRoute((req, res) => {
+  const { app_slug, section, title, content, status, priority } = req.body;
+  if (!app_slug || !section || !title || !content) {
+    return res.status(400).json({ error: 'app_slug, section, title, content required' });
   }
-});
-
-app.put('/api/marketing/playbooks/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    const entry = db.prepare('SELECT * FROM marketing_playbooks WHERE id = ?').get(id);
-    if (!entry) return res.status(404).json({ error: 'Not found' });
-
-    const { title, content, status, priority } = req.body;
-    db.prepare(`UPDATE marketing_playbooks SET title = ?, content = ?, status = ?, priority = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(title || entry.title, content || entry.content, status || entry.status, priority !== undefined ? parseInt(priority) : entry.priority, id);
-
-    const updated = db.prepare('SELECT * FROM marketing_playbooks WHERE id = ?').get(id);
-    res.json(updated);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  const validSections = ['strategy', 'channels', 'content', 'seo', 'email', 'crosssell', 'notes'];
+  if (!validSections.includes(section)) {
+    return res.status(400).json({ error: `Invalid section. Must be one of: ${validSections.join(', ')}` });
   }
-});
 
-app.delete('/api/marketing/playbooks/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-    const result = db.prepare('DELETE FROM marketing_playbooks WHERE id = ?').run(id);
-    if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  const result = db.prepare(`
+    INSERT INTO marketing_playbooks (app_slug, section, title, content, status, priority)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(app_slug, section, title, content, status || 'draft', parseInt(priority) || 0);
+
+  const entry = db.prepare('SELECT * FROM marketing_playbooks WHERE id = ?').get(result.lastInsertRowid);
+  res.json(entry);
+}));
+
+app.put('/api/marketing/playbooks/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  const entry = db.prepare('SELECT * FROM marketing_playbooks WHERE id = ?').get(id);
+  if (!entry) return res.status(404).json({ error: 'Not found' });
+
+  const { title, content, status, priority } = req.body;
+  db.prepare(`UPDATE marketing_playbooks SET title = ?, content = ?, status = ?, priority = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(title || entry.title, content || entry.content, status || entry.status, priority !== undefined ? parseInt(priority) : entry.priority, id);
+
+  const updated = db.prepare('SELECT * FROM marketing_playbooks WHERE id = ?').get(id);
+  res.json(updated);
+}));
+
+app.delete('/api/marketing/playbooks/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  const result = db.prepare('DELETE FROM marketing_playbooks WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+}));
 
 app.post('/api/marketing/playbooks/:appSlug/generate', async (req, res) => {
   try {
@@ -4371,310 +4133,253 @@ function initProjectDefaults() {
 try { initProjectDefaults(); } catch (err) { console.error('[PROJECTS] Init error:', err.message); }
 
 // --- Overview: All apps enriched with meta + live KPIs ---
-app.get('/api/projects/overview', async (req, res) => {
-  try {
-    const allMeta = db.prepare('SELECT * FROM project_meta').all();
-    const metaMap = Object.fromEntries(allMeta.map(m => [m.app_slug, m]));
-    const today = new Date().toISOString().split('T')[0];
+app.get('/api/projects/overview', asyncRoute(async (req, res) => {
+  const allMeta = db.prepare('SELECT * FROM project_meta').all();
+  const metaMap = Object.fromEntries(allMeta.map(m => [m.app_slug, m]));
+  const today = new Date().toISOString().split('T')[0];
 
-    const apps = config.apps.map(appDef => {
-      const slug = slugify(appDef.name);
-      const meta = metaMap[slug] || {};
+  const apps = config.apps.map(appDef => {
+    const slug = slugify(appDef.name);
+    const meta = metaMap[slug] || {};
 
-      // Open task count
-      const taskCounts = db.prepare("SELECT status, COUNT(*) as count FROM project_tasks WHERE app_slug = ? GROUP BY status").all(slug);
-      const taskMap = Object.fromEntries(taskCounts.map(t => [t.status, t.count]));
-      const openTasks = (taskMap.todo || 0) + (taskMap.in_progress || 0) + (taskMap.blocked || 0);
-      const doneTasks = taskMap.done || 0;
-      const overdueTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND due_date < ? AND status NOT IN ('done','cancelled')").get(slug, today)?.count || 0;
+    // Open task count
+    const taskCounts = db.prepare("SELECT status, COUNT(*) as count FROM project_tasks WHERE app_slug = ? GROUP BY status").all(slug);
+    const taskMap = Object.fromEntries(taskCounts.map(t => [t.status, t.count]));
+    const openTasks = (taskMap.todo || 0) + (taskMap.in_progress || 0) + (taskMap.blocked || 0);
+    const doneTasks = taskMap.done || 0;
+    const overdueTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND due_date < ? AND status NOT IN ('done','cancelled')").get(slug, today)?.count || 0;
 
-      // Roadmap counts
-      const roadmapCounts = db.prepare("SELECT status, COUNT(*) as count FROM project_roadmap WHERE app_slug = ? GROUP BY status").all(slug);
-      const rmMap = Object.fromEntries(roadmapCounts.map(r => [r.status, r.count]));
+    // Roadmap counts
+    const roadmapCounts = db.prepare("SELECT status, COUNT(*) as count FROM project_roadmap WHERE app_slug = ? GROUP BY status").all(slug);
+    const rmMap = Object.fromEntries(roadmapCounts.map(r => [r.status, r.count]));
 
-      // Latest SEO score
-      const seo = db.prepare('SELECT score, grade FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug);
-
-      // Latest security findings count for this app
-      const secFindings = db.prepare("SELECT COUNT(*) as count FROM security_findings WHERE app_slug = ? AND status = 'open'").get(slug);
-
-      // Latest MRR from metrics_daily
-      const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
-
-      return {
-        slug, name: appDef.name, type: appDef.type, domain: appDef.domain,
-        description: appDef.description, tech: appDef.tech,
-        lifecycle: meta.lifecycle || 'launched',
-        priority: meta.priority || 2,
-        revenue_goal_mrr: meta.revenue_goal_mrr,
-        traffic_goal_mpv: meta.traffic_goal_mpv,
-        user_goal: meta.user_goal,
-        notes: meta.notes,
-        mrr: mrrRow?.value || 0,
-        seo_score: seo?.score || null, seo_grade: seo?.grade || null,
-        security_findings: secFindings?.count || 0,
-        tasks: { open: openTasks, done: doneTasks, overdue: overdueTasks },
-        roadmap: { idea: rmMap.idea || 0, planned: rmMap.planned || 0, in_progress: rmMap.in_progress || 0, shipped: rmMap.shipped || 0 },
-      };
-    });
-
-    // Portfolio totals
-    const totalOpenTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE status NOT IN ('done','cancelled')").get()?.count || 0;
-    const totalOverdue = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled')").get(today)?.count || 0;
-    const thisWeekDone = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE completed_at >= datetime('now', '-7 days')").get()?.count || 0;
-
-    res.json({ apps, totals: { openTasks: totalOpenTasks, overdueTasks: totalOverdue, completedThisWeek: thisWeekDone } });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// --- Update project meta ---
-app.put('/api/projects/meta/:slug', (req, res) => {
-  try {
-    const slug = req.params.slug;
-    const { lifecycle, priority, revenue_goal_mrr, traffic_goal_mpv, user_goal, notes } = req.body;
-    const existing = db.prepare('SELECT id FROM project_meta WHERE app_slug = ?').get(slug);
-    if (!existing) {
-      db.prepare('INSERT INTO project_meta (app_slug, lifecycle, priority, revenue_goal_mrr, traffic_goal_mpv, user_goal, notes) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, lifecycle || 'launched', priority || 2, revenue_goal_mrr || null, traffic_goal_mpv || null, user_goal || null, notes || null);
-    } else {
-      const fields = [];
-      const values = [];
-      if (lifecycle !== undefined) { fields.push('lifecycle = ?'); values.push(lifecycle); }
-      if (priority !== undefined) { fields.push('priority = ?'); values.push(priority); }
-      if (revenue_goal_mrr !== undefined) { fields.push('revenue_goal_mrr = ?'); values.push(revenue_goal_mrr); }
-      if (traffic_goal_mpv !== undefined) { fields.push('traffic_goal_mpv = ?'); values.push(traffic_goal_mpv); }
-      if (user_goal !== undefined) { fields.push('user_goal = ?'); values.push(user_goal); }
-      if (notes !== undefined) { fields.push('notes = ?'); values.push(notes); }
-      if (fields.length > 0) {
-        fields.push("updated_at = datetime('now')");
-        values.push(slug);
-        db.prepare(`UPDATE project_meta SET ${fields.join(', ')} WHERE app_slug = ?`).run(...values);
-      }
-    }
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// --- Tasks CRUD ---
-app.get('/api/projects/tasks', (req, res) => {
-  try {
-    const { app, status, priority } = req.query;
-    let sql = 'SELECT * FROM project_tasks WHERE 1=1';
-    const params = [];
-    if (app) { sql += ' AND app_slug = ?'; params.push(app); }
-    if (status) { sql += ' AND status = ?'; params.push(status); }
-    if (priority) { sql += ' AND priority = ?'; params.push(priority); }
-    sql += ' ORDER BY CASE priority WHEN \'critical\' THEN 0 WHEN \'high\' THEN 1 WHEN \'medium\' THEN 2 WHEN \'low\' THEN 3 END, due_date ASC NULLS LAST, created_at DESC';
-    res.json(db.prepare(sql).all(...params));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/projects/tasks', (req, res) => {
-  try {
-    const { app_slug, title, description, priority, due_date, reminder_at, tags } = req.body;
-    if (!title) return res.status(400).json({ error: 'title is required' });
-    const result = db.prepare('INSERT INTO project_tasks (app_slug, title, description, priority, due_date, reminder_at, tags) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-      app_slug || null, title, description || null, priority || 'medium', due_date || null, reminder_at || null, tags ? JSON.stringify(tags) : null
-    );
-    res.json({ ok: true, id: result.lastInsertRowid });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/projects/tasks/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid task ID' });
-    const { title, description, status, priority, due_date, reminder_at, tags, app_slug } = req.body;
-    const fields = [];
-    const values = [];
-    if (title !== undefined) { fields.push('title = ?'); values.push(title); }
-    if (description !== undefined) { fields.push('description = ?'); values.push(description); }
-    if (status !== undefined) { fields.push('status = ?'); values.push(status); }
-    if (priority !== undefined) { fields.push('priority = ?'); values.push(priority); }
-    if (due_date !== undefined) { fields.push('due_date = ?'); values.push(due_date); }
-    if (reminder_at !== undefined) { fields.push('reminder_at = ?'); values.push(reminder_at); fields.push('reminder_sent = 0'); }
-    if (tags !== undefined) { fields.push('tags = ?'); values.push(JSON.stringify(tags)); }
-    if (app_slug !== undefined) { fields.push('app_slug = ?'); values.push(app_slug); }
-    if (fields.length === 0) return res.status(400).json({ error: 'No fields to update' });
-    fields.push("updated_at = datetime('now')");
-    values.push(id);
-    const result = db.prepare(`UPDATE project_tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-    if (result.changes === 0) return res.status(404).json({ error: 'Task not found' });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/projects/tasks/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid task ID' });
-    const result = db.prepare('DELETE FROM project_tasks WHERE id = ?').run(id);
-    if (result.changes === 0) return res.status(404).json({ error: 'Task not found' });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/projects/tasks/:id/complete', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid task ID' });
-    const result = db.prepare("UPDATE project_tasks SET status = 'done', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(id);
-    if (result.changes === 0) return res.status(404).json({ error: 'Task not found' });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/projects/tasks/overdue', (_req, res) => {
-  try {
-    const today = new Date().toISOString().split('T')[0];
-    const tasks = db.prepare("SELECT * FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled') ORDER BY due_date ASC").all(today);
-    res.json(tasks);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/projects/tasks/today', (_req, res) => {
-  try {
-    const today = new Date().toISOString().split('T')[0];
-    const tasks = db.prepare("SELECT * FROM project_tasks WHERE (due_date <= ? OR due_date IS NULL) AND status NOT IN ('done','cancelled') ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, due_date ASC").all(today);
-    res.json(tasks);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/projects/tasks/import', (req, res) => {
-  try {
-    const { text, app_slug } = req.body;
-    if (!text) return res.status(400).json({ error: 'text is required' });
-    const lines = text.split('\n');
-    let created = 0;
-    for (const line of lines) {
-      const doneMatch = line.match(/^[-*]\s+\[x\]\s+(.+)/i);
-      const todoMatch = line.match(/^[-*]\s+\[\s?\]\s+(.+)/i);
-      if (doneMatch) {
-        db.prepare("INSERT INTO project_tasks (app_slug, title, status, completed_at) VALUES (?, ?, 'done', datetime('now'))").run(app_slug || null, doneMatch[1].trim());
-        created++;
-      } else if (todoMatch) {
-        db.prepare("INSERT INTO project_tasks (app_slug, title, status) VALUES (?, ?, 'todo')").run(app_slug || null, todoMatch[1].trim());
-        created++;
-      }
-    }
-    res.json({ ok: true, created });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// --- Roadmap CRUD ---
-app.get('/api/projects/roadmap', (req, res) => {
-  try {
-    const { app, status } = req.query;
-    let sql = 'SELECT * FROM project_roadmap WHERE 1=1';
-    const params = [];
-    if (app) { sql += ' AND app_slug = ?'; params.push(app); }
-    if (status) { sql += ' AND status = ?'; params.push(status); }
-    sql += " ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'planned' THEN 1 WHEN 'idea' THEN 2 WHEN 'shipped' THEN 3 WHEN 'cancelled' THEN 4 END, target_date ASC NULLS LAST";
-    res.json(db.prepare(sql).all(...params));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/projects/roadmap', (req, res) => {
-  try {
-    const { app_slug, title, description, type, status, target_date, impact, effort } = req.body;
-    if (!title) return res.status(400).json({ error: 'title is required' });
-    const result = db.prepare('INSERT INTO project_roadmap (app_slug, title, description, type, status, target_date, impact, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-      app_slug || null, title, description || null, type || 'feature', status || 'planned', target_date || null, impact || 'medium', effort || 'medium'
-    );
-    res.json({ ok: true, id: result.lastInsertRowid });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/projects/roadmap/:id', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid roadmap ID' });
-    const { title, description, type, status, target_date, impact, effort, app_slug } = req.body;
-    const fields = [];
-    const values = [];
-    if (title !== undefined) { fields.push('title = ?'); values.push(title); }
-    if (description !== undefined) { fields.push('description = ?'); values.push(description); }
-    if (type !== undefined) { fields.push('type = ?'); values.push(type); }
-    if (status !== undefined) { fields.push('status = ?'); values.push(status); }
-    if (target_date !== undefined) { fields.push('target_date = ?'); values.push(target_date); }
-    if (impact !== undefined) { fields.push('impact = ?'); values.push(impact); }
-    if (effort !== undefined) { fields.push('effort = ?'); values.push(effort); }
-    if (app_slug !== undefined) { fields.push('app_slug = ?'); values.push(app_slug); }
-    if (fields.length === 0) return res.status(400).json({ error: 'No fields to update' });
-    fields.push("updated_at = datetime('now')");
-    values.push(id);
-    const result = db.prepare(`UPDATE project_roadmap SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-    if (result.changes === 0) return res.status(404).json({ error: 'Roadmap item not found' });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/projects/roadmap/:id/ship', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid roadmap ID' });
-    const result = db.prepare("UPDATE project_roadmap SET status = 'shipped', shipped_date = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(id);
-    if (result.changes === 0) return res.status(404).json({ error: 'Roadmap item not found' });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// --- AI Insights ---
-app.get('/api/projects/insights/:slug', async (req, res) => {
-  try {
-    const slug = req.params.slug;
-    const type = req.query.type || 'next_actions';
-    const force = req.query.force === 'true';
-
-    if (!force) {
-      const cached = db.prepare('SELECT * FROM project_ai_insights WHERE app_slug = ? AND insight_type = ?').get(slug, type);
-      if (cached) {
-        const age = Date.now() - new Date(cached.generated_at).getTime();
-        const maxAge = type === 'weekly_summary' ? 7 * 86400000 : 72 * 3600000;
-        if (age < maxAge) return res.json({ content: cached.content, generated_at: cached.generated_at, cached: true });
-      }
-    }
-
-    const appDef = config.apps.find(a => slugify(a.name) === slug);
-    if (!appDef) return res.status(404).json({ error: 'App not found' });
-
-    const meta = db.prepare('SELECT * FROM project_meta WHERE app_slug = ?').get(slug) || {};
-    const openTasks = db.prepare("SELECT title FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled') LIMIT 5").all(slug);
-    const roadmapItems = db.prepare("SELECT title, status FROM project_roadmap WHERE app_slug = ? AND status IN ('planned','in_progress') LIMIT 5").all(slug);
+    // Latest SEO score
     const seo = db.prepare('SELECT score, grade FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug);
+
+    // Latest security findings count for this app
+    const secFindings = db.prepare("SELECT COUNT(*) as count FROM security_findings WHERE app_slug = ? AND status = 'open'").get(slug);
+
+    // Latest MRR from metrics_daily
     const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
 
-    const anthropicKey = getAnthropicKey();
-    if (!anthropicKey) return res.status(503).json({ error: 'No Anthropic API key available' });
+    return {
+      slug, name: appDef.name, type: appDef.type, domain: appDef.domain,
+      description: appDef.description, tech: appDef.tech,
+      lifecycle: meta.lifecycle || 'launched',
+      priority: meta.priority || 2,
+      revenue_goal_mrr: meta.revenue_goal_mrr,
+      traffic_goal_mpv: meta.traffic_goal_mpv,
+      user_goal: meta.user_goal,
+      notes: meta.notes,
+      mrr: mrrRow?.value || 0,
+      seo_score: seo?.score || null, seo_grade: seo?.grade || null,
+      security_findings: secFindings?.count || 0,
+      tasks: { open: openTasks, done: doneTasks, overdue: overdueTasks },
+      roadmap: { idea: rmMap.idea || 0, planned: rmMap.planned || 0, in_progress: rmMap.in_progress || 0, shipped: rmMap.shipped || 0 },
+    };
+  });
 
-    const prompt = `You are an indie SaaS advisor for a solo founder. Given:
+  // Portfolio totals
+  const totalOpenTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE status NOT IN ('done','cancelled')").get()?.count || 0;
+  const totalOverdue = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled')").get(today)?.count || 0;
+  const thisWeekDone = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE completed_at >= datetime('now', '-7 days')").get()?.count || 0;
+
+  res.json({ apps, totals: { openTasks: totalOpenTasks, overdueTasks: totalOverdue, completedThisWeek: thisWeekDone } });
+}));
+
+// --- Update project meta ---
+app.put('/api/projects/meta/:slug', asyncRoute((req, res) => {
+  const slug = req.params.slug;
+  const { lifecycle, priority, revenue_goal_mrr, traffic_goal_mpv, user_goal, notes } = req.body;
+  const existing = db.prepare('SELECT id FROM project_meta WHERE app_slug = ?').get(slug);
+  if (!existing) {
+    db.prepare('INSERT INTO project_meta (app_slug, lifecycle, priority, revenue_goal_mrr, traffic_goal_mpv, user_goal, notes) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, lifecycle || 'launched', priority || 2, revenue_goal_mrr || null, traffic_goal_mpv || null, user_goal || null, notes || null);
+  } else {
+    const fields = [];
+    const values = [];
+    if (lifecycle !== undefined) { fields.push('lifecycle = ?'); values.push(lifecycle); }
+    if (priority !== undefined) { fields.push('priority = ?'); values.push(priority); }
+    if (revenue_goal_mrr !== undefined) { fields.push('revenue_goal_mrr = ?'); values.push(revenue_goal_mrr); }
+    if (traffic_goal_mpv !== undefined) { fields.push('traffic_goal_mpv = ?'); values.push(traffic_goal_mpv); }
+    if (user_goal !== undefined) { fields.push('user_goal = ?'); values.push(user_goal); }
+    if (notes !== undefined) { fields.push('notes = ?'); values.push(notes); }
+    if (fields.length > 0) {
+      fields.push("updated_at = datetime('now')");
+      values.push(slug);
+      db.prepare(`UPDATE project_meta SET ${fields.join(', ')} WHERE app_slug = ?`).run(...values);
+    }
+  }
+  res.json({ ok: true });
+}));
+
+// --- Tasks CRUD ---
+app.get('/api/projects/tasks', asyncRoute((req, res) => {
+  const { app, status, priority } = req.query;
+  let sql = 'SELECT * FROM project_tasks WHERE 1=1';
+  const params = [];
+  if (app) { sql += ' AND app_slug = ?'; params.push(app); }
+  if (status) { sql += ' AND status = ?'; params.push(status); }
+  if (priority) { sql += ' AND priority = ?'; params.push(priority); }
+  sql += ' ORDER BY CASE priority WHEN \'critical\' THEN 0 WHEN \'high\' THEN 1 WHEN \'medium\' THEN 2 WHEN \'low\' THEN 3 END, due_date ASC NULLS LAST, created_at DESC';
+  res.json(db.prepare(sql).all(...params));
+}));
+
+app.post('/api/projects/tasks', asyncRoute((req, res) => {
+  const { app_slug, title, description, priority, due_date, reminder_at, tags } = req.body;
+  if (!title) return res.status(400).json({ error: 'title is required' });
+  const result = db.prepare('INSERT INTO project_tasks (app_slug, title, description, priority, due_date, reminder_at, tags) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+    app_slug || null, title, description || null, priority || 'medium', due_date || null, reminder_at || null, tags ? JSON.stringify(tags) : null
+  );
+  res.json({ ok: true, id: result.lastInsertRowid });
+}));
+
+app.put('/api/projects/tasks/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid task ID' });
+  const { title, description, status, priority, due_date, reminder_at, tags, app_slug } = req.body;
+  const fields = [];
+  const values = [];
+  if (title !== undefined) { fields.push('title = ?'); values.push(title); }
+  if (description !== undefined) { fields.push('description = ?'); values.push(description); }
+  if (status !== undefined) { fields.push('status = ?'); values.push(status); }
+  if (priority !== undefined) { fields.push('priority = ?'); values.push(priority); }
+  if (due_date !== undefined) { fields.push('due_date = ?'); values.push(due_date); }
+  if (reminder_at !== undefined) { fields.push('reminder_at = ?'); values.push(reminder_at); fields.push('reminder_sent = 0'); }
+  if (tags !== undefined) { fields.push('tags = ?'); values.push(JSON.stringify(tags)); }
+  if (app_slug !== undefined) { fields.push('app_slug = ?'); values.push(app_slug); }
+  if (fields.length === 0) return res.status(400).json({ error: 'No fields to update' });
+  fields.push("updated_at = datetime('now')");
+  values.push(id);
+  const result = db.prepare(`UPDATE project_tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  if (result.changes === 0) return res.status(404).json({ error: 'Task not found' });
+  res.json({ ok: true });
+}));
+
+app.delete('/api/projects/tasks/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid task ID' });
+  const result = db.prepare('DELETE FROM project_tasks WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Task not found' });
+  res.json({ ok: true });
+}));
+
+app.post('/api/projects/tasks/:id/complete', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid task ID' });
+  const result = db.prepare("UPDATE project_tasks SET status = 'done', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Task not found' });
+  res.json({ ok: true });
+}));
+
+app.get('/api/projects/tasks/overdue', asyncRoute((_req, res) => {
+  const today = new Date().toISOString().split('T')[0];
+  const tasks = db.prepare("SELECT * FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled') ORDER BY due_date ASC").all(today);
+  res.json(tasks);
+}));
+
+app.get('/api/projects/tasks/today', asyncRoute((_req, res) => {
+  const today = new Date().toISOString().split('T')[0];
+  const tasks = db.prepare("SELECT * FROM project_tasks WHERE (due_date <= ? OR due_date IS NULL) AND status NOT IN ('done','cancelled') ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, due_date ASC").all(today);
+  res.json(tasks);
+}));
+
+app.post('/api/projects/tasks/import', asyncRoute((req, res) => {
+  const { text, app_slug } = req.body;
+  if (!text) return res.status(400).json({ error: 'text is required' });
+  const lines = text.split('\n');
+  let created = 0;
+  for (const line of lines) {
+    const doneMatch = line.match(/^[-*]\s+\[x\]\s+(.+)/i);
+    const todoMatch = line.match(/^[-*]\s+\[\s?\]\s+(.+)/i);
+    if (doneMatch) {
+      db.prepare("INSERT INTO project_tasks (app_slug, title, status, completed_at) VALUES (?, ?, 'done', datetime('now'))").run(app_slug || null, doneMatch[1].trim());
+      created++;
+    } else if (todoMatch) {
+      db.prepare("INSERT INTO project_tasks (app_slug, title, status) VALUES (?, ?, 'todo')").run(app_slug || null, todoMatch[1].trim());
+      created++;
+    }
+  }
+  res.json({ ok: true, created });
+}));
+
+// --- Roadmap CRUD ---
+app.get('/api/projects/roadmap', asyncRoute((req, res) => {
+  const { app, status } = req.query;
+  let sql = 'SELECT * FROM project_roadmap WHERE 1=1';
+  const params = [];
+  if (app) { sql += ' AND app_slug = ?'; params.push(app); }
+  if (status) { sql += ' AND status = ?'; params.push(status); }
+  sql += " ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'planned' THEN 1 WHEN 'idea' THEN 2 WHEN 'shipped' THEN 3 WHEN 'cancelled' THEN 4 END, target_date ASC NULLS LAST";
+  res.json(db.prepare(sql).all(...params));
+}));
+
+app.post('/api/projects/roadmap', asyncRoute((req, res) => {
+  const { app_slug, title, description, type, status, target_date, impact, effort } = req.body;
+  if (!title) return res.status(400).json({ error: 'title is required' });
+  const result = db.prepare('INSERT INTO project_roadmap (app_slug, title, description, type, status, target_date, impact, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+    app_slug || null, title, description || null, type || 'feature', status || 'planned', target_date || null, impact || 'medium', effort || 'medium'
+  );
+  res.json({ ok: true, id: result.lastInsertRowid });
+}));
+
+app.put('/api/projects/roadmap/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid roadmap ID' });
+  const { title, description, type, status, target_date, impact, effort, app_slug } = req.body;
+  const fields = [];
+  const values = [];
+  if (title !== undefined) { fields.push('title = ?'); values.push(title); }
+  if (description !== undefined) { fields.push('description = ?'); values.push(description); }
+  if (type !== undefined) { fields.push('type = ?'); values.push(type); }
+  if (status !== undefined) { fields.push('status = ?'); values.push(status); }
+  if (target_date !== undefined) { fields.push('target_date = ?'); values.push(target_date); }
+  if (impact !== undefined) { fields.push('impact = ?'); values.push(impact); }
+  if (effort !== undefined) { fields.push('effort = ?'); values.push(effort); }
+  if (app_slug !== undefined) { fields.push('app_slug = ?'); values.push(app_slug); }
+  if (fields.length === 0) return res.status(400).json({ error: 'No fields to update' });
+  fields.push("updated_at = datetime('now')");
+  values.push(id);
+  const result = db.prepare(`UPDATE project_roadmap SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+  if (result.changes === 0) return res.status(404).json({ error: 'Roadmap item not found' });
+  res.json({ ok: true });
+}));
+
+app.post('/api/projects/roadmap/:id/ship', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid roadmap ID' });
+  const result = db.prepare("UPDATE project_roadmap SET status = 'shipped', shipped_date = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Roadmap item not found' });
+  res.json({ ok: true });
+}));
+
+// --- AI Insights ---
+app.get('/api/projects/insights/:slug', asyncRoute(async (req, res) => {
+  const slug = req.params.slug;
+  const type = req.query.type || 'next_actions';
+  const force = req.query.force === 'true';
+
+  if (!force) {
+    const cached = db.prepare('SELECT * FROM project_ai_insights WHERE app_slug = ? AND insight_type = ?').get(slug, type);
+    if (cached) {
+      const age = Date.now() - new Date(cached.generated_at).getTime();
+      const maxAge = type === 'weekly_summary' ? 7 * 86400000 : 72 * 3600000;
+      if (age < maxAge) return res.json({ content: cached.content, generated_at: cached.generated_at, cached: true });
+    }
+  }
+
+  const appDef = config.apps.find(a => slugify(a.name) === slug);
+  if (!appDef) return res.status(404).json({ error: 'App not found' });
+
+  const meta = db.prepare('SELECT * FROM project_meta WHERE app_slug = ?').get(slug) || {};
+  const openTasks = db.prepare("SELECT title FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled') LIMIT 5").all(slug);
+  const roadmapItems = db.prepare("SELECT title, status FROM project_roadmap WHERE app_slug = ? AND status IN ('planned','in_progress') LIMIT 5").all(slug);
+  const seo = db.prepare('SELECT score, grade FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug);
+  const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
+
+  const anthropicKey = getAnthropicKey();
+  if (!anthropicKey) return res.status(503).json({ error: 'No Anthropic API key available' });
+
+  const prompt = `You are an indie SaaS advisor for a solo founder. Given:
 - App: ${appDef.name} (${appDef.type}) — ${appDef.description}
 - Lifecycle: ${meta.lifecycle || 'launched'}
 - MRR: €${((mrrRow?.value || 0) / 100).toFixed(0)} ${meta.revenue_goal_mrr ? `(goal: €${(meta.revenue_goal_mrr / 100).toFixed(0)})` : '(no goal set)'}
@@ -4686,52 +4391,48 @@ app.get('/api/projects/insights/:slug', async (req, res) => {
 
 ${type === 'next_actions' ? 'Output 3-5 specific, immediately actionable next steps. Be direct. No fluff. Each step should be doable in under a day. Format as a markdown bullet list.' : 'Write a concise weekly status summary in 3 short paragraphs: 1) current state, 2) progress this week, 3) recommended focus for next week.'}`;
 
-    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
-      signal: AbortSignal.timeout(15000),
-    });
-    const aiData = await aiRes.json();
-    const content = aiData.content?.[0]?.text || 'No insight generated';
-    const tokens = aiData.usage?.output_tokens || 0;
+  const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const aiData = await aiRes.json();
+  const content = aiData.content?.[0]?.text || 'No insight generated';
+  const tokens = aiData.usage?.output_tokens || 0;
 
-    db.prepare('INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES (?, ?, ?, ?, datetime(\'now\')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at').run(slug, type, content, tokens);
+  db.prepare('INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES (?, ?, ?, ?, datetime(\'now\')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at').run(slug, type, content, tokens);
 
-    res.json({ content, generated_at: new Date().toISOString(), cached: false });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  res.json({ content, generated_at: new Date().toISOString(), cached: false });
+}));
 
-app.get('/api/projects/insights/portfolio/summary', async (req, res) => {
-  try {
-    const force = req.query.force === 'true';
-    if (!force) {
-      const cached = db.prepare("SELECT * FROM project_ai_insights WHERE app_slug = '_portfolio' AND insight_type = 'summary'").get();
-      if (cached) {
-        const age = Date.now() - new Date(cached.generated_at).getTime();
-        if (age < 24 * 3600000) return res.json({ content: cached.content, generated_at: cached.generated_at, cached: true });
-      }
+app.get('/api/projects/insights/portfolio/summary', asyncRoute(async (req, res) => {
+  const force = req.query.force === 'true';
+  if (!force) {
+    const cached = db.prepare("SELECT * FROM project_ai_insights WHERE app_slug = '_portfolio' AND insight_type = 'summary'").get();
+    if (cached) {
+      const age = Date.now() - new Date(cached.generated_at).getTime();
+      if (age < 24 * 3600000) return res.json({ content: cached.content, generated_at: cached.generated_at, cached: true });
     }
+  }
 
-    const anthropicKey = getAnthropicKey();
-    if (!anthropicKey) return res.status(503).json({ error: 'No Anthropic API key available' });
+  const anthropicKey = getAnthropicKey();
+  if (!anthropicKey) return res.status(503).json({ error: 'No Anthropic API key available' });
 
-    const saasApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
-    const appSummaries = saasApps.map(a => {
-      const slug = slugify(a.name);
-      const meta = db.prepare('SELECT lifecycle, priority FROM project_meta WHERE app_slug = ?').get(slug) || {};
-      const openTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled')").get(slug)?.count || 0;
-      const mrr = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug)?.value || 0;
-      return `- ${a.name}: lifecycle=${meta.lifecycle || 'launched'}, MRR=€${(mrr / 100).toFixed(0)}, ${openTasks} open tasks`;
-    }).join('\n');
+  const saasApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
+  const appSummaries = saasApps.map(a => {
+    const slug = slugify(a.name);
+    const meta = db.prepare('SELECT lifecycle, priority FROM project_meta WHERE app_slug = ?').get(slug) || {};
+    const openTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled')").get(slug)?.count || 0;
+    const mrr = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug)?.value || 0;
+    return `- ${a.name}: lifecycle=${meta.lifecycle || 'launched'}, MRR=€${(mrr / 100).toFixed(0)}, ${openTasks} open tasks`;
+  }).join('\n');
 
-    const today = new Date().toISOString().split('T')[0];
-    const totalOverdue = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled')").get(today)?.count || 0;
-    const weekDone = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE completed_at >= datetime('now', '-7 days')").get()?.count || 0;
+  const today = new Date().toISOString().split('T')[0];
+  const totalOverdue = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled')").get(today)?.count || 0;
+  const weekDone = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE completed_at >= datetime('now', '-7 days')").get()?.count || 0;
 
-    const prompt = `You are an indie SaaS portfolio advisor. Here is the current state of a solo founder's app portfolio:
+  const prompt = `You are an indie SaaS portfolio advisor. Here is the current state of a solo founder's app portfolio:
 
 ${appSummaries}
 
@@ -4739,23 +4440,20 @@ Portfolio stats: ${totalOverdue} overdue tasks, ${weekDone} tasks completed this
 
 Write a concise 3-paragraph portfolio briefing: 1) overall health assessment, 2) what to focus on this week, 3) one strategic recommendation. Be direct, specific, actionable.`;
 
-    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
-      signal: AbortSignal.timeout(15000),
-    });
-    const aiData = await aiRes.json();
-    const content = aiData.content?.[0]?.text || 'No summary generated';
-    const tokens = aiData.usage?.output_tokens || 0;
+  const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const aiData = await aiRes.json();
+  const content = aiData.content?.[0]?.text || 'No summary generated';
+  const tokens = aiData.usage?.output_tokens || 0;
 
-    db.prepare("INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES ('_portfolio', 'summary', ?, ?, datetime('now')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at").run(content, tokens);
+  db.prepare("INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES ('_portfolio', 'summary', ?, ?, datetime('now')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at").run(content, tokens);
 
-    res.json({ content, generated_at: new Date().toISOString(), cached: false });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  res.json({ content, generated_at: new Date().toISOString(), cached: false });
+}));
 
 // --- Projects Cron Jobs ---
 
@@ -4985,8 +4683,8 @@ async function detectDrift() {
   const baseline = db.prepare('SELECT * FROM ops_baselines ORDER BY timestamp DESC LIMIT 1').get();
   if (!baseline) return { drifts: [], message: 'No baseline yet. Create one first.' };
 
-  const baseEnv = JSON.parse(baseline.env_hashes || '{}');
-  const baseContainers = JSON.parse(baseline.container_states || '{}');
+  const baseEnv = safeJSON(baseline.env_hashes, {});
+  const baseContainers = safeJSON(baseline.container_states, {});
   const drifts = [];
 
   // Env key changes
@@ -5138,94 +4836,74 @@ function getAppDependencyMap() {
 
 // --- Ops Intelligence API Endpoints ---
 
-app.get('/api/ops/worry-score', async (_req, res) => {
-  try {
-    const result = await calculateWorryScore();
-    const latest = db.prepare('SELECT streak_days, streak_broken_at FROM ops_scores ORDER BY timestamp DESC LIMIT 1').get();
-    result.streak = { days: latest?.streak_days || 0, lastBroken: latest?.streak_broken_at || null };
-    res.json(result);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.get('/api/ops/worry-score', asyncRoute(async (_req, res) => {
+  const result = await calculateWorryScore();
+  const latest = db.prepare('SELECT streak_days, streak_broken_at FROM ops_scores ORDER BY timestamp DESC LIMIT 1').get();
+  result.streak = { days: latest?.streak_days || 0, lastBroken: latest?.streak_broken_at || null };
+  res.json(result);
+}));
 
-app.get('/api/ops/heartbeat', async (_req, res) => {
-  try {
-    const containers = await docker.listContainers({ all: true });
-    const apps = config.apps.map(appDef => {
-      const slug = slugify(appDef.name);
-      const appContainers = (appDef.containers || []).map(name => {
-        const c = containers.find(cn => containerName(cn) === name);
-        return { name, state: c?.State || 'not_found', health: c?.Status?.includes('healthy') ? 'healthy' : c?.Status?.includes('unhealthy') ? 'unhealthy' : c?.State || 'unknown' };
-      });
-      const health = appContainers.length === 0 ? 'static'
-        : appContainers.every(c => c.health === 'healthy' || c.state === 'running') ? 'healthy'
-        : appContainers.some(c => c.health === 'unhealthy') ? 'unhealthy'
-        : appContainers.some(c => c.state === 'restarting') ? 'restarting' : 'degraded';
-      return { slug, name: appDef.name, type: appDef.type, health, containers: appContainers };
+app.get('/api/ops/heartbeat', asyncRoute(async (_req, res) => {
+  const containers = await docker.listContainers({ all: true });
+  const apps = config.apps.map(appDef => {
+    const slug = slugify(appDef.name);
+    const appContainers = (appDef.containers || []).map(name => {
+      const c = containers.find(cn => containerName(cn) === name);
+      return { name, state: c?.State || 'not_found', health: c?.Status?.includes('healthy') ? 'healthy' : c?.Status?.includes('unhealthy') ? 'unhealthy' : c?.State || 'unknown' };
     });
-    res.json({ apps, timestamp: new Date().toISOString() });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+    const health = appContainers.length === 0 ? 'static'
+      : appContainers.every(c => c.health === 'healthy' || c.state === 'running') ? 'healthy'
+      : appContainers.some(c => c.health === 'unhealthy') ? 'unhealthy'
+      : appContainers.some(c => c.state === 'restarting') ? 'restarting' : 'degraded';
+    return { slug, name: appDef.name, type: appDef.type, health, containers: appContainers };
+  });
+  res.json({ apps, timestamp: new Date().toISOString() });
+}));
 
-app.get('/api/ops/report-card/:slug', (req, res) => {
-  try {
-    const card = calculateAppReportCard(req.params.slug);
-    if (!card) return res.status(404).json({ error: 'App not found' });
-    res.json(card);
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.get('/api/ops/report-card/:slug', asyncRoute((req, res) => {
+  const card = calculateAppReportCard(req.params.slug);
+  if (!card) return res.status(404).json({ error: 'App not found' });
+  res.json(card);
+}));
 
-app.get('/api/ops/report-cards', (_req, res) => {
-  try {
-    const cards = config.apps.map(a => calculateAppReportCard(slugify(a.name))).filter(Boolean);
-    res.json({ cards, timestamp: new Date().toISOString() });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.get('/api/ops/report-cards', asyncRoute((_req, res) => {
+  const cards = config.apps.map(a => calculateAppReportCard(slugify(a.name))).filter(Boolean);
+  res.json({ cards, timestamp: new Date().toISOString() });
+}));
 
-app.get('/api/ops/dependencies', (_req, res) => {
-  try {
-    res.json(getAppDependencyMap());
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.get('/api/ops/dependencies', asyncRoute((_req, res) => {
+  res.json(getAppDependencyMap());
+}));
 
-app.get('/api/ops/drift', async (_req, res) => {
-  try {
-    res.json(await detectDrift());
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.get('/api/ops/drift', asyncRoute(async (_req, res) => {
+  res.json(await detectDrift());
+}));
 
-app.post('/api/ops/drift/:id/acknowledge', (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    db.prepare("UPDATE ops_events SET acknowledged = 1, acknowledged_at = datetime('now') WHERE id = ?").run(id);
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.post('/api/ops/drift/:id/acknowledge', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  db.prepare("UPDATE ops_events SET acknowledged = 1, acknowledged_at = datetime('now') WHERE id = ?").run(id);
+  res.json({ ok: true });
+}));
 
-app.post('/api/ops/baseline', async (_req, res) => {
-  try {
-    const result = await snapshotBaseline('manual');
-    db.prepare("INSERT INTO ops_events (event_type, severity, title, details) VALUES ('baseline_created', 'info', 'Manual baseline created', ?)").run(JSON.stringify({ containers: result.totalContainers, disk: result.diskPct }));
-    res.json({ ok: true, ...result });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.post('/api/ops/baseline', asyncRoute(async (_req, res) => {
+  const result = await snapshotBaseline('manual');
+  db.prepare("INSERT INTO ops_events (event_type, severity, title, details) VALUES ('baseline_created', 'info', 'Manual baseline created', ?)").run(JSON.stringify({ containers: result.totalContainers, disk: result.diskPct }));
+  res.json({ ok: true, ...result });
+}));
 
-app.get('/api/ops/streak', (_req, res) => {
-  try {
-    const latest = db.prepare('SELECT streak_days, streak_broken_at FROM ops_scores ORDER BY timestamp DESC LIMIT 1').get();
-    const best = db.prepare('SELECT MAX(streak_days) as best FROM ops_scores').get();
-    const history = db.prepare('SELECT worry_score, timestamp FROM ops_scores ORDER BY timestamp DESC LIMIT 672').all(); // 7 days * 96 (15min intervals)
-    res.json({ streak_days: latest?.streak_days || 0, best_streak: best?.best || 0, last_broken: latest?.streak_broken_at || null, history });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.get('/api/ops/streak', asyncRoute((_req, res) => {
+  const latest = db.prepare('SELECT streak_days, streak_broken_at FROM ops_scores ORDER BY timestamp DESC LIMIT 1').get();
+  const best = db.prepare('SELECT MAX(streak_days) as best FROM ops_scores').get();
+  const history = db.prepare('SELECT worry_score, timestamp FROM ops_scores ORDER BY timestamp DESC LIMIT 672').all(); // 7 days * 96 (15min intervals)
+  res.json({ streak_days: latest?.streak_days || 0, best_streak: best?.best || 0, last_broken: latest?.streak_broken_at || null, history });
+}));
 
-app.get('/api/ops/timeline', (req, res) => {
-  try {
-    const limit = Math.min(parseInt(req.query?.limit) || 50, 200);
-    const events = db.prepare('SELECT * FROM ops_events ORDER BY timestamp DESC LIMIT ?').all(limit);
-    const unack = db.prepare("SELECT COUNT(*) as n FROM ops_events WHERE acknowledged = 0").get();
-    res.json({ events, unacknowledged: unack?.n || 0 });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+app.get('/api/ops/timeline', asyncRoute((req, res) => {
+  const limit = Math.min(parseInt(req.query?.limit) || 50, 200);
+  const events = db.prepare('SELECT * FROM ops_events ORDER BY timestamp DESC LIMIT ?').all(limit);
+  const unack = db.prepare("SELECT COUNT(*) as n FROM ops_events WHERE acknowledged = 0").get();
+  res.json({ events, unacknowledged: unack?.n || 0 });
+}));
 
 // --- Ops Cron Jobs ---
 
@@ -5282,7 +4960,7 @@ cron.schedule('0 9 * * 1', async () => {
     const staleKeys = [];
     const baselines = db.prepare('SELECT env_hashes, timestamp FROM ops_baselines ORDER BY timestamp ASC LIMIT 1').get();
     if (!baselines) return;
-    const firstSeen = JSON.parse(baselines.env_hashes || '{}');
+    const firstSeen = safeJSON(baselines.env_hashes, {});
     const baselineAge = Math.round((Date.now() - new Date(baselines.timestamp).getTime()) / 86400000);
     if (baselineAge > 90) {
       for (const [slug, keys] of Object.entries(firstSeen)) {

@@ -91,3 +91,17 @@ export function seoScore(avg) {
   if (avg < 60) return 3;
   return 0;
 }
+
+// Parse integer route param, returns NaN for invalid
+export function parseId(raw) {
+  const n = parseInt(raw, 10);
+  return isNaN(n) ? NaN : n;
+}
+
+// Express async route wrapper — eliminates try/catch boilerplate
+export function asyncRoute(fn) {
+  return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(err => {
+    console.error(`[${req.method} ${req.path}]`, err.message);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  });
+}
