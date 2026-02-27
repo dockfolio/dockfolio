@@ -2,80 +2,106 @@
 
 ## 30-Second Summary
 
-Session 9: (1) Analyzed priorities and deprioritized cross-promo injection (zero traffic = zero impact), (2) Rewrote LAUNCH.md - Show HN and r/selfhosted posts sharpened for impact (story-driven, focused on daily-use features), (3) Added ACCOUNTS.md to .gitignore (contains credentials), (4) Added Creative Programmer + AgoraHoch3 to crelvo.dev (was missing 2 of 12 projects), (5) Updated crelvo.dev hero stat from "6 Live Products" to "12", (6) Fixed project descriptions to match actual site content, (7) Built + deployed crelvo.dev to VM, (8) Verified all 14 domains are live, (9) Pushed all commits to github.com/dockfolio/dockfolio.
+Session 9: (1) Analyzed priorities — deprioritized cross-promo injection (zero traffic), focused on launch readiness, (2) Rewrote LAUNCH.md (Show HN + r/selfhosted posts sharpened for impact), (3) Added ACCOUNTS.md to .gitignore, (4) Added Creative Programmer + AgoraHoch3 to crelvo.dev (was missing 2 of 12 projects), updated hero stat 6->12, deployed, (5) Fixed AbschlussCheck admin reprocess timeout bug (last AbortSignal.timeout(30000) in codebase), built + deployed manually to VM (GitHub Actions billing blocked), (6) Generated 45 showcase banners for BannerForge using its own AI pipeline from 5 real portfolio sites, added showcase section to landing page, deployed.
 
-**Most important thing for next session:** Post the launches (LAUNCH.md is ready). Then rotate Telegram token.
+**Most important thing for next session:** Post the launches (LAUNCH.md is ready to copy-paste). Then rotate Telegram token.
 
 ## What Was Done
 
 ### Completed This Session
-- [x] Sharpened LAUNCH.md (Show HN + r/selfhosted posts rewritten for impact)
-- [x] Added ACCOUNTS.md to .gitignore (has Stripe IDs, emails, credentials)
-- [x] Added Creative Programmer (thecreativeprogrammer.dev) to crelvo.dev projects
-- [x] Added AgoraHoch3 (agorahoch3.org) to crelvo.dev projects
-- [x] Fixed project descriptions to match actual site content
+- [x] Rewrote LAUNCH.md — Show HN + r/selfhosted posts (story-driven, daily-use focused)
+- [x] Added ACCOUNTS.md to .gitignore (has credentials)
+- [x] Added Creative Programmer + AgoraHoch3 to crelvo.dev Projects component
 - [x] Updated crelvo.dev hero stat: 6 -> 12 Live Products
-- [x] Built + deployed crelvo.dev to VM (all 8 languages rebuilt)
+- [x] Built + deployed crelvo.dev to VM
 - [x] Verified all 14 domains are live and responding
-- [x] Committed: `e784c89` (launch posts + gitignore)
-- [x] Pushed to github.com/dockfolio/dockfolio
+- [x] Fixed AbschlussCheck admin reprocess timeout (removed AbortSignal.timeout(30000) from app/api/admin/reprocess/route.ts)
+- [x] Built AbschlussCheck from source on VM (GitHub Actions billing issue)
+- [x] Swapped AbschlussCheck compose from GHCR image to local build
+- [x] Generated 45 showcase banners for BannerForge (5 brands x 3 variants x 3 sizes)
+- [x] Added showcase section to BannerForge landing page (8 banners, mixed sizes)
+- [x] Deployed BannerForge to VM via deploy.sh
+- [x] Committed + pushed: appManager (e784c89, e45b114), abschlusscheck (e35ab4b), bannerforge (b790206), crelvo (564fc58)
 
 ### Deliberately Skipped
-- **Cross-promo embed.js injection** — deprioritized. Sites have near-zero traffic, cross-promoting between empty rooms does nothing. Do this after launch drives traffic.
-- **Container name rename deploy** — still risky, still not urgent. See warning below.
+- **Cross-promo embed.js injection** — sites have near-zero traffic, do after launch drives traffic
+- **Container name rename deploy** (appmanager->dockfolio) — risky, not urgent
 
 ### NOT Done — Next Session Must Do
 - [ ] **Post Show HN** — content in LAUNCH.md, best timing Tue-Thu 9-10AM EST
 - [ ] **Post on r/selfhosted** — content in LAUNCH.md
-- [ ] **Submit awesome-selfhosted PR** — entry format in LAUNCH.md (wait for some stars first)
+- [ ] **Submit awesome-selfhosted PR** — entry in LAUNCH.md (wait for stars)
 - [ ] **Rotate Telegram bot token** — manual: @BotFather `/revoke`, get new token, update `/home/deploy/appmanager/.env` on VM
+- [ ] **Fix GitHub Actions billing** — all repos failing CI/CD. Go to github.com/settings/billing
 - [ ] **Archive Crelvo/appManager repo** — old private repo, no longer needed
-- [ ] **Fix AbschlussCheck timeout bug** — auto-refunds large documents (68+ pages), revenue-killing bug. Root cause in `/c/Users/kreyh/Projekte/abschlusscheck/app/api/webhook/route.ts` line 68 (30s timeout too short). See session 6 handover for full analysis.
-- [ ] **Inject cross-promo embed.js** — after traffic justifies it. Plan still in session 8 handover.
-- [ ] **Container name rename** — docker-compose.yml has appmanager->dockfolio rename NOT deployed. See warning below.
+- [ ] **Inject cross-promo embed.js** — after traffic justifies it. Plan in session 8 handover (git log)
+- [ ] **Container name rename** — docker-compose.yml has appmanager->dockfolio NOT deployed. See warning below.
+
+## Key Decisions Made This Session
+
+1. **Deprioritized cross-promo injection** — zero traffic means zero impact. Launch posts are the bottleneck.
+2. **Manual VM deploy for AbschlussCheck** — GitHub Actions billing blocked. Built from source at `/opt/abschlusscheck/src/`, swapped compose to `image: abschlusscheck:latest` (local, not GHCR).
+3. **BannerForge showcase generated from own pipeline** — used `scripts/generate-showcase.ts` which calls scraper + Claude AI copy + Satori renderer directly. Bypasses auth/quota. Rerunnable anytime.
 
 ## CRITICAL WARNING: docker-compose.yml Container Name Change
 
-The local docker-compose.yml was updated to rename containers from `appmanager-dashboard` to `dockfolio-dashboard` and `appmanager-uptime-kuma` to `dockfolio-uptime-kuma`. This has NOT been deployed to the VM yet.
+The appManager local docker-compose.yml renames containers from `appmanager-*` to `dockfolio-*`. **NOT deployed to VM.** Deploying will break Uptime Kuma monitors and nginx proxy_pass. See session 8 handover (in git history) for safe deploy steps.
 
-**DO NOT deploy this change carelessly** — it will:
-1. Create new containers with new names
-2. Break references in Uptime Kuma (monitors target container names)
-3. Break nginx config at `/home/deploy/nginx-configs/sites/appmanager` (proxy_pass reference)
+## CRITICAL WARNING: AbschlussCheck Compose Changed
 
-To deploy safely:
-1. Update Uptime Kuma monitors first
-2. Update nginx appmanager config
-3. Then `docker compose up -d`
-
-Or: revert the container name changes in docker-compose.yml for now.
+`/opt/abschlusscheck/docker-compose.prod.yml` was changed from `image: ghcr.io/konradreyhe/abschlusscheck:latest` to `image: abschlusscheck:latest`. Future deploys must build locally on VM from `/opt/abschlusscheck/src/` until GitHub Actions billing is fixed.
 
 ## Git State
-- **Branch:** master
-- **Latest commit:** `e784c89` (Sharpen launch posts and gitignore ACCOUNTS.md)
-- **Remote:** pushed to `dockfolio` (github.com/dockfolio/dockfolio)
-- **Working tree:** clean
+
+| Repo | Branch | Latest Commit | Remote |
+|------|--------|--------------|--------|
+| appManager | master | e45b114 | pushed to dockfolio |
+| abschlusscheck | main | e35ab4b | pushed to origin |
+| bannerforge | main | b790206 | pushed to origin |
+| slebständig (crelvo) | master | 564fc58 | pushed to origin |
+
+All repos: working tree clean, all pushed.
 
 ## Files Modified This Session
 
 ### appManager repo
 | File | What Changed |
 |------|-------------|
-| `LAUNCH.md` | Rewrote Show HN + r/selfhosted posts, fixed awesome-selfhosted category |
-| `.gitignore` | Added ACCOUNTS.md |
-| `handover.md` | Updated for session 9 |
+| LAUNCH.md | Rewrote Show HN + r/selfhosted posts |
+| .gitignore | Added ACCOUNTS.md |
+| handover.md | Updated for session 9 |
 
 ### Crelvo website (C:\Users\kreyh\Projekte\slebständig)
 | File | What Changed |
 |------|-------------|
-| `src/components/Projects.astro` | Added Creative Programmer + AgoraHoch3 (now 12 projects) |
-| `src/components/Hero.astro` | Changed "6" to "12" Live Products |
+| src/components/Projects.astro | Added Creative Programmer + AgoraHoch3 (12 projects) |
+| src/components/Hero.astro | 6 -> 12 Live Products |
+
+### AbschlussCheck (C:\Users\kreyh\Projekte\abschlusscheck)
+| File | What Changed |
+|------|-------------|
+| app/api/admin/reprocess/route.ts | Removed AbortSignal.timeout(30000), fire-and-forget |
+
+### BannerForge (C:\Users\kreyh\Projekte\ad\bannerforge)
+| File | What Changed |
+|------|-------------|
+| src/app/page.tsx | Added showcase section with 8 banner grid |
+| public/showcase/ | NEW — 45 AI-generated PNG banners (5 brands) |
+| scripts/generate-showcase.ts | NEW — Showcase generation script |
+
+### VM Changes (not in git)
+| File | What Changed |
+|------|-------------|
+| /opt/abschlusscheck/docker-compose.prod.yml | image changed to local build |
+| /opt/abschlusscheck/src/ | NEW — cloned source for local builds |
+| /var/www/crelvo/* | Updated with 12 projects |
 
 ## Key URLs
 
 | Resource | URL |
 |----------|-----|
-| Dashboard | https://admin.crelvo.dev (admin / appmanager2024) |
-| Landing page | https://dockfolio.dev |
-| GitHub (public) | https://github.com/dockfolio/dockfolio |
+| Dashboard | https://admin.crelvo.dev |
+| Dockfolio landing | https://dockfolio.dev |
+| BannerForge | https://bannerforge.app |
 | Crelvo | https://crelvo.dev |
+| GitHub (Dockfolio) | https://github.com/dockfolio/dockfolio |
