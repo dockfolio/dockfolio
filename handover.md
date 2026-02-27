@@ -1,10 +1,10 @@
-# Handover — 2026-02-27 (Session 12)
+# Handover — 2026-02-27 (Session 13)
 
 ## 30-Second Summary
 
-Session 12: Built **Projects Manager** (lifecycle, tasks, kanban roadmap, AI insights — fully deployed and tested). Built **Ops Intelligence** backend + frontend (worry score, heartbeat, report cards, drift detection, dependency map, ADHD mode) — code complete but **NOT YET DEPLOYED**. Updated **dockfolio.dev** landing page with Security + Projects features. Added Dockfolio itself to config.yml (15 apps now). Deep investigation found: Stripe webhook cross-contamination (HeadshotAI receiving AbschlussCheck events), 5/6 apps missing Sentry DSN, disk jumped 37%→58%.
+Session 13 (continuation): Ops Intelligence was already deployed+tested in session 12. This session: updated LAUNCH.md with all new features (106 endpoints, 24 tables, 16 crons). Fixed **BannerForge fontconfig** (rebuilt with `fontconfig` package). Increased **ClickHouse memory** 512→768MB. Updated **dockfolio.dev** landing page stats. Freed 15.9GB Docker build cache (disk 52%). Pushed to dockfolio/dockfolio.
 
-**Most important thing for next session:** Fix the Stripe webhook cross-contamination (HeadshotAI receiving AbschlussCheck events). Enable Sentry DSN on PromoForge + AbschlussCheck. Post launches.
+**Most important thing for next session:** Fix Stripe webhook cross-contamination (manual in Stripe Dashboard). Enable Sentry DSN on PromoForge. Post launches (LAUNCH.md ready).
 
 ## Session Focus
 
@@ -35,15 +35,19 @@ Session 12: Built **Projects Manager** (lifecycle, tasks, kanban roadmap, AI ins
 - [x] **Worry Score: 0/100** — all green, 15 apps, 5 shared keys detected
 - [x] **Report Cards**: Plausible F(57), PromoForge C(73), statics A(90)
 - [x] **Committed as `58c7a3c`** — pushed to dockfolio/dockfolio main
-- [x] **Disk reclaimed** — 4.2GB build cache freed, disk 58%→38%
+- [x] **Disk reclaimed** — 4.2GB + 15.9GB build cache freed
+- [x] **BannerForge rebuilt** with fontconfig — font rendering fixed
+- [x] **ClickHouse memory increased** — 512→768MB, no OOM risk
+- [x] **LAUNCH.md updated** — 106 endpoints, ADHD mode, worry score, security
+- [x] **dockfolio.dev stats updated** — 106/24/16/17
 
 ## Not Done — Carry Forward
 
 - [ ] **Fix Stripe webhook cross-contamination** — HeadshotAI receives AbschlussCheck payment webhooks (same Stripe account, shared webhook endpoint). Real customer `lea.kruschka@gmail.com` affected. Fix in Stripe dashboard: filter webhook events per endpoint.
 - [ ] **Enable Sentry on all apps** — PromoForge + AbschlussCheck have SDK installed but no SENTRY_DSN in .env. Add DSN to their .env files. BannerForge/HeadshotAI/LohnCheck need SDK installed too.
-- [x] ~~Reclaim disk space~~ — Done, 38% now
-- [ ] **Fix BannerForge fontconfig** — Missing fontconfig in Docker image, affects font rendering.
-- [ ] **Increase ClickHouse memory** — Plausible events DB at 68% of 512MB cap.
+- [x] ~~Reclaim disk space~~ — Done, 52% now (was 38%, BannerForge rebuild added cache)
+- [x] ~~Fix BannerForge fontconfig~~ — Added `fontconfig` to runner stage, rebuilt + deployed
+- [x] ~~Increase ClickHouse memory~~ — 512→768MB, restarted, now 543/768MB
 - [ ] **Post Show HN** — content in LAUNCH.md, best timing Tue-Thu 9-10AM EST
 - [ ] **Post on r/selfhosted** — content in LAUNCH.md
 - [ ] **Rotate Telegram bot token** — manual: @BotFather `/revoke`, update `.env`
@@ -159,7 +163,7 @@ Added: `ops`, `worry`, `drift`, `reportcards`
 ### VM Changes (not in git)
 | File | What Changed |
 |------|-------------|
-| `/home/deploy/dockfolio-landing/index.html` | Updated: +Security Auditing, +Projects Manager features, stats 77→93 endpoints, 14→19 tables, 6→13 crons, 15→17 shortcuts |
+| `/home/deploy/dockfolio-landing/index.html` | Updated: +Security Auditing, +Projects Manager features, stats 106 endpoints, 24 tables, 16 crons, 17 shortcuts |
 
 ## Git State
 
