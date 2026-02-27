@@ -1144,8 +1144,8 @@
           }
         }
       }
-      if (sys.disk?.percent > 80) issues.push(`Disk usage at ${sys.disk.percent}% — consider cleanup`);
-      if (sys.swap?.percent > 60) issues.push(`Swap at ${sys.swap.percent}% — RAM under pressure`);
+      if (sys.disk?.percent > 80) issues.push(`Disk usage at ${sys.disk.percent}%, consider cleanup`);
+      if (sys.swap?.percent > 60) issues.push(`Swap at ${sys.swap.percent}%, RAM under pressure`);
       // SSL cert warnings
       if (sslData.domains) {
         for (const [domain, info] of Object.entries(sslData.domains)) {
@@ -2419,7 +2419,7 @@
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
             <strong>${escapeHtml(c.source_app)}</strong> shows banner for <strong>${escapeHtml(c.target_app)}</strong>
           </div>
-          <div style="font-size:12px;margin-bottom:8px;color:var(--text)">"${escapeHtml(c.headline)}" — <span style="color:var(--cyan)">${escapeHtml(c.cta_text)}</span></div>
+          <div style="font-size:12px;margin-bottom:8px;color:var(--text)">"${escapeHtml(c.headline)}" · <span style="color:var(--cyan)">${escapeHtml(c.cta_text)}</span></div>
           <div style="display:flex;justify-content:space-between;align-items:center">
             <span style="font-size:11px;color:var(--text-muted)">${c.views} views / ${c.clicks} clicks (${viewsClicks})</span>
             <div style="display:flex;gap:4px">

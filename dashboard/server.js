@@ -199,7 +199,7 @@ function loginPageHTML(isSetup) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dockfolio — ${isSetup ? 'Setup' : 'Login'}</title>
+  <title>Dockfolio ${isSetup ? 'Setup' : 'Login'}</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230a0a0f'/><circle cx='30' cy='35' r='8' fill='%2322c55e'/><circle cx='70' cy='35' r='8' fill='%2322c55e'/><circle cx='50' cy='65' r='8' fill='%233b82f6'/><line x1='30' y1='43' x2='50' y2='57' stroke='%232a2a3a' stroke-width='3'/><line x1='70' y1='43' x2='50' y2='57' stroke='%232a2a3a' stroke-width='3'/></svg>">
   <style>
     :root { --bg: #0a0a0f; --surface: #12121a; --surface2: #1a1a25; --border: #2a2a3a; --text: #e4e4ed; --text-dim: #8888a0; --green: #22c55e; --red: #ef4444; --blue: #3b82f6; }
@@ -2013,7 +2013,7 @@ Write in the primary language listed above. Be concise and conversion-focused. O
 }
 
 function formatContentTitle(contentType, keyword) {
-  return `${contentType.replace(/_/g, ' ')} — ${keyword}`;
+  return `${contentType.replace(/_/g, ' ')}: ${keyword}`;
 }
 
 function deriveKeywords(appDef) {
@@ -2778,11 +2778,11 @@ Generate a concise morning briefing based on this operational data:
 ${JSON.stringify(context, null, 2)}
 
 Format your response as a brief, scannable report:
-1. **Status Line** — One sentence: overall health (green/yellow/red)
-2. **Overnight Events** — What happened in the last 24h (2-3 bullet points max, skip if nothing notable)
-3. **Key Metrics** — MRR, revenue, notable SEO changes (2-3 bullets)
-4. **Action Items** — Prioritized list of things that need attention (be specific: which app, what to do)
-5. **All Clear** — If nothing needs attention, just say "All systems nominal."
+1. **Status Line** One sentence: overall health (green/yellow/red)
+2. **Overnight Events** What happened in the last 24h (2-3 bullet points max, skip if nothing notable)
+3. **Key Metrics** MRR, revenue, notable SEO changes (2-3 bullets)
+4. **Action Items** Prioritized list of things that need attention (be specific: which app, what to do)
+5. **All Clear** If nothing needs attention, just say "All systems nominal."
 
 Be direct, no fluff. Use markdown formatting. If backups are stale or containers unhealthy, that's priority 1.`;
 
@@ -2923,7 +2923,7 @@ const HEALING_PLAYBOOKS = [
     action: 'log_only',
     confidence: 'low',
     execute: async (target) => {
-      return `Container ${target.name} is in restart loop — needs manual investigation`;
+      return `Container ${target.name} is in restart loop, needs manual investigation`;
     },
   },
   {
@@ -3791,12 +3791,12 @@ ${bundles ? `\nCross-sell bundles:\n${bundles}` : ''}
 Generate 6 sections. For each section, output a JSON object on its own line with fields: section, title, content (markdown).
 
 Sections needed:
-1. section:"strategy" — Positioning, key differentiator, 3-month goals (3-5 bullets each)
-2. section:"channels" — Ranked marketing channels with effort/impact ratings
-3. section:"content" — 5 blog post topics, 3 social media angles, video ideas
-4. section:"seo" — Specific SEO action items based on current score
-5. section:"email" — Onboarding (3 emails), activation (2 emails), retention (2 emails) — just subject lines + timing
-6. section:"crosssell" — How to cross-promote with related apps in the portfolio
+1. section:"strategy" Positioning, key differentiator, 3-month goals (3-5 bullets each)
+2. section:"channels" Ranked marketing channels with effort/impact ratings
+3. section:"content" 5 blog post topics, 3 social media angles, video ideas
+4. section:"seo" Specific SEO action items based on current score
+5. section:"email" Onboarding (3 emails), activation (2 emails), retention (2 emails), just subject lines + timing
+6. section:"crosssell" How to cross-promote with related apps in the portfolio
 
 Output ONLY a JSON array of 6 objects, no other text. Each object: {"section":"...", "title":"...", "content":"..."}`;
 
