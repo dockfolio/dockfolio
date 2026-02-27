@@ -479,6 +479,7 @@ function getUser(id) {
 **Rule:** Keep documentation minimal, focused, and up-to-date.
 
 **Permanent Docs:**
+- `CLAUDE.md` - Agent context (architecture, API reference, conventions)
 - `PRINCIPLES.md` - This file (engineering principles)
 - `README.md` - Product README (features, quick start, config)
 - `handover.md` - Session handover (architecture, APIs, current state)
