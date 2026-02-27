@@ -16,14 +16,17 @@ Dockfolio sits next to your Docker apps as a single container. It reads your Doc
 
 What I actually use daily:
 
+- **Worry Score**: A single 0-100 number that tells me if I need to open the dashboard. Composite of container health, API keys, disk, backups, security, and SEO. If it's under 15, I go back to sleep.
 - **Morning briefing**: AI-generated summary of what happened overnight (Claude Haiku, ~$0.001/day)
 - **Revenue per app**: Stripe MRR and charges broken down by app, even when they share a Stripe account
 - **Auto-healing**: Restarts unhealthy containers and alerts me on Telegram before I notice
+- **Security audits**: Automated scans across the whole fleet — SSL, headers, CORS, cookies, injection vectors
+- **ADHD Mode** (Shift+A): Dims everything that's healthy so I only see problems. This is the feature I built for myself.
 - **Ctrl+K command palette**: Keyboard-driven everything. I rarely touch the mouse.
 
-It also does SEO audits, traffic analytics (Plausible), email sequences, and cross-app customer tracking, but honestly the four things above are what keep me opening it.
+It also does SEO audits, traffic analytics (Plausible), project management with kanban boards, config drift detection, app dependency mapping, email sequences, and cross-app customer tracking.
 
-Stack: Express + vanilla JS + SQLite. ~140KB frontend. No build step. 77 API endpoints in a single server.js. It's a monolith by design.
+Stack: Express + vanilla JS + SQLite. ~140KB frontend. No build step. 106 API endpoints in a single server.js. It's a monolith by design.
 
 ```
 curl -fsSL https://raw.githubusercontent.com/dockfolio/dockfolio/master/install.sh | bash
@@ -50,14 +53,18 @@ I run 13 sites on a single Hetzner VPS (3 SaaS products, 3 tools, Plausible, 6 s
 **Dockfolio** is a single Docker container that gives me one dashboard for all of it:
 
 - Container management (status, restart, logs, prune, resource usage)
+- **Ops Intelligence**: Worry score (0-100), config drift detection, app dependency mapping, per-app report cards (A-F)
+- **Security audits**: Fleet-wide scans — SSL, headers, CORS, cookies, injection vectors
+- **Project management**: Tasks, kanban roadmap, AI insights
 - Stripe revenue tracking per app (MRR, charges, shared account detection)
 - Plausible traffic integration
 - SEO audits (13 checks, A-F scores)
 - Auto-healing (restarts unhealthy containers, Telegram alerts)
 - AI morning briefing via Claude Haiku
-- Ctrl+K command palette, 15 keyboard shortcuts
+- **ADHD Mode**: Dims healthy items so you only see problems
+- Ctrl+K command palette, 17 keyboard shortcuts
 
-It's keyboard-first and deliberately simple: Express, vanilla JS, SQLite. ~140KB frontend. It auto-discovers your running Docker containers and reads API keys from your apps' .env files.
+It's keyboard-first and deliberately simple: Express, vanilla JS, SQLite. ~140KB frontend, 106 API endpoints. It auto-discovers your running Docker containers and reads API keys from your apps' .env files.
 
 **This is not a PaaS.** It doesn't deploy, doesn't manage git repos, doesn't build images. It's the dashboard you open after your apps are already running to understand how your portfolio is doing.
 
@@ -80,5 +87,5 @@ Would love to hear what features you'd find useful. Multi-server support is the 
 Category: `Software Development - Deployment`
 
 ```
-- [Dockfolio](https://dockfolio.dev) - Dashboard for Docker app portfolios combining container management with Stripe revenue tracking, SEO auditing, and auto-healing. ([Source Code](https://github.com/dockfolio/dockfolio)) `AGPL-3.0` `Docker`
+- [Dockfolio](https://dockfolio.dev) - Dashboard for Docker app portfolios combining container management, ops intelligence, security auditing, Stripe revenue tracking, and auto-healing. ([Source Code](https://github.com/dockfolio/dockfolio)) `AGPL-3.0` `Docker`
 ```
