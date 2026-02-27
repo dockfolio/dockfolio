@@ -936,6 +936,13 @@
           </div>
         </div>
       </div>
+      <div id="bannerInjectionStatus" style="display:none;margin-bottom:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-size:11px;font-weight:600">Embed Status</div>
+          <button class="btn" onclick="checkInjectionStatus()" style="font-size:10px;color:var(--text-muted);padding:2px 6px">Refresh</button>
+        </div>
+        <div id="injectionStatusGrid" style="display:flex;flex-wrap:wrap;gap:4px;font-size:10px"></div>
+      </div>
       <div id="mktBannersGrid" class="marketing-grid"></div>
       <div id="bannerPlacementPanel" style="display:none;margin-top:12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -1726,7 +1733,7 @@
       // Lazy-load crosspromo tab data
       if (tabName === 'crosspromo' && !crosspromoData) fetchCrosspromo();
       // Lazy-load banners tab data
-      if (tabName === 'banners' && !bannersData) fetchBanners();
+      if (tabName === 'banners') { if (!bannersData) fetchBanners(); checkInjectionStatus(); }
       // Lazy-load playbook tab data
       if (tabName === 'playbook') { initPlaybookFilter(); if (!playbookData) fetchPlaybook(); }
     }
@@ -2508,6 +2515,26 @@
     // =============================================
     // Banner Management
     // =============================================
+
+    async function checkInjectionStatus() {
+      const grid = document.getElementById('injectionStatusGrid');
+      const container = document.getElementById('bannerInjectionStatus');
+      container.style.display = '';
+      grid.innerHTML = '<span style="color:var(--text-muted)">Checking sites...</span>';
+      try {
+        const res = await fetch('/api/banners/injection-status');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        grid.innerHTML = data.map(s => {
+          const color = s.injected ? 'var(--green)' : s.error ? 'var(--yellow)' : 'var(--red)';
+          const icon = s.injected ? '&#10003;' : s.error ? '?' : '&#10007;';
+          const title = s.injected ? 'Embed.js injected' : s.error ? 'Site unreachable' : 'Not injected';
+          return `<span style="background:var(--surface1);border:1px solid var(--border);border-radius:6px;padding:2px 8px;white-space:nowrap" title="${title}"><span style="color:${color}">${icon}</span> ${s.slug}</span>`;
+        }).join('');
+      } catch {
+        grid.innerHTML = '<span style="color:var(--red)">Failed to check</span>';
+      }
+    }
 
     async function fetchBanners() {
       try {

@@ -3686,6 +3686,35 @@ app.get('/api/banners/:placementId/click', (req, res) => {
   }
 });
 
+// Banner injection status — checks which sites have embed.js deployed
+app.get('/api/banners/injection-status', async (_req, res) => {
+  try {
+    const results = [];
+    for (const app of config.apps || []) {
+      if (!app.domain || app.type === 'infra' || app.type === 'redirect') continue;
+      const slug = slugify(app.name);
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const resp = await fetch(`https://${app.domain}/`, {
+          headers: { 'Accept-Encoding': '' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        const html = await resp.text();
+        const injected = html.includes('banners/embed.js') && html.includes(`data-app="${slug}"`);
+        const proxyWorks = html.includes('/api/banners/embed.js');
+        results.push({ slug, domain: app.domain, injected, proxyWorks });
+      } catch {
+        results.push({ slug, domain: app.domain, injected: null, error: 'unreachable' });
+      }
+    }
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // =============================================
 // Marketing Playbook
 // =============================================
