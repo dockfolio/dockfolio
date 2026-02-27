@@ -14,5 +14,6 @@ scripts/setup-kuma*.js
 scripts/take-screenshots.js
 scripts/deploy-banner-injection.*
 docker-compose.yml
+deploy.sh
 CLAUDE.md
 PRINCIPLES.md
