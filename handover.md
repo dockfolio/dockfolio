@@ -4,7 +4,7 @@
 
 Session 12: Built **Projects Manager** (lifecycle, tasks, kanban roadmap, AI insights — fully deployed and tested). Built **Ops Intelligence** backend + frontend (worry score, heartbeat, report cards, drift detection, dependency map, ADHD mode) — code complete but **NOT YET DEPLOYED**. Updated **dockfolio.dev** landing page with Security + Projects features. Added Dockfolio itself to config.yml (15 apps now). Deep investigation found: Stripe webhook cross-contamination (HeadshotAI receiving AbschlussCheck events), 5/6 apps missing Sentry DSN, disk jumped 37%→58%.
 
-**Most important thing for next session:** Deploy the Ops Intelligence feature (`bash deploy.sh --rebuild`), test all 10 endpoints, then commit.
+**Most important thing for next session:** Fix the Stripe webhook cross-contamination (HeadshotAI receiving AbschlussCheck events). Enable Sentry DSN on PromoForge + AbschlussCheck. Post launches.
 
 ## Session Focus
 
@@ -28,27 +28,20 @@ Session 12: Built **Projects Manager** (lifecycle, tasks, kanban roadmap, AI ins
 - [x] **Ops Intelligence backend** — 3 tables, 5 core functions, 10 endpoints, 3 crons, briefing integration, command palette
 - [x] **Ops Intelligence frontend** — CSS (~70 rules), HTML panel (4 tabs), JS (~15 functions), keyboard shortcuts (o, Shift+A)
 
-## NOT Deployed — Must Do First
+## Deployed & Verified This Session
 
-- [ ] **Deploy Ops Intelligence** — `bash deploy.sh --rebuild` — code is in server.js + index.html but container has NOT been rebuilt
-- [ ] **Test all 10 Ops endpoints** after deploy:
-  - GET /api/ops/worry-score
-  - GET /api/ops/heartbeat
-  - GET /api/ops/report-card/:slug
-  - GET /api/ops/report-cards
-  - GET /api/ops/dependencies
-  - GET /api/ops/drift
-  - POST /api/ops/drift/:id/acknowledge
-  - POST /api/ops/baseline
-  - GET /api/ops/streak
-  - GET /api/ops/timeline
-- [ ] **Commit all changes** — server.js (+511 lines), index.html (+292 lines), config.yml (+15 lines)
+- [x] **Ops Intelligence deployed** — `bash deploy.sh --rebuild` — all 10 endpoints tested
+- [x] **First baseline created** — 18 containers, 6 apps with env hashes, 40% disk
+- [x] **Worry Score: 0/100** — all green, 15 apps, 5 shared keys detected
+- [x] **Report Cards**: Plausible F(57), PromoForge C(73), statics A(90)
+- [x] **Committed as `58c7a3c`** — pushed to dockfolio/dockfolio main
+- [x] **Disk reclaimed** — 4.2GB build cache freed, disk 58%→38%
 
 ## Not Done — Carry Forward
 
 - [ ] **Fix Stripe webhook cross-contamination** — HeadshotAI receives AbschlussCheck payment webhooks (same Stripe account, shared webhook endpoint). Real customer `lea.kruschka@gmail.com` affected. Fix in Stripe dashboard: filter webhook events per endpoint.
 - [ ] **Enable Sentry on all apps** — PromoForge + AbschlussCheck have SDK installed but no SENTRY_DSN in .env. Add DSN to their .env files. BannerForge/HeadshotAI/LohnCheck need SDK installed too.
-- [ ] **Reclaim disk space** — 58% used (was 37%). 32GB reclaimable Docker build cache. `docker builder prune` + old images.
+- [x] ~~Reclaim disk space~~ — Done, 38% now
 - [ ] **Fix BannerForge fontconfig** — Missing fontconfig in Docker image, affects font rendering.
 - [ ] **Increase ClickHouse memory** — Plausible events DB at 68% of 512MB cap.
 - [ ] **Post Show HN** — content in LAUNCH.md, best timing Tue-Thu 9-10AM EST
@@ -172,18 +165,18 @@ Added: `ops`, `worry`, `drift`, `reportcards`
 
 | Repo | Branch | Status | Latest Commit |
 |------|--------|--------|---------------|
-| appManager | master | 3 modified files (uncommitted) | 63e403f |
-| dockfolio/dockfolio | main | synced (force pushed this session) | 63e403f |
+| appManager | master | clean | 58c7a3c |
+| dockfolio/dockfolio | main | synced | 58c7a3c |
 
 ## Next Steps (Priority Order)
 
-1. **Deploy Ops Intelligence** — `bash deploy.sh --rebuild`, test all 10 endpoints
-2. **Commit everything** — server.js, index.html, config.yml, handover.md
-3. **Fix Stripe webhook cross-contamination** — filter events in Stripe dashboard
-4. **Enable Sentry DSN** on PromoForge + AbschlussCheck (.env update + container restart)
-5. **Reclaim disk** — `docker builder prune`, remove old images
-6. **Post Show HN** — LAUNCH.md ready
-7. **Push to dockfolio/dockfolio** — `git push dockfolio master:main`
+1. **Fix Stripe webhook cross-contamination** — filter events in Stripe dashboard per endpoint
+2. **Enable Sentry DSN** on PromoForge + AbschlussCheck (.env + container restart)
+3. **Post Show HN** — LAUNCH.md ready (Tue-Thu 9-10AM EST)
+4. **Post r/selfhosted** — LAUNCH.md ready
+5. **Rotate Telegram bot token** — @BotFather `/revoke`, update `.env`
+6. **Fix GitHub Actions billing**
+7. **Add CSP headers** — per-site, report-only mode first
 
 ## Key URLs
 
