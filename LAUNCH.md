@@ -2,91 +2,83 @@
 
 ## Show HN
 
-**Title:** Show HN: Dockfolio - Business dashboard for indie hackers running Docker apps
+**Title:** Show HN: Dockfolio - A dashboard that treats your Docker apps as a business, not just containers
 
 **Body:**
 
 Hi HN,
 
-I built Dockfolio because I run 6 SaaS apps and 7 static sites on a single Hetzner VPS, and I got tired of switching between Portainer (is it running?), Stripe (is it earning?), and Google Search Console (is it ranking?).
+I run 6 SaaS apps and 7 static sites on a single Hetzner VPS. I got tired of checking three different tabs every morning: Portainer (is it running?), Stripe (is it earning?), Search Console (is it ranking?).
 
-Dockfolio is a single-container dashboard that sits next to your Docker apps and gives you:
+So I built one dashboard that answers all three.
 
-- Container management (status, restart, logs, resource usage)
-- Stripe revenue tracking (MRR, per-app breakdown, shared account detection)
-- SEO auditing (13 checks, A-F scoring)
-- AI morning briefing via Claude Haiku (~$0.001/day)
-- Auto-healing (restart unhealthy containers, disk cleanup, Telegram alerts)
-- Command palette (Ctrl+K) with 15 keyboard shortcuts
-- Cross-app customer cohort analysis
-- Marketing automation (email sequences, content pipeline, banner management)
+Dockfolio sits next to your Docker apps as a single container. It reads your Docker socket for infrastructure, reads your apps' .env files for Stripe/Plausible/Resend keys, and gives you one view of your entire portfolio.
 
-It's a ~140KB vanilla JS frontend + Express backend + SQLite. No frameworks, no build step, no external dependencies required. Connects to your Docker socket and reads API keys from your apps' .env files.
+What I actually use daily:
 
-Install:
+- **Morning briefing**: AI-generated summary of what happened overnight (Claude Haiku, ~$0.001/day)
+- **Revenue per app**: Stripe MRR and charges broken down by app, even when they share a Stripe account
+- **Auto-healing**: Restarts unhealthy containers and alerts me on Telegram before I notice
+- **Ctrl+K command palette**: Keyboard-driven everything. I rarely touch the mouse.
+
+It also does SEO audits, traffic analytics (Plausible), email sequences, and cross-app customer tracking, but honestly the four things above are what keep me opening it.
+
+Stack: Express + vanilla JS + SQLite. ~140KB frontend. No build step. 77 API endpoints in a single server.js. It's a monolith by design.
+
 ```
 curl -fsSL https://raw.githubusercontent.com/dockfolio/dockfolio/master/install.sh | bash
 ```
 
 GitHub: https://github.com/dockfolio/dockfolio
-Landing page: https://dockfolio.dev
+Site: https://dockfolio.dev
 License: AGPL-3.0
 
-The key insight: tools like Coolify and CapRover help you deploy apps. But once they're running, you need to understand them as a business. Dockfolio fills that gap.
+Limitations I'm upfront about: single-server only, no git deployments, no RBAC, no automated tests. Multi-server is planned.
 
-Known limitations: single-server only (multi-server planned), no git deployments, no RBAC, no automated tests. It's a monolith by design.
-
-Would love feedback on what's missing or what you'd want to see next.
+Happy to answer questions about the architecture or how I'm using it.
 
 ---
 
 ## r/selfhosted
 
-**Title:** Dockfolio - A self-hosted business dashboard for your Docker app portfolio (AGPL-3.0, single container)
+**Title:** I built a dashboard that combines Docker management with Stripe revenue tracking (Dockfolio, AGPL-3.0)
 
 **Body:**
 
-I've been running 13 sites on a single Hetzner VPS for a while now - 3 SaaS products, 3 tools, Plausible Analytics, and 6 static sites. I built a dashboard to manage all of them from one place.
+I run 13 sites on a single Hetzner VPS (3 SaaS products, 3 tools, Plausible, 6 static sites). Portainer tells me if containers are running. Stripe tells me if they're earning. Plausible tells me if anyone's visiting. I got tired of checking all three separately.
 
-**What it does:**
+**Dockfolio** is a single Docker container that gives me one dashboard for all of it:
 
-- Docker container management (status, restart, logs, disk usage, prune)
-- System metrics (CPU, memory, disk, swap, load)
-- Stripe revenue tracking per app (MRR, charges, customer cohorts)
-- SEO auditing with A-F scoring (13 checks per site)
+- Container management (status, restart, logs, prune, resource usage)
+- Stripe revenue tracking per app (MRR, charges, shared account detection)
+- Plausible traffic integration
+- SEO audits (13 checks, A-F scores)
+- Auto-healing (restarts unhealthy containers, Telegram alerts)
 - AI morning briefing via Claude Haiku
-- Auto-healing engine (restart unhealthy containers, disk cleanup)
-- Ctrl+K command palette with 15 keyboard shortcuts
-- Email sequences, content pipeline, banner management
-- SSL certificate monitoring
-- Uptime Kuma integration
+- Ctrl+K command palette, 15 keyboard shortcuts
 
-**Screenshots:** See the GitHub repo or https://dockfolio.dev
+It's keyboard-first and deliberately simple: Express, vanilla JS, SQLite. ~140KB frontend. It auto-discovers your running Docker containers and reads API keys from your apps' .env files.
 
-**Stack:** Node.js, Express, vanilla JS, SQLite, Dockerode. Single container, ~140KB frontend, 77 API endpoints. No frameworks.
+**This is not a PaaS.** It doesn't deploy, doesn't manage git repos, doesn't build images. It's the dashboard you open after your apps are already running to understand how your portfolio is doing.
 
 **Install:**
 ```
 curl -fsSL https://raw.githubusercontent.com/dockfolio/dockfolio/master/install.sh | bash
 ```
+Then open `http://your-server:9091` and create your admin account.
 
-Then open http://your-server:9091 and create your admin account. Apps are auto-discovered from running Docker containers.
-
-**Integrations (all optional):** Stripe, Plausible Analytics, Anthropic (Claude), Resend, Telegram, Uptime Kuma
-
+**Screenshots + docs:** https://dockfolio.dev
 **GitHub:** https://github.com/dockfolio/dockfolio
 **License:** AGPL-3.0
 
-This is not a PaaS. It doesn't deploy apps or manage git repos. It's the dashboard you open after your apps are already running to understand how they're doing as a portfolio.
-
-Feedback welcome!
+Would love to hear what features you'd find useful. Multi-server support is the most requested thing so far.
 
 ---
 
 ## awesome-selfhosted PR entry
 
-Category: `Software Development - Project Management`
+Category: `Software Development - Deployment`
 
 ```
-- [Dockfolio](https://dockfolio.dev) - Business dashboard for Docker app portfolios. Monitor containers, track Stripe revenue, automate marketing, and heal infrastructure from one keyboard-driven interface. ([Source Code](https://github.com/dockfolio/dockfolio)) `AGPL-3.0` `Docker`
+- [Dockfolio](https://dockfolio.dev) - Dashboard for Docker app portfolios combining container management with Stripe revenue tracking, SEO auditing, and auto-healing. ([Source Code](https://github.com/dockfolio/dockfolio)) `AGPL-3.0` `Docker`
 ```

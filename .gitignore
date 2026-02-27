@@ -5,3 +5,4 @@ node_modules/
 scripts/visit-watcher.sh
 .env
 auth.db
+ACCOUNTS.md
