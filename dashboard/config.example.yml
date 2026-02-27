@@ -1,0 +1,67 @@
+apps:
+  # === SaaS Products ===
+  - name: My SaaS App
+    type: saas
+    domain: my-saas.example.com
+    port: 3000
+    health: /health
+    containers:
+      - my-saas-api-1
+      - my-saas-postgres-1
+      - my-saas-redis-1
+    description: Your SaaS product description
+    tech: Node.js + PostgreSQL + Redis
+    repo: /opt/my-saas
+    envFile: /opt/my-saas/.env
+    composeFile: /opt/my-saas/docker-compose.yml
+    marketing:
+      tagline: Your app tagline
+      targetAudience: Your target audience
+      languages: [en]
+      pricingUrl: https://my-saas.example.com/#pricing
+
+  # === Tools ===
+  - name: My Tool
+    type: tool
+    domain: my-tool.example.com
+    port: 3001
+    health: /
+    containers:
+      - my-tool-web-1
+    description: Your tool description
+    tech: Node.js
+    repo: /opt/my-tool
+    envFile: /opt/my-tool/.env
+    composeFile: /opt/my-tool/docker-compose.yml
+
+  # === Infrastructure ===
+  - name: Plausible Analytics
+    type: infra
+    domain: plausible.example.com
+    port: 8000
+    health: /
+    containers:
+      - plausible-plausible-1
+      - plausible-plausible_db-1
+      - plausible-plausible_events_db-1
+    description: Self-hosted web analytics
+    tech: Elixir + PostgreSQL + ClickHouse
+    repo: /opt/plausible
+
+  # === Static Sites ===
+  - name: My Blog
+    type: static
+    domain: blog.example.com
+    health: /
+    containers: []
+    description: Personal blog
+    tech: Astro
+    repo: /opt/my-blog
+
+  # === Redirects ===
+  - name: OldDomain.com
+    type: redirect
+    domain: old-domain.com
+    redirectTo: new-domain.com
+    containers: []
+    description: Domain redirect

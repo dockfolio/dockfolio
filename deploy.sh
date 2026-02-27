@@ -5,8 +5,8 @@
 
 set -euo pipefail
 
-SERVER="deploy@91.99.104.132"
-REMOTE_DIR="/home/deploy/appmanager"
+SERVER="${DOCKFOLIO_SERVER:-deploy@your-server-ip}"
+REMOTE_DIR="${DOCKFOLIO_REMOTE_DIR:-/home/deploy/appmanager}"
 REBUILD="${1:-}"
 
 echo "==> Uploading files..."
@@ -101,7 +101,6 @@ fi
 echo "[4/4] Status:"
 docker compose ps --format "table {{.Name}}\t{{.Status}}"
 echo ""
-echo "Dashboard:   https://admin.crelvo.dev"
-echo "Uptime Kuma: https://admin.crelvo.dev/uptime/"
-echo "Status Page: https://admin.crelvo.dev/uptime/status-page/status"
+echo "Dashboard:   http://localhost:9091"
+echo "Uptime Kuma: http://localhost:9090"
 REMOTE

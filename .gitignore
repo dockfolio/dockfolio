@@ -6,3 +6,13 @@ scripts/visit-watcher.sh
 .env
 auth.db
 ACCOUNTS.md
+handover.md
+plans/
+LAUNCH.md
+dashboard/config.yml
+scripts/setup-kuma*.js
+scripts/take-screenshots.js
+scripts/deploy-banner-injection.*
+docker-compose.yml
+CLAUDE.md
+PRINCIPLES.md
