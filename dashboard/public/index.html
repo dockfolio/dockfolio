@@ -403,6 +403,56 @@
     /* Healing Panel */
     .healing-panel { display: none; padding: 12px 32px; border-bottom: 1px solid var(--border); background: var(--surface); }
     .healing-panel.active { display: block; }
+    .security-panel { display: none; padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .security-panel.active { display: block; animation: tabFadeIn 0.3s ease; }
+    .sec-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+    .sec-tab { background: none; border: none; color: var(--text-dim); font-size: 12px; padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .sec-tab:hover { color: var(--text); }
+    .sec-tab.active { color: var(--text); border-bottom-color: var(--cyan); }
+    .sec-tab-content { display: none; }
+    .sec-tab-content.active { display: block; }
+    .sec-score-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; }
+    .sec-score-big { font-size: 42px; font-weight: 700; line-height: 1; }
+    .sec-grade { font-size: 18px; font-weight: 700; display: inline-block; padding: 2px 10px; border-radius: 6px; margin-top: 4px; }
+    .sec-category-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 12px; }
+    .sec-cat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+    .sec-cat-card h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 6px; }
+    .sec-cat-score { font-size: 24px; font-weight: 700; }
+    .sec-findings-summary { display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+    .sec-count { font-size: 12px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
+    .sec-count.critical { background: rgba(239,68,68,0.15); color: var(--red); }
+    .sec-count.high { background: rgba(249,115,22,0.15); color: var(--orange); }
+    .sec-count.medium { background: rgba(234,179,8,0.15); color: var(--yellow); }
+    .sec-count.low { background: rgba(34,197,94,0.15); color: var(--green); }
+    .sec-finding { padding: 10px 14px; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border); margin-bottom: 4px; font-size: 12px; display: flex; align-items: flex-start; gap: 10px; }
+    .sec-finding.critical { border-left: 3px solid var(--red); }
+    .sec-finding.high { border-left: 3px solid var(--orange); }
+    .sec-finding.medium { border-left: 3px solid var(--yellow); }
+    .sec-finding.low { border-left: 3px solid var(--green); }
+    .sec-finding .sec-badge { font-size: 9px; padding: 2px 6px; border-radius: 3px; font-weight: 700; text-transform: uppercase; white-space: nowrap; flex-shrink: 0; }
+    .sec-badge.critical { background: rgba(239,68,68,0.15); color: var(--red); }
+    .sec-badge.high { background: rgba(249,115,22,0.15); color: var(--orange); }
+    .sec-badge.medium { background: rgba(234,179,8,0.15); color: var(--yellow); }
+    .sec-badge.low { background: rgba(34,197,94,0.15); color: var(--green); }
+    .sec-finding-body { flex: 1; }
+    .sec-finding-title { font-weight: 500; margin-bottom: 3px; }
+    .sec-finding-remediation { font-size: 11px; color: var(--text-dim); margin-top: 4px; padding: 4px 8px; background: var(--surface3); border-radius: 4px; font-family: monospace; cursor: pointer; }
+    .sec-finding-remediation:hover { background: var(--border); }
+    .sec-dismiss-btn { font-size: 10px; padding: 2px 8px; background: none; border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); cursor: pointer; flex-shrink: 0; }
+    .sec-dismiss-btn:hover { background: var(--surface3); color: var(--text); }
+    .sec-container-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+    .sec-container-name { font-size: 13px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+    .sec-checks-grid { display: flex; flex-wrap: wrap; gap: 4px; }
+    .sec-check { font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 500; }
+    .sec-check.pass { background: rgba(34,197,94,0.1); color: var(--green); }
+    .sec-check.fail { background: rgba(239,68,68,0.1); color: var(--red); }
+    .sec-domain-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+    .sec-domain-name { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+    .sec-header-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .sec-scan-btn { font-size: 12px; padding: 6px 14px; background: var(--cyan); color: #000; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+    .sec-scan-btn:hover { opacity: 0.9; }
+    .sec-scan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .sec-timestamp { font-size: 10px; color: var(--text-muted); }
     .settings-panel { display: none; padding: 20px 32px; border-bottom: 1px solid var(--border); background: var(--surface); }
     .settings-panel.active { display: block; }
     .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
@@ -585,6 +635,7 @@
       <button class="header-btn" onclick="toggleBackups()">Backups</button>
       <button class="header-btn" onclick="toggleBriefing()" id="briefingBtn">Briefing</button>
       <button class="header-btn" onclick="toggleHealing()" id="healingBtn"><span class="healing-shield" id="healingShield">Healing</span></button>
+      <button class="header-btn" onclick="toggleSecurity()" id="securityBtn">Security <span id="secGradeBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;display:none"></span></button>
       <button class="header-btn" onclick="toggleMarketing()">Marketing</button>
       <a class="header-btn primary" href="/uptime/status-page/status" target="_blank">Status Page</a>
       <button class="header-btn" onclick="dockerPrune(this)">Prune</button>
@@ -675,6 +726,28 @@
       <button class="btn" onclick="fetchHealingLog()">Refresh</button>
     </div>
     <div id="healingList"></div>
+  </div>
+
+  <div id="securityPanel" class="security-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <span style="font-size:14px;font-weight:600">Security Manager</span>
+      <div class="sec-header-actions">
+        <span class="sec-timestamp" id="secLastScan"></span>
+        <button class="sec-scan-btn" id="secScanBtn" onclick="runSecurityScan()">Run Scan</button>
+      </div>
+    </div>
+    <div class="sec-tabs">
+      <button class="sec-tab active" onclick="switchSecTab('dashboard',this)">Dashboard</button>
+      <button class="sec-tab" onclick="switchSecTab('containers',this)">Containers</button>
+      <button class="sec-tab" onclick="switchSecTab('certificates',this)">Certificates</button>
+      <button class="sec-tab" onclick="switchSecTab('headers',this)">Headers</button>
+      <button class="sec-tab" onclick="switchSecTab('network',this)">Network</button>
+    </div>
+    <div id="sec-dashboard" class="sec-tab-content active"><div id="secDashboardContent"><span style="color:var(--text-muted);font-size:12px">Press "Run Scan" to audit your infrastructure security.</span></div></div>
+    <div id="sec-containers" class="sec-tab-content"><div id="secContainersContent"></div></div>
+    <div id="sec-certificates" class="sec-tab-content"><div id="secCertificatesContent"></div></div>
+    <div id="sec-headers" class="sec-tab-content"><div id="secHeadersContent"></div></div>
+    <div id="sec-network" class="sec-tab-content"><div id="secNetworkContent"></div></div>
   </div>
 
   <div id="settingsPanel" class="settings-panel">
@@ -3233,6 +3306,7 @@
           backups: () => toggleBackups(),
           prune: () => dockerPrune(document.querySelector('.header-btn[onclick*="dockerPrune"]')),
           healing: () => toggleHealing(),
+          security: () => toggleSecurity(),
           emails: () => { if (!document.getElementById('marketingPanel').classList.contains('active')) toggleMarketing(); setTimeout(() => switchMktTab('emails', document.querySelector('.mkt-tab:nth-child(5)')), 100); },
           content: () => { if (!document.getElementById('marketingPanel').classList.contains('active')) toggleMarketing(); setTimeout(() => switchMktTab('content', document.querySelector('.mkt-tab:nth-child(6)')), 100); },
           cohorts: () => { if (!document.getElementById('marketingPanel').classList.contains('active')) toggleMarketing(); setTimeout(() => { switchMktTab('revenue', document.querySelector('.mkt-tab:nth-child(2)')); setTimeout(() => switchRevenueSubtab('cohorts', document.querySelector('.mkt-subtab:nth-child(2)')), 100); }, 100); },
@@ -3327,6 +3401,262 @@
         await fetch('/api/healing/dismiss/' + id, { method: 'POST' });
         fetchHealingLog();
       } catch {}
+    }
+
+    // --- Security Manager ---
+    let securityData = null;
+
+    function toggleSecurity() {
+      const panel = document.getElementById('securityPanel');
+      panel.classList.toggle('active');
+      if (panel.classList.contains('active') && !securityData) fetchSecurityStatus();
+    }
+
+    function switchSecTab(tabName, btn) {
+      document.querySelectorAll('.sec-tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.sec-tab').forEach(b => b.classList.remove('active'));
+      document.getElementById('sec-' + tabName).classList.add('active');
+      btn.classList.add('active');
+    }
+
+    async function fetchSecurityStatus() {
+      try {
+        document.getElementById('secDashboardContent').innerHTML = '<span style="color:var(--text-muted);font-size:12px">Loading latest scan...</span>';
+        const res = await fetch('/api/security/status');
+        const data = await res.json();
+        if (data.status === 'no_scan') {
+          document.getElementById('secDashboardContent').innerHTML = '<span style="color:var(--text-muted);font-size:12px">No scan yet. Press "Run Scan" to audit your infrastructure.</span>';
+          return;
+        }
+        securityData = data;
+        renderSecDashboard();
+        renderSecContainers();
+        renderSecCertificates();
+        renderSecHeaders();
+        renderSecNetwork();
+        updateSecGradeBadge();
+      } catch (err) {
+        document.getElementById('secDashboardContent').innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${escapeHtml(err.message)}</span>`;
+      }
+    }
+
+    async function runSecurityScan() {
+      const btn = document.getElementById('secScanBtn');
+      btn.disabled = true;
+      btn.textContent = 'Scanning...';
+      try {
+        const res = await fetch('/api/security/scan');
+        securityData = await res.json();
+        renderSecDashboard();
+        renderSecContainers();
+        renderSecCertificates();
+        renderSecHeaders();
+        renderSecNetwork();
+        updateSecGradeBadge();
+        showToast(`Security scan complete: ${securityData.grade} (${securityData.overall_score}/100)`, securityData.overall_score >= 75 ? 'success' : 'warning');
+      } catch (err) {
+        showToast('Security scan failed: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Run Scan';
+      }
+    }
+
+    function updateSecGradeBadge() {
+      if (!securityData) return;
+      const badge = document.getElementById('secGradeBadge');
+      const s = securityData.overall_score;
+      const g = securityData.grade;
+      const color = s >= 90 ? 'var(--green)' : s >= 75 ? 'var(--yellow)' : s >= 60 ? 'var(--orange)' : 'var(--red)';
+      badge.textContent = g;
+      badge.style.background = color + '20';
+      badge.style.color = color;
+      badge.style.display = 'inline';
+    }
+
+    function scoreColor(s) { return s >= 90 ? 'var(--green)' : s >= 75 ? 'var(--yellow)' : s >= 60 ? 'var(--orange)' : 'var(--red)'; }
+
+    function renderSecDashboard() {
+      if (!securityData) return;
+      const d = securityData;
+      const ts = d.timestamp ? new Date(d.timestamp + 'Z').toLocaleString() : '';
+      document.getElementById('secLastScan').textContent = ts ? 'Last scan: ' + ts : '';
+      const cats = d.category_scores || {};
+
+      let html = `<div style="display:grid;grid-template-columns:180px 1fr;gap:16px;align-items:start">`;
+      // Score card
+      html += `<div class="sec-score-card"><div class="sec-score-big" style="color:${scoreColor(d.overall_score)}">${d.overall_score}</div>`;
+      html += `<div class="sec-grade" style="background:${scoreColor(d.overall_score)}20;color:${scoreColor(d.overall_score)}">${escapeHtml(d.grade)}</div>`;
+      html += `<div style="font-size:10px;color:var(--text-muted);margin-top:6px">${d.total_findings} findings</div></div>`;
+      // Right side
+      html += `<div>`;
+      // Category cards
+      html += `<div class="sec-category-grid">`;
+      for (const [cat, score] of Object.entries(cats)) {
+        const label = cat.charAt(0).toUpperCase() + cat.slice(1);
+        html += `<div class="sec-cat-card"><h4>${escapeHtml(label)}</h4><div class="sec-cat-score" style="color:${scoreColor(score)}">${score}<span style="font-size:12px;color:var(--text-muted)">/100</span></div></div>`;
+      }
+      html += `</div>`;
+      // Finding counts
+      html += `<div class="sec-findings-summary">`;
+      if (d.critical_count) html += `<span class="sec-count critical">${d.critical_count} Critical</span>`;
+      if (d.high_count) html += `<span class="sec-count high">${d.high_count} High</span>`;
+      if (d.medium_count) html += `<span class="sec-count medium">${d.medium_count} Medium</span>`;
+      if (d.low_count) html += `<span class="sec-count low">${d.low_count} Low</span>`;
+      if (!d.total_findings) html += `<span class="sec-count low">All clear</span>`;
+      html += `</div>`;
+      // Top findings
+      const topFindings = (d.findings || []).filter(f => f.status !== 'dismissed').slice(0, 10);
+      if (topFindings.length) {
+        html += `<div style="margin-top:12px;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;margin-bottom:6px">Top Findings</div>`;
+        html += topFindings.map(f => renderFinding(f)).join('');
+      }
+      html += `</div></div>`;
+      document.getElementById('secDashboardContent').innerHTML = html;
+    }
+
+    function renderFinding(f) {
+      const rem = f.remediation ? `<div class="sec-finding-remediation" onclick="navigator.clipboard.writeText(this.textContent);showToast('Copied to clipboard','info')" title="Click to copy">${escapeHtml(f.remediation)}</div>` : '';
+      const dismiss = f.id ? `<button class="sec-dismiss-btn" onclick="dismissSecFinding(${f.id})">Dismiss</button>` : '';
+      return `<div class="sec-finding ${f.severity}"><span class="sec-badge ${f.severity}">${f.severity}</span><div class="sec-finding-body"><div class="sec-finding-title">${escapeHtml(f.title)}</div>${rem}</div>${dismiss}</div>`;
+    }
+
+    async function dismissSecFinding(id) {
+      try {
+        await fetch('/api/security/dismiss/' + id, { method: 'POST' });
+        showToast('Finding dismissed', 'info');
+        fetchSecurityStatus();
+      } catch {}
+    }
+
+    function renderSecContainers() {
+      if (!securityData?.findings) return;
+      const containerFindings = securityData.findings.filter(f => f.category === 'containers' && f.status !== 'dismissed');
+      const byContainer = {};
+      containerFindings.forEach(f => {
+        const name = f.container_name || 'unknown';
+        if (!byContainer[name]) byContainer[name] = [];
+        byContainer[name].push(f);
+      });
+
+      const checkLabels = { privileged_mode: 'Privileged', docker_socket: 'Docker Socket', host_pid: 'Host PID', host_ipc: 'Host IPC',
+        host_network: 'Host Net', root_user: 'Root User', excessive_caps: 'Capabilities', sensitive_mounts: 'Sensitive Mounts',
+        no_memory_limit: 'Memory Limit', no_cpu_limit: 'CPU Limit', no_new_privileges: 'No-New-Priv', no_pids_limit: 'PID Limit',
+        writable_rootfs: 'Read-Only FS', no_restart_policy: 'Restart Policy' };
+      const allCheckIds = Object.keys(checkLabels);
+
+      // Get all container names from findings (including passes — we infer from missing)
+      const allContainers = new Set();
+      securityData.findings.filter(f => f.category === 'containers').forEach(f => allContainers.add(f.container_name));
+      // Also add containers that have no findings (all passed)
+      if (securityData.findings.filter(f => f.category === 'containers').length === 0) {
+        document.getElementById('secContainersContent').innerHTML = '<span style="color:var(--text-muted);font-size:12px">No container security data. Run a scan first.</span>';
+        return;
+      }
+
+      let html = '';
+      for (const [name, findings] of Object.entries(byContainer)) {
+        const failedIds = new Set(findings.map(f => f.check_id));
+        html += `<div class="sec-container-card">`;
+        html += `<div class="sec-container-name"><span style="color:${failedIds.size > 3 ? 'var(--red)' : failedIds.size > 0 ? 'var(--yellow)' : 'var(--green)'}">${failedIds.size > 3 ? '!!' : failedIds.size > 0 ? '!' : 'OK'}</span> ${escapeHtml(name)}</div>`;
+        html += `<div class="sec-checks-grid">`;
+        for (const cid of allCheckIds) {
+          const pass = !failedIds.has(cid);
+          html += `<span class="sec-check ${pass ? 'pass' : 'fail'}">${pass ? 'OK' : 'FAIL'} ${checkLabels[cid]}</span>`;
+        }
+        html += `</div>`;
+        // Show failed details
+        if (findings.length) {
+          html += `<div style="margin-top:8px">`;
+          html += findings.map(f => renderFinding(f)).join('');
+          html += `</div>`;
+        }
+        html += `</div>`;
+      }
+      document.getElementById('secContainersContent').innerHTML = html || '<span style="color:var(--green);font-size:12px">All containers passed security checks.</span>';
+    }
+
+    function renderSecCertificates() {
+      if (!securityData?.findings) return;
+      const certFindings = securityData.findings.filter(f => f.category === 'certificates' && f.status !== 'dismissed');
+      const byDomain = {};
+      certFindings.forEach(f => {
+        const domain = f.title?.split(':')[0] || 'unknown';
+        if (!byDomain[domain]) byDomain[domain] = [];
+        byDomain[domain].push(f);
+      });
+
+      const checkLabels = { ssl_valid: 'Valid', ssl_expiry: 'Expiry', ssl_chain: 'Chain', tls_version: 'TLS Version', self_signed: 'CA-Signed' };
+      const allCheckIds = Object.keys(checkLabels);
+
+      if (Object.keys(byDomain).length === 0 && securityData.category_scores?.certificates !== undefined) {
+        document.getElementById('secCertificatesContent').innerHTML = `<div style="padding:12px;text-align:center"><span style="color:var(--green);font-size:24px;font-weight:700">${securityData.category_scores.certificates}/100</span><div style="color:var(--text-muted);font-size:12px;margin-top:4px">All certificates are healthy</div></div>`;
+        return;
+      }
+
+      let html = '';
+      for (const [domain, findings] of Object.entries(byDomain)) {
+        const failedIds = new Set(findings.map(f => f.check_id));
+        html += `<div class="sec-domain-card"><div class="sec-domain-name">${escapeHtml(domain)}</div>`;
+        html += `<div class="sec-checks-grid">`;
+        for (const cid of allCheckIds) {
+          html += `<span class="sec-check ${failedIds.has(cid) ? 'fail' : 'pass'}">${failedIds.has(cid) ? 'FAIL' : 'OK'} ${checkLabels[cid]}</span>`;
+        }
+        html += `</div>`;
+        if (findings.length) {
+          html += `<div style="margin-top:8px">${findings.map(f => renderFinding(f)).join('')}</div>`;
+        }
+        html += `</div>`;
+      }
+      document.getElementById('secCertificatesContent').innerHTML = html || '<span style="color:var(--text-muted);font-size:12px">No certificate data. Run a scan first.</span>';
+    }
+
+    function renderSecHeaders() {
+      if (!securityData?.findings) return;
+      const headerFindings = securityData.findings.filter(f => f.category === 'headers' && f.status !== 'dismissed');
+      const byDomain = {};
+      headerFindings.forEach(f => {
+        const domain = f.title?.split(':')[0] || 'unknown';
+        if (!byDomain[domain]) byDomain[domain] = [];
+        byDomain[domain].push(f);
+      });
+
+      const headerLabels = { hsts: 'HSTS', csp: 'CSP', xcto: 'X-CTO', xfo: 'X-Frame', referrer: 'Referrer', permissions: 'Permissions', xss: 'XSS-Prot', unreachable: 'Reachable' };
+      const allCheckIds = ['hsts', 'csp', 'xcto', 'xfo', 'referrer', 'permissions', 'xss'];
+
+      if (Object.keys(byDomain).length === 0 && securityData.category_scores?.headers !== undefined) {
+        document.getElementById('secHeadersContent').innerHTML = `<div style="padding:12px;text-align:center"><span style="color:var(--green);font-size:24px;font-weight:700">${securityData.category_scores.headers}/100</span><div style="color:var(--text-muted);font-size:12px;margin-top:4px">All security headers present</div></div>`;
+        return;
+      }
+
+      let html = '';
+      for (const [domain, findings] of Object.entries(byDomain)) {
+        const failedIds = new Set(findings.map(f => f.check_id));
+        html += `<div class="sec-domain-card"><div class="sec-domain-name">${escapeHtml(domain)}</div>`;
+        html += `<div class="sec-checks-grid">`;
+        for (const cid of allCheckIds) {
+          html += `<span class="sec-check ${failedIds.has(cid) ? 'fail' : 'pass'}">${failedIds.has(cid) ? 'FAIL' : 'OK'} ${headerLabels[cid]}</span>`;
+        }
+        html += `</div>`;
+        if (findings.length) {
+          html += `<div style="margin-top:8px">${findings.map(f => renderFinding(f)).join('')}</div>`;
+        }
+        html += `</div>`;
+      }
+      document.getElementById('secHeadersContent').innerHTML = html || '<span style="color:var(--text-muted);font-size:12px">No header data. Run a scan first.</span>';
+    }
+
+    function renderSecNetwork() {
+      if (!securityData?.findings) return;
+      const netFindings = securityData.findings.filter(f => f.category === 'network' && f.status !== 'dismissed');
+
+      if (netFindings.length === 0 && securityData.category_scores?.network !== undefined) {
+        document.getElementById('secNetworkContent').innerHTML = `<div style="padding:12px;text-align:center"><span style="color:var(--green);font-size:24px;font-weight:700">${securityData.category_scores.network}/100</span><div style="color:var(--text-muted);font-size:12px;margin-top:4px">Network configuration looks good</div></div>`;
+        return;
+      }
+
+      let html = netFindings.map(f => renderFinding(f)).join('');
+      document.getElementById('secNetworkContent').innerHTML = html || '<span style="color:var(--text-muted);font-size:12px">No network data. Run a scan first.</span>';
     }
 
     // --- Settings Panel ---
@@ -3468,6 +3798,7 @@
       if (e.key === 'm') toggleMarketing();
       if (e.key === 'd') toggleBriefing();
       if (e.key === 'h') toggleHealing();
+      if (e.key === 'S') toggleSecurity();
       if (e.key === 'x') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('crosspromo', document.querySelector('.mkt-tab:nth-child(7)')), 100); }
       if (e.key === 'B') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('banners', document.querySelector('.mkt-tab:nth-child(8)')), 100); }
       if (e.key === 'p') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('playbook', document.querySelector('.mkt-tab:nth-child(9)')), 100); }
