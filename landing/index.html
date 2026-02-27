@@ -275,8 +275,8 @@
           <p style="font-size:13px;color:var(--text-dim);margin-top:8px">AI morning briefing</p>
         </div>
         <div>
-          <img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/06-settings.png" alt="Settings" style="width:100%;border-radius:12px;border:1px solid var(--border)">
-          <p style="font-size:13px;color:var(--text-dim);margin-top:8px">Settings & auto-discovery</p>
+          <img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/05-healing-panel.png" alt="Auto-Healing" style="width:100%;border-radius:12px;border:1px solid var(--border)">
+          <p style="font-size:13px;color:var(--text-dim);margin-top:8px">Auto-healing & playbooks</p>
         </div>
       </div>
     </div>
@@ -309,12 +309,22 @@
         <p>Ctrl+K fuzzy search across apps, commands, and actions. Restart containers, check SEO, open revenue. All from your keyboard.</p>
       </div>
       <div class="feature-card">
+        <div class="feature-icon" style="background:rgba(234,179,8,0.1);color:var(--yellow)">&gt;_</div>
+        <h3>Claude Code Ready</h3>
+        <p>CLAUDE.md with full API reference, 19 agent commands, structured config. Point Claude Code at your server and let it manage, analyze, and optimize your portfolio.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:rgba(239,68,68,0.1);color:var(--red)">&#x1f6e1;</div>
+        <h3>Security Auditing</h3>
+        <p>Container, SSL, header, and network security scans. Per-app findings, severity scoring, historical tracking. Know your attack surface before someone else does.</p>
+      </div>
+      <div class="feature-card">
         <div class="feature-icon" style="background:rgba(234,179,8,0.1);color:var(--yellow)">SEO</div>
         <h3>SEO Auditing</h3>
         <p>13-check audit for every app: meta tags, headers, mobile, speed, security headers. A-F scoring with actionable recommendations.</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(239,68,68,0.1);color:var(--red)">&#x2709;</div>
+        <div class="feature-icon" style="background:rgba(168,85,247,0.1);color:var(--purple)">&#x2709;</div>
         <h3>Marketing Automation</h3>
         <p>Email sequences, AI content pipeline, cross-promotion campaigns, banner management. Built-in lifecycle marketing for indie SaaS.</p>
       </div>
@@ -345,6 +355,8 @@
           <tr><td>Auto-healing</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
           <tr><td>Marketing automation</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
           <tr><td>Command palette</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+          <tr><td>Security auditing</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+          <tr><td>AI agent integration</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
           <tr><td>Git deployments</td><td class="cross">&mdash;</td><td class="check">&#10003;</td><td class="cross">&mdash;</td><td class="check">&#10003;</td></tr>
           <tr><td>Multi-server</td><td class="cross">Planned</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="check">&#10003;</td></tr>
         </tbody>
@@ -355,11 +367,11 @@
   <section>
     <div class="section-label">Architecture</div>
     <h2>Minimal by design</h2>
-    <p class="subtitle">Single-container Node.js app. ~140KB frontend. SQLite database. No external dependencies. Connects to your Docker socket and reads your apps' .env files for API keys.</p>
+    <p class="subtitle">Single-container Node.js app. ~140KB frontend. SQLite database. No external dependencies. Full REST API with CLAUDE.md — designed to be managed by humans and AI agents alike.</p>
 
     <div class="feature-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr))">
       <div class="feature-card" style="text-align:center">
-        <div style="font-size:28px;font-weight:700;color:var(--cyan)">77</div>
+        <div style="font-size:28px;font-weight:700;color:var(--cyan)">83</div>
         <div style="font-size:13px;color:var(--text-dim)">API endpoints</div>
       </div>
       <div class="feature-card" style="text-align:center">
@@ -367,8 +379,8 @@
         <div style="font-size:13px;color:var(--text-dim)">SQLite tables</div>
       </div>
       <div class="feature-card" style="text-align:center">
-        <div style="font-size:28px;font-weight:700;color:var(--purple)">6</div>
-        <div style="font-size:13px;color:var(--text-dim)">Cron jobs</div>
+        <div style="font-size:28px;font-weight:700;color:var(--purple)">19</div>
+        <div style="font-size:13px;color:var(--text-dim)">Agent commands</div>
       </div>
       <div class="feature-card" style="text-align:center">
         <div style="font-size:28px;font-weight:700;color:var(--yellow)">15</div>
