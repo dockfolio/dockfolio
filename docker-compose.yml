@@ -10,6 +10,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     mem_limit: 150m
     cpus: 0.5
+    pids_limit: 200
+    security_opt:
+      - no-new-privileges:true
     logging:
       driver: json-file
       options:
@@ -46,8 +49,11 @@ services:
       - /opt/abschlusscheck/docker-compose.prod.yml:/opt/abschlusscheck/docker-compose.prod.yml:ro
       - /opt/lohncheck/docker-compose.prod.yml:/opt/lohncheck/docker-compose.prod.yml:ro
       - /opt/sacredlens/docker-compose.prod.yml:/opt/sacredlens/docker-compose.prod.yml:ro
-    mem_limit: 128m
-    cpus: 0.25
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 200
+    security_opt:
+      - no-new-privileges:true
     environment:
       - NODE_ENV=production
       - PLAUSIBLE_URL=http://plausible-plausible-1:8000
