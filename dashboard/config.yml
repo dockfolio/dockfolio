@@ -117,6 +117,21 @@ apps:
       pricingUrl: https://sacredlens.de/#pricing
 
   # === Infrastructure ===
+  - name: Dockfolio
+    type: infra
+    domain: dockfolio.dev
+    health: /
+    containers:
+      - dockfolio-dashboard
+      - dockfolio-uptime-kuma
+    description: Self-hosted business dashboard for Docker app portfolios
+    tech: Node.js + SQLite + Docker
+    repo: /home/deploy/appmanager
+    marketing:
+      tagline: The dashboard your Docker apps deserve
+      targetAudience: Indie hackers, Self-hosters, DevOps
+      languages: [en]
+
   - name: Plausible Analytics
     type: infra
     domain: plausible.theadhdmind.org

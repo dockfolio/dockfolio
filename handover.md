@@ -1,176 +1,189 @@
-# Handover — 2026-02-27 (Session 11)
+# Handover — 2026-02-27 (Session 12)
 
 ## 30-Second Summary
 
-Session 11: Built and deployed the **Security Manager** — a full security audit engine for the Docker infrastructure. 4 scanners (container hardening, SSL/TLS certificates, HTTP security headers, network exposure) with weighted scoring (0-100, A-F grades). Also deployed **cross-promotion banners** across all SaaS apps (4 banners, 25 active placements). Fixed HTTP security headers on all 12 nginx sites (score: 84 → 91). Created security knowledge base document.
+Session 12: Built **Projects Manager** (lifecycle, tasks, kanban roadmap, AI insights — fully deployed and tested). Built **Ops Intelligence** backend + frontend (worry score, heartbeat, report cards, drift detection, dependency map, ADHD mode) — code complete but **NOT YET DEPLOYED**. Updated **dockfolio.dev** landing page with Security + Projects features. Added Dockfolio itself to config.yml (15 apps now). Deep investigation found: Stripe webhook cross-contamination (HeadshotAI receiving AbschlussCheck events), 5/6 apps missing Sentry DSN, disk jumped 37%→58%.
 
-**Most important thing for next session:** Post the launches (LAUNCH.md still ready). The dashboard now has Security + Marketing + Healing — solid feature set for Show HN.
+**Most important thing for next session:** Deploy the Ops Intelligence feature (`bash deploy.sh --rebuild`), test all 10 endpoints, then commit.
 
 ## Session Focus
 
-1. Deploy cross-promotion banners between SaaS apps
-2. Build Security Manager feature (full audit engine)
-3. Fix HTTP security headers across all sites
-4. Create security knowledge base
+1. Verify Security Manager works (full fleet audit — passed)
+2. Build Projects Manager (done, deployed, tested)
+3. Build Ops Intelligence (done in code, NOT deployed)
+4. Update dockfolio.dev landing page (done, live)
+5. Deep security/app investigation
 
 ## Completed
 
-- [x] Committed session 10 changes (banner injection, deploy scripts)
-- [x] Created 4 cross-promo banners (PromoForge, BannerForge, HeadshotAI, AbschlussCheck)
-- [x] Placed banners across all sites (25 active placements, weighted rotation)
-- [x] Built Security Manager backend: 4 scanners, 5 API endpoints, 3 cron jobs
-- [x] Built Security Manager frontend: 5-tab panel, scoring dashboard, finding cards
-- [x] Fixed self-signed cert false positive in SSL scanner
-- [x] Added security score to morning briefing context
-- [x] Added Security command to command palette
-- [x] Keyboard shortcut: Shift+S for Security Manager
-- [x] Fixed HTTP security headers on 12 nginx sites (6 had zero headers)
-- [x] Added X-XSS-Protection to 6 sites that were missing it
-- [x] Created security knowledge base (plans/security-knowledge-base.md)
-- [x] Re-scanned: 88/100 (B) → 93/100 (A)
+- [x] Force pushed to dockfolio/dockfolio remote (master → main)
+- [x] Full Security Manager fleet verification (93/100, all scanners match ground truth)
+- [x] **Projects Manager** — 5 tables, 16 endpoints, 4 crons, 4-tab frontend (deployed + tested)
+- [x] Imported 4 handover carry-forward items as project tasks
+- [x] AI insights working via Claude Haiku (~$0.001/call)
+- [x] Added Dockfolio to config.yml (15 apps total now)
+- [x] Updated dockfolio.dev landing page: +Security Auditing, +Projects Manager, stats 93/19/13/17
+- [x] Deep investigation: expired Stripe key root cause (22h gap between .env update and container restart)
+- [x] Deep investigation: all 6 non-static apps audited for errors, Sentry, keys, logs
+- [x] **Ops Intelligence backend** — 3 tables, 5 core functions, 10 endpoints, 3 crons, briefing integration, command palette
+- [x] **Ops Intelligence frontend** — CSS (~70 rules), HTML panel (4 tabs), JS (~15 functions), keyboard shortcuts (o, Shift+A)
+
+## NOT Deployed — Must Do First
+
+- [ ] **Deploy Ops Intelligence** — `bash deploy.sh --rebuild` — code is in server.js + index.html but container has NOT been rebuilt
+- [ ] **Test all 10 Ops endpoints** after deploy:
+  - GET /api/ops/worry-score
+  - GET /api/ops/heartbeat
+  - GET /api/ops/report-card/:slug
+  - GET /api/ops/report-cards
+  - GET /api/ops/dependencies
+  - GET /api/ops/drift
+  - POST /api/ops/drift/:id/acknowledge
+  - POST /api/ops/baseline
+  - GET /api/ops/streak
+  - GET /api/ops/timeline
+- [ ] **Commit all changes** — server.js (+511 lines), index.html (+292 lines), config.yml (+15 lines)
 
 ## Not Done — Carry Forward
 
+- [ ] **Fix Stripe webhook cross-contamination** — HeadshotAI receives AbschlussCheck payment webhooks (same Stripe account, shared webhook endpoint). Real customer `lea.kruschka@gmail.com` affected. Fix in Stripe dashboard: filter webhook events per endpoint.
+- [ ] **Enable Sentry on all apps** — PromoForge + AbschlussCheck have SDK installed but no SENTRY_DSN in .env. Add DSN to their .env files. BannerForge/HeadshotAI/LohnCheck need SDK installed too.
+- [ ] **Reclaim disk space** — 58% used (was 37%). 32GB reclaimable Docker build cache. `docker builder prune` + old images.
+- [ ] **Fix BannerForge fontconfig** — Missing fontconfig in Docker image, affects font rendering.
+- [ ] **Increase ClickHouse memory** — Plausible events DB at 68% of 512MB cap.
 - [ ] **Post Show HN** — content in LAUNCH.md, best timing Tue-Thu 9-10AM EST
 - [ ] **Post on r/selfhosted** — content in LAUNCH.md
 - [ ] **Rotate Telegram bot token** — manual: @BotFather `/revoke`, update `.env`
 - [ ] **Fix GitHub Actions billing** — all repos failing CI/CD
-- [ ] **Archive Crelvo/appManager repo** — old private repo
 - [ ] **Container name rename** — docker-compose.yml has appmanager→dockfolio NOT deployed
 
-## Security Manager — Architecture
+## Ops Intelligence — Architecture
 
-### Scanners (all zero external dependencies)
+### Tables (3 new, added to db.exec block ~line 1700)
 
-| Scanner | Method | Checks |
-|---------|--------|--------|
-| Container Security | dockerode `container.inspect()` | 14 checks: privileged, socket mount, PID/IPC namespace, root user, capabilities, mounts, resource limits, security opts |
-| SSL/TLS | Node.js native `tls.connect()` | 5 checks per domain: validity, expiry, chain, TLS version, self-signed |
-| HTTP Headers | `fetch()` HEAD request | 7 checks per domain: HSTS, CSP, XCTO, XFO, Referrer, Permissions, XSS |
-| Network | dockerode `listContainers()` | Published ports (critical if database), default bridge detection |
+| Table | Purpose |
+|-------|---------|
+| `ops_baselines` | Config snapshots: env hashes (SHA256), container states, disk%, config hash |
+| `ops_events` | Timeline: drift events, key rotations, score changes. Severity + acknowledge |
+| `ops_scores` | Worry score history + streak tracking (15-min intervals) |
 
-### Scoring
+### Core Functions (5, added after Projects Manager ~line 4930)
 
-- Per-category: 0-100 (weighted checks)
-- Overall: average of 4 categories
-- Grades: A+ (95+), A (90+), B (75+), C (60+), D (40+), F (<40)
+| Function | Purpose |
+|----------|---------|
+| `calculateWorryScore()` | Composite 0-100 from 7 sources: containers(25), keys(20), disk(15), backups(15), security(10), healing(10), seo(5) |
+| `snapshotBaseline(type)` | Capture env hashes, container states, disk%, config hash |
+| `detectDrift()` | Compare current state vs last baseline. Detects: env changes, container state, image changes, config.yml, disk jumps |
+| `calculateAppReportCard(slug)` | Per-app A-F grade across 7 dimensions: security, backup, revenue, traffic, SEO, uptime, freshness |
+| `getAppDependencyMap()` | Shared keys graph. Nodes=apps, edges=shared keys. Blast radius count. |
 
-### Current Score (post-fixes)
-
-| Category | Score |
-|----------|-------|
-| **Overall** | **93/100 (A)** |
-| Containers | 81/100 |
-| Certificates | 100/100 |
-| Headers | 91/100 |
-| Network | 100/100 |
-
-89 findings: 2 critical (expected: docker socket on dashboard + uptime-kuma), 11 high (mostly root user in DB containers), 25 medium (resource limits, no-new-privileges), 42 low (writable rootfs, PID limits, minor headers)
-
-### API Endpoints
+### API Endpoints (10)
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
-| GET | /api/security/scan?category=full | Trigger scan (full/containers/certificates/headers/network) |
-| GET | /api/security/status | Latest scan results (no re-scan) |
-| GET | /api/security/history?limit=30 | Scan trend data |
-| GET | /api/security/app/:slug | Per-app findings |
-| POST | /api/security/dismiss/:id | Dismiss a finding |
+| GET | /api/ops/worry-score | Score + breakdown + streak |
+| GET | /api/ops/heartbeat | Per-app health pulse data |
+| GET | /api/ops/report-card/:slug | Single app scorecard |
+| GET | /api/ops/report-cards | All app scorecards |
+| GET | /api/ops/dependencies | Dependency graph |
+| GET | /api/ops/drift | Current drifts vs baseline |
+| POST | /api/ops/drift/:id/acknowledge | Mark drift expected |
+| POST | /api/ops/baseline | Create manual baseline |
+| GET | /api/ops/streak | Streak + 7-day history |
+| GET | /api/ops/timeline | Recent ops events |
 
-### Cron Jobs
+### Cron Jobs (3)
 
 | Schedule | Job |
 |----------|-----|
-| 0 1 * * * | Full security scan |
-| 0 */6 * * * | SSL certificate check + Telegram alert on critical |
-| 0 5 * * 0 | Cleanup scans > 90 days old |
+| `*/15 * * * *` | Worry score + streak update |
+| `0 2 * * *` | Auto baseline + drift detection + Telegram critical alerts + cleanup old data |
+| `0 9 * * 1` | Key rotation reminder (Telegram if baseline >90 days) |
 
-### Database Tables
+### Frontend (4 tabs, keyboard: `o`)
 
-- `security_scans` — scan metadata, scores, finding counts
-- `security_findings` — individual findings with severity, remediation, dismiss status
+- **Pulse tab**: 64px worry score number (color-coded), streak counter, 7 breakdown factors, app heartbeat grid (pulsing circles)
+- **Keys & Deps tab**: Shared keys with blast radius, app connection graph (lazy-loaded)
+- **Report Cards tab**: Per-app scorecards sorted worst-first, 7 dimension mini-grades (lazy-loaded)
+- **Timeline tab**: Chronological ops events with severity colors, acknowledge button
+- **ADHD Mode** (`Shift+A`): Dims healthy items, stored in localStorage, orange border on button when active
+- **Auto-refresh**: Worry badge updates every 5 minutes
 
-### Frontend
+### Briefing Integration
 
-- Header button: "Security" with grade badge
-- 5 tabs: Dashboard (score + category cards + top findings), Containers (per-container check grid), Certificates (per-domain TLS status), Headers (per-domain header audit), Network (port exposure)
-- Keyboard: Shift+S
-- Command palette: "security"
-- Findings have click-to-copy remediation text
-- Dismiss button per finding
+Added to `collectBriefingContext()`: worry score, streak days, unacknowledged drifts count.
 
-## Cross-Promotion Banners
+### Command Palette
 
-| Banner | Target | Sites Showing It |
-|--------|--------|-----------------|
-| PromoForge (ID 4) | promoforge.app | bannerforge, headshot-ai, abschlusscheck, creative-programmer, crelvo, code-with-rigor, theadhdmind |
-| BannerForge (ID 5) | bannerforge.app | promoforge, headshot-ai, abschlusscheck, theadhdmind, creative-programmer, old-world-logos |
-| Headshot AI (ID 6) | bewerbungsfotos-ai.de | promoforge, bannerforge, abschlusscheck, crelvo, theadhdmind, lohncheck |
-| AbschlussCheck (ID 7) | abschlusscheck.de | promoforge, bannerforge, headshot-ai, creative-programmer, theadhdmind, sacredlens |
+Added: `ops`, `worry`, `drift`, `reportcards`
 
-25 active placements. Each SaaS never shows its own banner. Weighted rotation.
+## Projects Manager — Architecture (Session 12, Deployed)
 
-## HTTP Header Fixes (nginx)
+### Tables (5): project_meta, project_tasks, project_roadmap, project_snapshots, project_ai_insights
+### Endpoints (16): overview, meta CRUD, tasks CRUD+import+complete+overdue+today, roadmap CRUD+ship, insights per-app + portfolio
+### Crons (4): reminder 15min, overdue daily 8AM, weekly snapshot Mon 6AM, AI summaries Sun 4AM
+### Frontend: 4 tabs (Overview, Tasks, Roadmap, Insights), keyboard `j`
 
-Added security headers to 12 sites. 6 sites had zero security headers (bannerforge, bewerbungsfotos-ai, promoforge, plausible, logos, crelvo). Added X-XSS-Protection to 6 more sites. Backup at `/home/deploy/nginx-configs/sites-backup-20260227-191007/`.
+## Investigation Findings (Critical)
 
-Remaining issues (won't fix — low severity):
-- Proxy apps where upstream app overrides nginx headers
-- Location blocks with `add_header` that override server-level headers
-- CSP not added globally (needs per-site tuning)
+| Issue | Severity | Details |
+|-------|----------|---------|
+| Stripe webhook cross-contamination | **CRITICAL** | HeadshotAI + AbschlussCheck share Stripe account. HeadshotAI receives AbschlussCheck payment webhooks. Real customer affected. |
+| 5/6 apps no error tracking | **HIGH** | Only SacredLens has working Sentry. PromoForge + AbschlussCheck have SDK but no DSN. |
+| Disk 37%→58% | **MEDIUM** | 32GB reclaimable Docker build cache. PromoForge worker image 17.7GB. |
+| BannerForge fontconfig missing | **MEDIUM** | Font rendering broken in banner generation |
+| ClickHouse at 68% memory | **MEDIUM** | 348/512MB, potential OOM if Plausible traffic grows |
+| HeadshotAI missing i18n | **LOW** | `legal.impressum.addressCountry` missing for de/es |
 
 ## Decisions Made
 
 | Decision | Why | Alternatives |
 |----------|-----|-------------|
-| Zero new npm dependencies | dockerode + native TLS + fetch cover everything | Could add trivy for image CVE scanning, ssl-checker, portscanner |
-| Self-signed check uses CN comparison | Let's Encrypt certs have matching issuer/subject O field, causing false positives with O comparison | Could check issuer chain depth instead |
-| 14 container checks (not image CVE scanning) | Trivy would require installing a separate tool; container config checks are higher value for ops | Could run trivy as a Docker container in future |
-| Don't add CSP globally | CSP is highly app-specific, wrong CSP breaks apps | Could add CSP report-only mode as future enhancement |
+| Worry Score 0-100 (lower=better) | Intuitive "temperature" metaphor, ADHD-friendly single number | Could invert to health score (higher=better) |
+| 7 weighted components | Covers all existing data sources without new collection | Could add SSL cert expiry, traffic anomaly |
+| ADHD Mode dims instead of hides | Preserves context while reducing noise | Could fully hide healthy items |
+| Streak breaks at score >30 | Generous threshold keeps streaks motivating | Could use 20 (stricter) or 50 (more lenient) |
+| Report cards sorted worst-first | ADHD users see problems first | Could sort alphabetically or by type |
 
 ## Rollback Info
 
-**Security Manager rollback:** Revert to commit `2d369fc`. Security code is isolated in server.js (after healing, before cross-promo) and index.html (security panel section).
+**Ops Intelligence rollback:** `git checkout -- dashboard/server.js dashboard/public/index.html` — Ops code is NOT deployed yet, so just reverting files is sufficient. If already deployed, revert + `bash deploy.sh --rebuild`.
 
-**nginx header rollback:**
-```bash
-ssh deploy@91.99.104.132
-cp -r /home/deploy/nginx-configs/sites-backup-20260227-191007/* /home/deploy/nginx-configs/sites/
-sudo nginx -t -c /home/deploy/nginx-configs/nginx.conf
-sudo nginx -s reload -c /home/deploy/nginx-configs/nginx.conf
-```
+**Projects Manager rollback:** Revert to commit `63e403f`. Projects code is mixed into server.js/index.html after Security Manager sections.
+
+**Last known good deployed state:** Commit `63e403f` (Security Manager + banner injection). Current running container has Projects Manager but NOT Ops Intelligence.
 
 ## Files Modified This Session
 
 ### appManager repo
 | File | What Changed |
 |------|-------------|
-| `dashboard/server.js` | +392 lines: security DB tables, 4 scanner functions, 5 API endpoints, 3 cron jobs, command palette entry, briefing integration |
-| `dashboard/public/index.html` | +331 lines: security panel CSS, HTML (5 tabs), JS (toggle, scan, render functions), keyboard shortcut |
-| `plans/security-knowledge-base.md` | NEW — Docker security reference, CIS benchmark, header guide, remediation playbook |
-| `handover.md` | Updated for session 11 |
+| `dashboard/server.js` | +511 lines: Projects Manager (5 tables, 16 endpoints, 4 crons) + Ops Intelligence (3 tables, 5 functions, 10 endpoints, 3 crons, briefing, command palette) |
+| `dashboard/public/index.html` | +292 lines: Projects Manager (CSS, HTML 4 tabs, JS ~20 functions) + Ops Intelligence (CSS ~70 rules, HTML panel 4 tabs, JS ~15 functions, keyboard shortcuts) |
+| `dashboard/config.yml` | +15 lines: Added Dockfolio as infra app with marketing fields |
+| `handover.md` | This file |
 
 ### VM Changes (not in git)
 | File | What Changed |
 |------|-------------|
-| `/home/deploy/nginx-configs/sites/*` | 12 configs: added security headers (HSTS, XCTO, XFO, Referrer, Permissions, XSS) |
-| `/home/deploy/nginx-configs/sites-backup-20260227-191007/` | Pre-header-fix backup |
+| `/home/deploy/dockfolio-landing/index.html` | Updated: +Security Auditing, +Projects Manager features, stats 77→93 endpoints, 14→19 tables, 6→13 crons, 15→17 shortcuts |
 
 ## Git State
 
 | Repo | Branch | Status | Latest Commit |
 |------|--------|--------|---------------|
-| appManager | master | clean (minus handover + knowledge base) | 8775ada |
+| appManager | master | 3 modified files (uncommitted) | 63e403f |
+| dockfolio/dockfolio | main | synced (force pushed this session) | 63e403f |
 
 ## Next Steps (Priority Order)
 
-1. **Post Show HN** — LAUNCH.md ready (Tue-Thu 9-10AM EST best)
-2. **Post r/selfhosted** — LAUNCH.md ready
-3. **Rotate Telegram bot token** — @BotFather `/revoke`
-4. **Fix GitHub Actions billing**
-5. **Add CSP headers** — Per-site CSP in report-only mode first
-6. **Image vulnerability scanning** — Add trivy integration to Security Manager
-7. **Container resource limits** — Add limits to docker-compose files (biggest score improvement)
+1. **Deploy Ops Intelligence** — `bash deploy.sh --rebuild`, test all 10 endpoints
+2. **Commit everything** — server.js, index.html, config.yml, handover.md
+3. **Fix Stripe webhook cross-contamination** — filter events in Stripe dashboard
+4. **Enable Sentry DSN** on PromoForge + AbschlussCheck (.env update + container restart)
+5. **Reclaim disk** — `docker builder prune`, remove old images
+6. **Post Show HN** — LAUNCH.md ready
+7. **Push to dockfolio/dockfolio** — `git push dockfolio master:main`
 
 ## Key URLs
 
@@ -179,4 +192,5 @@ sudo nginx -s reload -c /home/deploy/nginx-configs/nginx.conf
 | Dashboard | https://admin.crelvo.dev |
 | Dockfolio landing | https://dockfolio.dev |
 | GitHub (Dockfolio) | https://github.com/dockfolio/dockfolio |
+| Plan file | .claude/plans/stateless-stirring-sun.md |
 | Security KB | plans/security-knowledge-base.md |

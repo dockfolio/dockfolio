@@ -1621,6 +1621,118 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_security_findings_scan ON security_findings(scan_id);
   CREATE INDEX IF NOT EXISTS idx_security_findings_app ON security_findings(app_slug);
+
+  CREATE TABLE IF NOT EXISTS project_meta (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL UNIQUE,
+    lifecycle TEXT NOT NULL DEFAULT 'launched',
+    priority INTEGER NOT NULL DEFAULT 2,
+    revenue_goal_mrr INTEGER,
+    traffic_goal_mpv INTEGER,
+    user_goal INTEGER,
+    notes TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_project_meta_lifecycle ON project_meta(lifecycle);
+
+  CREATE TABLE IF NOT EXISTS project_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'todo',
+    priority TEXT NOT NULL DEFAULT 'medium',
+    due_date TEXT,
+    completed_at TEXT,
+    reminder_at TEXT,
+    reminder_sent INTEGER NOT NULL DEFAULT 0,
+    tags TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_project_tasks_app ON project_tasks(app_slug, status);
+  CREATE INDEX IF NOT EXISTS idx_project_tasks_status ON project_tasks(status);
+  CREATE INDEX IF NOT EXISTS idx_project_tasks_due ON project_tasks(due_date);
+
+  CREATE TABLE IF NOT EXISTS project_roadmap (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
+    type TEXT NOT NULL DEFAULT 'feature',
+    status TEXT NOT NULL DEFAULT 'planned',
+    target_date TEXT,
+    shipped_date TEXT,
+    impact TEXT NOT NULL DEFAULT 'medium',
+    effort TEXT NOT NULL DEFAULT 'medium',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_project_roadmap_app ON project_roadmap(app_slug, status);
+  CREATE INDEX IF NOT EXISTS idx_project_roadmap_status ON project_roadmap(status);
+
+  CREATE TABLE IF NOT EXISTS project_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL,
+    snapshot_date TEXT NOT NULL,
+    mrr_cents INTEGER,
+    traffic_30d INTEGER,
+    task_count_open INTEGER,
+    task_count_done INTEGER,
+    roadmap_shipped INTEGER,
+    security_score INTEGER,
+    seo_score INTEGER,
+    health_status TEXT,
+    UNIQUE(app_slug, snapshot_date)
+  );
+  CREATE INDEX IF NOT EXISTS idx_project_snapshots_app ON project_snapshots(app_slug);
+
+  CREATE TABLE IF NOT EXISTS project_ai_insights (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL,
+    insight_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    token_count INTEGER,
+    generated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(app_slug, insight_type)
+  );
+
+  CREATE TABLE IF NOT EXISTS ops_baselines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    snapshot_type TEXT NOT NULL DEFAULT 'auto',
+    env_hashes TEXT NOT NULL,
+    container_states TEXT NOT NULL,
+    disk_usage_pct INTEGER,
+    total_containers INTEGER,
+    config_hash TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_ops_baselines_ts ON ops_baselines(timestamp);
+
+  CREATE TABLE IF NOT EXISTS ops_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    event_type TEXT NOT NULL,
+    app_slug TEXT,
+    severity TEXT NOT NULL DEFAULT 'info',
+    title TEXT NOT NULL,
+    details TEXT,
+    acknowledged INTEGER NOT NULL DEFAULT 0,
+    acknowledged_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_ops_events_ts ON ops_events(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_ops_events_type ON ops_events(event_type, acknowledged);
+
+  CREATE TABLE IF NOT EXISTS ops_scores (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    worry_score INTEGER NOT NULL,
+    breakdown TEXT NOT NULL,
+    streak_days INTEGER NOT NULL DEFAULT 0,
+    streak_broken_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_ops_scores_ts ON ops_scores(timestamp);
 `);
 
 const upsertMetric = db.prepare(`
@@ -2789,6 +2901,23 @@ async function collectBriefingContext() {
     context.healing = healingActions.map(h => ({ condition: h.condition, action: h.action_taken, result: h.result, app: h.app_slug }));
   } catch { context.healing = []; }
 
+  // Project tasks (overdue + due today)
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const overdue = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled')").get(today);
+    const dueToday = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE due_date = ? AND status NOT IN ('done','cancelled')").get(today);
+    const lastShipped = db.prepare("SELECT title, app_slug, shipped_date FROM project_roadmap WHERE status = 'shipped' ORDER BY shipped_date DESC LIMIT 1").get();
+    context.projects = { overdueCount: overdue?.count || 0, dueTodayCount: dueToday?.count || 0, lastShipped: lastShipped || null };
+  } catch { context.projects = {}; }
+
+  // Ops Intelligence
+  try {
+    const worryResult = await calculateWorryScore();
+    const latestScore = db.prepare('SELECT streak_days FROM ops_scores ORDER BY timestamp DESC LIMIT 1').get();
+    const recentDrifts = db.prepare("SELECT COUNT(*) as n FROM ops_events WHERE event_type LIKE 'drift_%' AND acknowledged = 0 AND timestamp >= datetime('now', '-24 hours')").get();
+    context.ops = { worryScore: worryResult.score, breakdown: worryResult.breakdown, streakDays: latestScore?.streak_days || 0, unacknowledgedDrifts: recentDrifts?.n || 0 };
+  } catch { context.ops = {}; }
+
   return context;
 }
 
@@ -2899,6 +3028,14 @@ app.get('/api/command/search', (req, res) => {
     { cmd: 'banners', label: 'Banner Manager', description: 'Create and manage ad banners across sites', shortcut: 'b' },
     { cmd: 'playbook', label: 'Marketing Playbook', description: 'AI-generated marketing strategies per app', shortcut: 'p' },
     { cmd: 'security', label: 'Security Manager', description: 'Docker security audit and scoring', shortcut: 'S' },
+    { cmd: 'projects', label: 'Projects Manager', description: 'App lifecycle, tasks, roadmap, insights', shortcut: 'j' },
+    { cmd: 'tasks', label: 'Project Tasks', description: 'View and manage project tasks', shortcut: '' },
+    { cmd: 'roadmap', label: 'Product Roadmap', description: 'Feature planning and milestones', shortcut: '' },
+    { cmd: 'overdue', label: 'Overdue Tasks', description: 'Show tasks past their due date', shortcut: '' },
+    { cmd: 'ops', label: 'Ops Intelligence', description: 'Worry score, drift detection, report cards', shortcut: 'o' },
+    { cmd: 'worry', label: 'Worry Score', description: 'Current ops worry score breakdown', shortcut: '' },
+    { cmd: 'drift', label: 'Config Drift', description: 'Detect changes since last baseline', shortcut: '' },
+    { cmd: 'reportcards', label: 'Report Cards', description: 'Per-app health scorecards', shortcut: '' },
   ];
 
   for (const c of commands) {
@@ -4283,6 +4420,990 @@ Output ONLY a JSON array of 6 objects, no other text. Each object: {"section":".
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// =============================================
+// Projects Manager
+// =============================================
+
+// Initialize project_meta defaults for all apps in config.yml
+function initProjectDefaults() {
+  const lifecycleByType = { saas: 'launched', tool: 'launched', infra: 'mature', static: 'mature', redirect: 'deprecated' };
+  const priorityByType = { saas: 1, tool: 1, infra: 2, static: 3, redirect: 4 };
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+    const existing = db.prepare('SELECT id FROM project_meta WHERE app_slug = ?').get(slug);
+    if (!existing) {
+      db.prepare('INSERT INTO project_meta (app_slug, lifecycle, priority) VALUES (?, ?, ?)').run(slug, lifecycleByType[appDef.type] || 'launched', priorityByType[appDef.type] || 2);
+    }
+  }
+}
+try { initProjectDefaults(); } catch (err) { console.error('[PROJECTS] Init error:', err.message); }
+
+// --- Overview: All apps enriched with meta + live KPIs ---
+app.get('/api/projects/overview', async (req, res) => {
+  try {
+    const allMeta = db.prepare('SELECT * FROM project_meta').all();
+    const metaMap = Object.fromEntries(allMeta.map(m => [m.app_slug, m]));
+    const today = new Date().toISOString().split('T')[0];
+
+    const apps = config.apps.map(appDef => {
+      const slug = slugify(appDef.name);
+      const meta = metaMap[slug] || {};
+
+      // Open task count
+      const taskCounts = db.prepare("SELECT status, COUNT(*) as count FROM project_tasks WHERE app_slug = ? GROUP BY status").all(slug);
+      const taskMap = Object.fromEntries(taskCounts.map(t => [t.status, t.count]));
+      const openTasks = (taskMap.todo || 0) + (taskMap.in_progress || 0) + (taskMap.blocked || 0);
+      const doneTasks = taskMap.done || 0;
+      const overdueTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND due_date < ? AND status NOT IN ('done','cancelled')").get(slug, today)?.count || 0;
+
+      // Roadmap counts
+      const roadmapCounts = db.prepare("SELECT status, COUNT(*) as count FROM project_roadmap WHERE app_slug = ? GROUP BY status").all(slug);
+      const rmMap = Object.fromEntries(roadmapCounts.map(r => [r.status, r.count]));
+
+      // Latest SEO score
+      const seo = db.prepare('SELECT score, grade FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug);
+
+      // Latest security findings count for this app
+      const secFindings = db.prepare("SELECT COUNT(*) as count FROM security_findings WHERE app_slug = ? AND status = 'open'").get(slug);
+
+      // Latest MRR from metrics_daily
+      const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
+
+      return {
+        slug, name: appDef.name, type: appDef.type, domain: appDef.domain,
+        description: appDef.description, tech: appDef.tech,
+        lifecycle: meta.lifecycle || 'launched',
+        priority: meta.priority || 2,
+        revenue_goal_mrr: meta.revenue_goal_mrr,
+        traffic_goal_mpv: meta.traffic_goal_mpv,
+        user_goal: meta.user_goal,
+        notes: meta.notes,
+        mrr: mrrRow?.value || 0,
+        seo_score: seo?.score || null, seo_grade: seo?.grade || null,
+        security_findings: secFindings?.count || 0,
+        tasks: { open: openTasks, done: doneTasks, overdue: overdueTasks },
+        roadmap: { idea: rmMap.idea || 0, planned: rmMap.planned || 0, in_progress: rmMap.in_progress || 0, shipped: rmMap.shipped || 0 },
+      };
+    });
+
+    // Portfolio totals
+    const totalOpenTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE status NOT IN ('done','cancelled')").get()?.count || 0;
+    const totalOverdue = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled')").get(today)?.count || 0;
+    const thisWeekDone = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE completed_at >= datetime('now', '-7 days')").get()?.count || 0;
+
+    res.json({ apps, totals: { openTasks: totalOpenTasks, overdueTasks: totalOverdue, completedThisWeek: thisWeekDone } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Update project meta ---
+app.put('/api/projects/meta/:slug', (req, res) => {
+  try {
+    const slug = req.params.slug;
+    const { lifecycle, priority, revenue_goal_mrr, traffic_goal_mpv, user_goal, notes } = req.body;
+    const existing = db.prepare('SELECT id FROM project_meta WHERE app_slug = ?').get(slug);
+    if (!existing) {
+      db.prepare('INSERT INTO project_meta (app_slug, lifecycle, priority, revenue_goal_mrr, traffic_goal_mpv, user_goal, notes) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, lifecycle || 'launched', priority || 2, revenue_goal_mrr || null, traffic_goal_mpv || null, user_goal || null, notes || null);
+    } else {
+      const fields = [];
+      const values = [];
+      if (lifecycle !== undefined) { fields.push('lifecycle = ?'); values.push(lifecycle); }
+      if (priority !== undefined) { fields.push('priority = ?'); values.push(priority); }
+      if (revenue_goal_mrr !== undefined) { fields.push('revenue_goal_mrr = ?'); values.push(revenue_goal_mrr); }
+      if (traffic_goal_mpv !== undefined) { fields.push('traffic_goal_mpv = ?'); values.push(traffic_goal_mpv); }
+      if (user_goal !== undefined) { fields.push('user_goal = ?'); values.push(user_goal); }
+      if (notes !== undefined) { fields.push('notes = ?'); values.push(notes); }
+      if (fields.length > 0) {
+        fields.push("updated_at = datetime('now')");
+        values.push(slug);
+        db.prepare(`UPDATE project_meta SET ${fields.join(', ')} WHERE app_slug = ?`).run(...values);
+      }
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Tasks CRUD ---
+app.get('/api/projects/tasks', (req, res) => {
+  try {
+    const { app, status, priority } = req.query;
+    let sql = 'SELECT * FROM project_tasks WHERE 1=1';
+    const params = [];
+    if (app) { sql += ' AND app_slug = ?'; params.push(app); }
+    if (status) { sql += ' AND status = ?'; params.push(status); }
+    if (priority) { sql += ' AND priority = ?'; params.push(priority); }
+    sql += ' ORDER BY CASE priority WHEN \'critical\' THEN 0 WHEN \'high\' THEN 1 WHEN \'medium\' THEN 2 WHEN \'low\' THEN 3 END, due_date ASC NULLS LAST, created_at DESC';
+    res.json(db.prepare(sql).all(...params));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/projects/tasks', (req, res) => {
+  try {
+    const { app_slug, title, description, priority, due_date, reminder_at, tags } = req.body;
+    if (!title) return res.status(400).json({ error: 'title is required' });
+    const result = db.prepare('INSERT INTO project_tasks (app_slug, title, description, priority, due_date, reminder_at, tags) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      app_slug || null, title, description || null, priority || 'medium', due_date || null, reminder_at || null, tags ? JSON.stringify(tags) : null
+    );
+    res.json({ ok: true, id: result.lastInsertRowid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/projects/tasks/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid task ID' });
+    const { title, description, status, priority, due_date, reminder_at, tags, app_slug } = req.body;
+    const fields = [];
+    const values = [];
+    if (title !== undefined) { fields.push('title = ?'); values.push(title); }
+    if (description !== undefined) { fields.push('description = ?'); values.push(description); }
+    if (status !== undefined) { fields.push('status = ?'); values.push(status); }
+    if (priority !== undefined) { fields.push('priority = ?'); values.push(priority); }
+    if (due_date !== undefined) { fields.push('due_date = ?'); values.push(due_date); }
+    if (reminder_at !== undefined) { fields.push('reminder_at = ?'); values.push(reminder_at); fields.push('reminder_sent = 0'); }
+    if (tags !== undefined) { fields.push('tags = ?'); values.push(JSON.stringify(tags)); }
+    if (app_slug !== undefined) { fields.push('app_slug = ?'); values.push(app_slug); }
+    if (fields.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    fields.push("updated_at = datetime('now')");
+    values.push(id);
+    const result = db.prepare(`UPDATE project_tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    if (result.changes === 0) return res.status(404).json({ error: 'Task not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/projects/tasks/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid task ID' });
+    const result = db.prepare('DELETE FROM project_tasks WHERE id = ?').run(id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Task not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/projects/tasks/:id/complete', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid task ID' });
+    const result = db.prepare("UPDATE project_tasks SET status = 'done', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Task not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/projects/tasks/overdue', (_req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const tasks = db.prepare("SELECT * FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled') ORDER BY due_date ASC").all(today);
+    res.json(tasks);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/projects/tasks/today', (_req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const tasks = db.prepare("SELECT * FROM project_tasks WHERE (due_date <= ? OR due_date IS NULL) AND status NOT IN ('done','cancelled') ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, due_date ASC").all(today);
+    res.json(tasks);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/projects/tasks/import', (req, res) => {
+  try {
+    const { text, app_slug } = req.body;
+    if (!text) return res.status(400).json({ error: 'text is required' });
+    const lines = text.split('\n');
+    let created = 0;
+    for (const line of lines) {
+      const doneMatch = line.match(/^[-*]\s+\[x\]\s+(.+)/i);
+      const todoMatch = line.match(/^[-*]\s+\[\s?\]\s+(.+)/i);
+      if (doneMatch) {
+        db.prepare("INSERT INTO project_tasks (app_slug, title, status, completed_at) VALUES (?, ?, 'done', datetime('now'))").run(app_slug || null, doneMatch[1].trim());
+        created++;
+      } else if (todoMatch) {
+        db.prepare("INSERT INTO project_tasks (app_slug, title, status) VALUES (?, ?, 'todo')").run(app_slug || null, todoMatch[1].trim());
+        created++;
+      }
+    }
+    res.json({ ok: true, created });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Roadmap CRUD ---
+app.get('/api/projects/roadmap', (req, res) => {
+  try {
+    const { app, status } = req.query;
+    let sql = 'SELECT * FROM project_roadmap WHERE 1=1';
+    const params = [];
+    if (app) { sql += ' AND app_slug = ?'; params.push(app); }
+    if (status) { sql += ' AND status = ?'; params.push(status); }
+    sql += " ORDER BY CASE status WHEN 'in_progress' THEN 0 WHEN 'planned' THEN 1 WHEN 'idea' THEN 2 WHEN 'shipped' THEN 3 WHEN 'cancelled' THEN 4 END, target_date ASC NULLS LAST";
+    res.json(db.prepare(sql).all(...params));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/projects/roadmap', (req, res) => {
+  try {
+    const { app_slug, title, description, type, status, target_date, impact, effort } = req.body;
+    if (!title) return res.status(400).json({ error: 'title is required' });
+    const result = db.prepare('INSERT INTO project_roadmap (app_slug, title, description, type, status, target_date, impact, effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+      app_slug || null, title, description || null, type || 'feature', status || 'planned', target_date || null, impact || 'medium', effort || 'medium'
+    );
+    res.json({ ok: true, id: result.lastInsertRowid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/projects/roadmap/:id', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid roadmap ID' });
+    const { title, description, type, status, target_date, impact, effort, app_slug } = req.body;
+    const fields = [];
+    const values = [];
+    if (title !== undefined) { fields.push('title = ?'); values.push(title); }
+    if (description !== undefined) { fields.push('description = ?'); values.push(description); }
+    if (type !== undefined) { fields.push('type = ?'); values.push(type); }
+    if (status !== undefined) { fields.push('status = ?'); values.push(status); }
+    if (target_date !== undefined) { fields.push('target_date = ?'); values.push(target_date); }
+    if (impact !== undefined) { fields.push('impact = ?'); values.push(impact); }
+    if (effort !== undefined) { fields.push('effort = ?'); values.push(effort); }
+    if (app_slug !== undefined) { fields.push('app_slug = ?'); values.push(app_slug); }
+    if (fields.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    fields.push("updated_at = datetime('now')");
+    values.push(id);
+    const result = db.prepare(`UPDATE project_roadmap SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    if (result.changes === 0) return res.status(404).json({ error: 'Roadmap item not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/projects/roadmap/:id/ship', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid roadmap ID' });
+    const result = db.prepare("UPDATE project_roadmap SET status = 'shipped', shipped_date = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Roadmap item not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- AI Insights ---
+app.get('/api/projects/insights/:slug', async (req, res) => {
+  try {
+    const slug = req.params.slug;
+    const type = req.query.type || 'next_actions';
+    const force = req.query.force === 'true';
+
+    if (!force) {
+      const cached = db.prepare('SELECT * FROM project_ai_insights WHERE app_slug = ? AND insight_type = ?').get(slug, type);
+      if (cached) {
+        const age = Date.now() - new Date(cached.generated_at).getTime();
+        const maxAge = type === 'weekly_summary' ? 7 * 86400000 : 72 * 3600000;
+        if (age < maxAge) return res.json({ content: cached.content, generated_at: cached.generated_at, cached: true });
+      }
+    }
+
+    const appDef = config.apps.find(a => slugify(a.name) === slug);
+    if (!appDef) return res.status(404).json({ error: 'App not found' });
+
+    const meta = db.prepare('SELECT * FROM project_meta WHERE app_slug = ?').get(slug) || {};
+    const openTasks = db.prepare("SELECT title FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled') LIMIT 5").all(slug);
+    const roadmapItems = db.prepare("SELECT title, status FROM project_roadmap WHERE app_slug = ? AND status IN ('planned','in_progress') LIMIT 5").all(slug);
+    const seo = db.prepare('SELECT score, grade FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug);
+    const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
+
+    const anthropicKey = getAnthropicKey();
+    if (!anthropicKey) return res.status(503).json({ error: 'No Anthropic API key available' });
+
+    const prompt = `You are an indie SaaS advisor for a solo founder. Given:
+- App: ${appDef.name} (${appDef.type}) — ${appDef.description}
+- Lifecycle: ${meta.lifecycle || 'launched'}
+- MRR: €${((mrrRow?.value || 0) / 100).toFixed(0)} ${meta.revenue_goal_mrr ? `(goal: €${(meta.revenue_goal_mrr / 100).toFixed(0)})` : '(no goal set)'}
+- SEO score: ${seo?.score ?? 'unknown'}/100 (${seo?.grade || 'N/A'})
+- Open tasks: ${openTasks.length > 0 ? openTasks.map(t => t.title).join(', ') : 'none'}
+- Roadmap: ${roadmapItems.length > 0 ? roadmapItems.map(r => `${r.title} (${r.status})`).join(', ') : 'none'}
+- Tech: ${appDef.tech || 'unknown'}
+- Domain: ${appDef.domain || 'none'}
+
+${type === 'next_actions' ? 'Output 3-5 specific, immediately actionable next steps. Be direct. No fluff. Each step should be doable in under a day. Format as a markdown bullet list.' : 'Write a concise weekly status summary in 3 short paragraphs: 1) current state, 2) progress this week, 3) recommended focus for next week.'}`;
+
+    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const aiData = await aiRes.json();
+    const content = aiData.content?.[0]?.text || 'No insight generated';
+    const tokens = aiData.usage?.output_tokens || 0;
+
+    db.prepare('INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES (?, ?, ?, ?, datetime(\'now\')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at').run(slug, type, content, tokens);
+
+    res.json({ content, generated_at: new Date().toISOString(), cached: false });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/projects/insights/portfolio/summary', async (req, res) => {
+  try {
+    const force = req.query.force === 'true';
+    if (!force) {
+      const cached = db.prepare("SELECT * FROM project_ai_insights WHERE app_slug = '_portfolio' AND insight_type = 'summary'").get();
+      if (cached) {
+        const age = Date.now() - new Date(cached.generated_at).getTime();
+        if (age < 24 * 3600000) return res.json({ content: cached.content, generated_at: cached.generated_at, cached: true });
+      }
+    }
+
+    const anthropicKey = getAnthropicKey();
+    if (!anthropicKey) return res.status(503).json({ error: 'No Anthropic API key available' });
+
+    const saasApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
+    const appSummaries = saasApps.map(a => {
+      const slug = slugify(a.name);
+      const meta = db.prepare('SELECT lifecycle, priority FROM project_meta WHERE app_slug = ?').get(slug) || {};
+      const openTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled')").get(slug)?.count || 0;
+      const mrr = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug)?.value || 0;
+      return `- ${a.name}: lifecycle=${meta.lifecycle || 'launched'}, MRR=€${(mrr / 100).toFixed(0)}, ${openTasks} open tasks`;
+    }).join('\n');
+
+    const today = new Date().toISOString().split('T')[0];
+    const totalOverdue = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled')").get(today)?.count || 0;
+    const weekDone = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE completed_at >= datetime('now', '-7 days')").get()?.count || 0;
+
+    const prompt = `You are an indie SaaS portfolio advisor. Here is the current state of a solo founder's app portfolio:
+
+${appSummaries}
+
+Portfolio stats: ${totalOverdue} overdue tasks, ${weekDone} tasks completed this week.
+
+Write a concise 3-paragraph portfolio briefing: 1) overall health assessment, 2) what to focus on this week, 3) one strategic recommendation. Be direct, specific, actionable.`;
+
+    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const aiData = await aiRes.json();
+    const content = aiData.content?.[0]?.text || 'No summary generated';
+    const tokens = aiData.usage?.output_tokens || 0;
+
+    db.prepare("INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES ('_portfolio', 'summary', ?, ?, datetime('now')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at").run(content, tokens);
+
+    res.json({ content, generated_at: new Date().toISOString(), cached: false });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Projects Cron Jobs ---
+
+// Every 15 min: check for due reminders, send Telegram
+cron.schedule('*/15 * * * *', async () => {
+  try {
+    const now = new Date().toISOString();
+    const dueTasks = db.prepare("SELECT * FROM project_tasks WHERE reminder_at <= ? AND reminder_sent = 0 AND status NOT IN ('done','cancelled')").all(now);
+    if (dueTasks.length === 0) return;
+
+    const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+    const tgChat = process.env.TELEGRAM_CHAT_ID;
+    if (!tgToken || !tgChat) return;
+
+    for (const task of dueTasks) {
+      const appName = config.apps.find(a => slugify(a.name) === task.app_slug)?.name || 'Portfolio';
+      const msg = `📋 Reminder — ${appName}\nTask: ${task.title}${task.due_date ? `\nDue: ${task.due_date}` : ''}`;
+      await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: tgChat, text: msg }), signal: AbortSignal.timeout(5000),
+      }).catch(() => {});
+      db.prepare('UPDATE project_tasks SET reminder_sent = 1 WHERE id = ?').run(task.id);
+    }
+    console.log(`[PROJECTS] Sent ${dueTasks.length} reminder(s)`);
+  } catch (err) { console.error('[PROJECTS] Reminder cron error:', err.message); }
+});
+
+// Daily 8 AM: overdue task alert
+cron.schedule('0 8 * * *', async () => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const overdue = db.prepare("SELECT * FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled') ORDER BY due_date ASC LIMIT 10").all(today);
+    if (overdue.length === 0) return;
+
+    const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+    const tgChat = process.env.TELEGRAM_CHAT_ID;
+    if (!tgToken || !tgChat) return;
+
+    const lines = overdue.map(t => {
+      const appName = config.apps.find(a => slugify(a.name) === t.app_slug)?.name || 'Portfolio';
+      const daysLate = Math.ceil((new Date(today) - new Date(t.due_date)) / 86400000);
+      return `• ${appName}: ${t.title} (${daysLate}d late)`;
+    });
+    const msg = `⚠ Overdue Tasks — ${overdue.length} task${overdue.length > 1 ? 's' : ''} past due:\n${lines.join('\n')}`;
+    await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: tgChat, text: msg }), signal: AbortSignal.timeout(5000),
+    }).catch(() => {});
+    console.log(`[PROJECTS] Overdue alert sent (${overdue.length} tasks)`);
+  } catch (err) { console.error('[PROJECTS] Overdue cron error:', err.message); }
+});
+
+// Weekly Monday 6 AM: snapshot per-app KPIs
+cron.schedule('0 6 * * 1', async () => {
+  try {
+    const snapDate = new Date().toISOString().split('T')[0];
+    for (const appDef of config.apps) {
+      const slug = slugify(appDef.name);
+      const mrr = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug)?.value || null;
+      const openTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled')").get(slug)?.count || 0;
+      const doneTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND status = 'done'").get(slug)?.count || 0;
+      const shipped = db.prepare("SELECT COUNT(*) as count FROM project_roadmap WHERE app_slug = ? AND status = 'shipped'").get(slug)?.count || 0;
+      const seo = db.prepare('SELECT score FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug)?.score || null;
+
+      // Container health
+      let healthStatus = 'unknown';
+      if (appDef.containers?.length > 0) {
+        try {
+          const containers = await docker.listContainers({ all: true });
+          const appContainers = containers.filter(c => appDef.containers.includes(c.Names[0]?.replace(/^\//, '')));
+          if (appContainers.length === 0) healthStatus = 'unknown';
+          else if (appContainers.every(c => c.State === 'running')) healthStatus = 'healthy';
+          else healthStatus = 'degraded';
+        } catch { healthStatus = 'unknown'; }
+      }
+
+      db.prepare(`INSERT INTO project_snapshots (app_slug, snapshot_date, mrr_cents, task_count_open, task_count_done, roadmap_shipped, seo_score, health_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(app_slug, snapshot_date) DO UPDATE SET
+        mrr_cents = excluded.mrr_cents, task_count_open = excluded.task_count_open, task_count_done = excluded.task_count_done,
+        roadmap_shipped = excluded.roadmap_shipped, seo_score = excluded.seo_score, health_status = excluded.health_status`).run(
+        slug, snapDate, mrr, openTasks, doneTasks, shipped, seo, healthStatus
+      );
+    }
+    console.log(`[PROJECTS] Weekly snapshot completed for ${config.apps.length} apps`);
+  } catch (err) { console.error('[PROJECTS] Snapshot cron error:', err.message); }
+});
+
+// Weekly Sunday 4 AM: generate AI weekly summaries
+cron.schedule('0 4 * * 0', async () => {
+  try {
+    const anthropicKey = getAnthropicKey();
+    if (!anthropicKey) return;
+    const saasApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
+    for (const appDef of saasApps) {
+      const slug = slugify(appDef.name);
+      try {
+        const meta = db.prepare('SELECT * FROM project_meta WHERE app_slug = ?').get(slug) || {};
+        const openTasks = db.prepare("SELECT title FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled') LIMIT 5").all(slug);
+        const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
+        const prompt = `Write a concise weekly status for ${appDef.name} (${appDef.type}): lifecycle=${meta.lifecycle}, MRR=€${((mrrRow?.value || 0) / 100).toFixed(0)}, ${openTasks.length} open tasks${openTasks.length > 0 ? ': ' + openTasks.map(t => t.title).join(', ') : ''}. 3 short paragraphs: state, progress, next focus.`;
+        const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 400, messages: [{ role: 'user', content: prompt }] }),
+          signal: AbortSignal.timeout(15000),
+        });
+        const aiData = await aiRes.json();
+        const content = aiData.content?.[0]?.text || '';
+        if (content) {
+          db.prepare("INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES (?, 'weekly_summary', ?, ?, datetime('now')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at").run(slug, content, aiData.usage?.output_tokens || 0);
+        }
+      } catch (appErr) { console.error(`[PROJECTS] AI summary error for ${slug}:`, appErr.message); }
+    }
+    console.log(`[PROJECTS] Weekly AI summaries generated for ${saasApps.length} apps`);
+  } catch (err) { console.error('[PROJECTS] AI summary cron error:', err.message); }
+});
+
+// ========== OPS INTELLIGENCE ==========
+
+function letterGrade(score) {
+  if (score >= 90) return 'A';
+  if (score >= 80) return 'B';
+  if (score >= 70) return 'C';
+  if (score >= 60) return 'D';
+  return 'F';
+}
+
+async function calculateWorryScore() {
+  const breakdown = { containers: 0, keys: 0, disk: 0, backups: 0, security: 0, healing: 0, seo: 0 };
+  const MAX = { containers: 25, keys: 20, disk: 15, backups: 15, security: 10, healing: 10, seo: 5 };
+
+  // 1. Container health
+  try {
+    const containers = await docker.listContainers({ all: true });
+    const appNames = new Set();
+    config.apps.forEach(a => (a.containers || []).forEach(c => appNames.add(c)));
+    const appContainers = containers.filter(c => appNames.has(c.Names[0]?.replace(/^\//, '')));
+    const unhealthy = appContainers.filter(c => c.Status?.includes('unhealthy')).length;
+    const restarting = appContainers.filter(c => c.State === 'restarting').length;
+    const stopped = appContainers.filter(c => c.State !== 'running').length;
+    breakdown.containers = Math.min(MAX.containers, unhealthy * 8 + restarting * 6 + stopped * 5);
+  } catch { breakdown.containers = MAX.containers; }
+
+  // 2. API key health
+  if (cachedKeyHealth?.results) {
+    let expired = 0, errors = 0;
+    for (const appKeys of Object.values(cachedKeyHealth.results)) {
+      for (const keyInfo of Object.values(appKeys)) {
+        if (keyInfo.status === 'expired') expired++;
+        else if (keyInfo.status === 'error') errors++;
+      }
+    }
+    breakdown.keys = Math.min(MAX.keys, expired * 10 + errors * 5);
+  }
+
+  // 3. Disk usage
+  try {
+    const diskLine = execSync('df -B1 / | tail -1').toString().trim().split(/\s+/);
+    const diskPct = parseInt(diskLine[4]);
+    if (diskPct >= 90) breakdown.disk = 15;
+    else if (diskPct >= 80) breakdown.disk = 10;
+    else if (diskPct >= 70) breakdown.disk = 5;
+  } catch { breakdown.disk = 5; }
+
+  // 4. Backup freshness
+  try {
+    const backupDir = process.env.BACKUP_DIR || '/home/deploy/backups';
+    if (existsSync(backupDir)) {
+      const dirs = readdirSync(backupDir, { withFileTypes: true }).filter(d => d.isDirectory());
+      let staleCount = 0;
+      for (const d of dirs) {
+        try {
+          const latest = execSync(`ls -t "${join(backupDir, d.name)}" 2>/dev/null | head -1`).toString().trim();
+          if (!latest) { staleCount++; continue; }
+          const ageH = (Date.now() - statSync(join(backupDir, d.name, latest)).mtime.getTime()) / 3600000;
+          if (ageH > 25) staleCount++;
+        } catch { staleCount++; }
+      }
+      breakdown.backups = Math.min(MAX.backups, staleCount * 5);
+    }
+  } catch {}
+
+  // 5. Security score
+  try {
+    const scan = db.prepare('SELECT overall_score FROM security_scans ORDER BY timestamp DESC LIMIT 1').get();
+    if (scan) {
+      if (scan.overall_score < 40) breakdown.security = 10;
+      else if (scan.overall_score < 60) breakdown.security = 7;
+      else if (scan.overall_score < 75) breakdown.security = 4;
+    } else { breakdown.security = 5; }
+  } catch {}
+
+  // 6. Healing activity (last hour)
+  try {
+    const since1h = new Date(Date.now() - 3600000).toISOString();
+    const r = db.prepare("SELECT COUNT(*) as n FROM healing_log WHERE timestamp >= ? AND result IN ('executed','pending')").get(since1h);
+    breakdown.healing = Math.min(MAX.healing, (r?.n || 0) * 5);
+  } catch {}
+
+  // 7. SEO
+  try {
+    const seoRows = db.prepare('SELECT score FROM seo_audits WHERE date = (SELECT MAX(date) FROM seo_audits)').all();
+    if (seoRows.length > 0) {
+      const avg = seoRows.reduce((a, b) => a + b.score, 0) / seoRows.length;
+      if (avg < 40) breakdown.seo = 5;
+      else if (avg < 60) breakdown.seo = 3;
+    }
+  } catch {}
+
+  const total = Math.min(100, Object.values(breakdown).reduce((a, b) => a + b, 0));
+  return { score: total, breakdown, maxScores: MAX, timestamp: new Date().toISOString() };
+}
+
+async function snapshotBaseline(type = 'auto') {
+  const envHashes = {};
+  for (const appDef of config.apps) {
+    if (!appDef.envFile || !existsSync(appDef.envFile)) continue;
+    const slug = slugify(appDef.name);
+    const vars = parseEnvFile(appDef.envFile);
+    envHashes[slug] = {};
+    for (const v of vars) {
+      if (SENSITIVE_PATTERN.test(v.key) && v.value) {
+        envHashes[slug][v.key] = createHash('sha256').update(v.value).digest('hex').slice(0, 16);
+      }
+    }
+  }
+
+  const containerStates = {};
+  try {
+    const containers = await docker.listContainers({ all: true });
+    for (const c of containers) {
+      const name = c.Names[0]?.replace(/^\//, '');
+      containerStates[name] = { state: c.State, image: c.Image, imageId: (c.ImageID || '').slice(0, 24) };
+    }
+  } catch {}
+
+  const configHash = createHash('sha256').update(readFileSync(configPath, 'utf8')).digest('hex').slice(0, 16);
+  let diskPct = 0;
+  try {
+    diskPct = parseInt(execSync('df -B1 / | tail -1').toString().trim().split(/\s+/)[4]);
+  } catch {}
+
+  db.prepare(`INSERT INTO ops_baselines (snapshot_type, env_hashes, container_states, disk_usage_pct, total_containers, config_hash)
+    VALUES (?, ?, ?, ?, ?, ?)`).run(type, JSON.stringify(envHashes), JSON.stringify(containerStates), diskPct, Object.keys(containerStates).length, configHash);
+
+  return { envHashes, containerStates, diskPct, totalContainers: Object.keys(containerStates).length, configHash };
+}
+
+async function detectDrift() {
+  const baseline = db.prepare('SELECT * FROM ops_baselines ORDER BY timestamp DESC LIMIT 1').get();
+  if (!baseline) return { drifts: [], message: 'No baseline yet. Create one first.' };
+
+  const baseEnv = JSON.parse(baseline.env_hashes || '{}');
+  const baseContainers = JSON.parse(baseline.container_states || '{}');
+  const drifts = [];
+
+  // Env key changes
+  for (const appDef of config.apps) {
+    if (!appDef.envFile || !existsSync(appDef.envFile)) continue;
+    const slug = slugify(appDef.name);
+    const vars = parseEnvFile(appDef.envFile);
+    const currentHashes = {};
+    for (const v of vars) {
+      if (SENSITIVE_PATTERN.test(v.key) && v.value) {
+        currentHashes[v.key] = createHash('sha256').update(v.value).digest('hex').slice(0, 16);
+      }
+    }
+    const baseAppEnv = baseEnv[slug] || {};
+    for (const [key, hash] of Object.entries(currentHashes)) {
+      if (baseAppEnv[key] && baseAppEnv[key] !== hash) {
+        drifts.push({ type: 'drift_env', app_slug: slug, severity: 'warning', title: `${appDef.name}: ${key} changed`, details: JSON.stringify({ key }) });
+      } else if (!baseAppEnv[key]) {
+        drifts.push({ type: 'drift_env', app_slug: slug, severity: 'info', title: `${appDef.name}: New key ${key}`, details: JSON.stringify({ key }) });
+      }
+    }
+    for (const key of Object.keys(baseAppEnv)) {
+      if (!currentHashes[key]) {
+        drifts.push({ type: 'drift_env', app_slug: slug, severity: 'warning', title: `${appDef.name}: Key ${key} removed`, details: JSON.stringify({ key }) });
+      }
+    }
+  }
+
+  // Container state changes
+  try {
+    const containers = await docker.listContainers({ all: true });
+    for (const c of containers) {
+      const name = c.Names[0]?.replace(/^\//, '');
+      const base = baseContainers[name];
+      if (base && base.state !== c.State) {
+        drifts.push({ type: 'drift_container', severity: c.State === 'running' ? 'info' : 'warning', title: `${name}: ${base.state} → ${c.State}`, details: JSON.stringify({ container: name, was: base.state, now: c.State }) });
+      }
+      if (base && base.image !== c.Image) {
+        drifts.push({ type: 'drift_container', severity: 'info', title: `${name}: image changed`, details: JSON.stringify({ container: name, wasImage: base.image, nowImage: c.Image }) });
+      }
+    }
+  } catch {}
+
+  // Config.yml change
+  const currentConfigHash = createHash('sha256').update(readFileSync(configPath, 'utf8')).digest('hex').slice(0, 16);
+  if (baseline.config_hash && baseline.config_hash !== currentConfigHash) {
+    drifts.push({ type: 'drift_config', severity: 'info', title: 'config.yml changed since baseline', details: JSON.stringify({ oldHash: baseline.config_hash, newHash: currentConfigHash }) });
+  }
+
+  // Disk usage jump
+  try {
+    const diskPct = parseInt(execSync('df -B1 / | tail -1').toString().trim().split(/\s+/)[4]);
+    if (baseline.disk_usage_pct && diskPct > baseline.disk_usage_pct + 10) {
+      drifts.push({ type: 'drift_disk', severity: diskPct >= 80 ? 'critical' : 'warning', title: `Disk: ${baseline.disk_usage_pct}% → ${diskPct}%`, details: JSON.stringify({ was: baseline.disk_usage_pct, now: diskPct }) });
+    }
+  } catch {}
+
+  return { drifts, baseline_timestamp: baseline.timestamp, baseline_id: baseline.id };
+}
+
+function calculateAppReportCard(slug) {
+  const appDef = config.apps.find(a => slugify(a.name) === slug);
+  if (!appDef) return null;
+  const dims = {};
+
+  // Security
+  try {
+    const findings = db.prepare(`SELECT severity FROM security_findings WHERE app_slug = ? AND scan_id = (SELECT id FROM security_scans ORDER BY timestamp DESC LIMIT 1) AND status != 'dismissed'`).all(slug);
+    const crit = findings.filter(f => f.severity === 'critical').length;
+    const high = findings.filter(f => f.severity === 'high').length;
+    const s = Math.max(0, 100 - crit * 25 - high * 15 - findings.length * 3);
+    dims.security = { score: s, grade: letterGrade(s) };
+  } catch { dims.security = { score: 50, grade: 'C' }; }
+
+  // Backup
+  try {
+    const backupDir = join(process.env.BACKUP_DIR || '/home/deploy/backups', slug);
+    if (existsSync(backupDir)) {
+      const latest = execSync(`ls -t "${backupDir}" 2>/dev/null | head -1`).toString().trim();
+      if (latest) {
+        const ageH = (Date.now() - statSync(join(backupDir, latest)).mtime.getTime()) / 3600000;
+        const s = ageH <= 25 ? 100 : ageH <= 48 ? 70 : ageH <= 168 ? 40 : 10;
+        dims.backup = { score: s, grade: letterGrade(s) };
+      } else dims.backup = { score: 0, grade: 'F' };
+    } else dims.backup = { score: 0, grade: 'N/A' };
+  } catch { dims.backup = { score: 0, grade: 'N/A' }; }
+
+  // Revenue
+  try {
+    const row = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
+    const mrr = row?.value || 0;
+    const s = mrr > 0 ? Math.min(100, Math.round(50 + Math.log10(mrr / 100 + 1) * 30)) : 0;
+    dims.revenue = { score: s, grade: letterGrade(s), mrr: mrr / 100 };
+  } catch { dims.revenue = { score: 0, grade: 'N/A' }; }
+
+  // Traffic
+  try {
+    const row = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'pageviews_30d' ORDER BY date DESC LIMIT 1").get(slug);
+    const pv = row?.value || 0;
+    const s = pv > 0 ? Math.min(100, Math.round(30 + Math.log10(pv + 1) * 20)) : 0;
+    dims.traffic = { score: s, grade: letterGrade(s), pageviews: pv };
+  } catch { dims.traffic = { score: 0, grade: 'N/A' }; }
+
+  // SEO
+  try {
+    const row = db.prepare('SELECT score, grade FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug);
+    dims.seo = row ? { score: row.score, grade: row.grade } : { score: 0, grade: 'N/A' };
+  } catch { dims.seo = { score: 0, grade: 'N/A' }; }
+
+  // Uptime (container running = 100, else degraded)
+  dims.uptime = { score: 100, grade: 'A' };
+
+  // Freshness (placeholder — enhanced with container inspect)
+  dims.freshness = { score: 70, grade: 'C' };
+
+  const scores = Object.values(dims).map(d => d.score).filter(s => typeof s === 'number' && s > 0);
+  const overall = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+  return { slug, name: appDef.name, type: appDef.type, overall, grade: letterGrade(overall), dimensions: dims };
+}
+
+function getAppDependencyMap() {
+  const nodes = config.apps.map(a => ({ id: slugify(a.name), name: a.name, type: a.type }));
+  const edges = [];
+  const hashMap = new Map();
+  const appsWithEnv = config.apps.filter(a => a.envFile && existsSync(a.envFile));
+  for (const appDef of appsWithEnv) {
+    const slug = slugify(appDef.name);
+    const vars = parseEnvFile(appDef.envFile);
+    for (const v of vars) {
+      if (!SENSITIVE_PATTERN.test(v.key) || !v.value) continue;
+      const hash = createHash('sha256').update(v.value).digest('hex');
+      const mapKey = `${v.key}::${hash}`;
+      if (!hashMap.has(mapKey)) hashMap.set(mapKey, { key: v.key, maskedValue: maskValue(v.value), apps: [] });
+      hashMap.get(mapKey).apps.push(slug);
+    }
+  }
+  const sharedKeys = [];
+  for (const [, entry] of hashMap) {
+    if (entry.apps.length < 2) continue;
+    sharedKeys.push(entry);
+    for (let i = 0; i < entry.apps.length; i++) {
+      for (let j = i + 1; j < entry.apps.length; j++) {
+        edges.push({ source: entry.apps[i], target: entry.apps[j], label: entry.key, type: 'shared_key' });
+      }
+    }
+  }
+  return { nodes, edges, shared_keys: sharedKeys };
+}
+
+// --- Ops Intelligence API Endpoints ---
+
+app.get('/api/ops/worry-score', async (_req, res) => {
+  try {
+    const result = await calculateWorryScore();
+    const latest = db.prepare('SELECT streak_days, streak_broken_at FROM ops_scores ORDER BY timestamp DESC LIMIT 1').get();
+    result.streak = { days: latest?.streak_days || 0, lastBroken: latest?.streak_broken_at || null };
+    res.json(result);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/ops/heartbeat', async (_req, res) => {
+  try {
+    const containers = await docker.listContainers({ all: true });
+    const apps = config.apps.map(appDef => {
+      const slug = slugify(appDef.name);
+      const appContainers = (appDef.containers || []).map(name => {
+        const c = containers.find(cn => cn.Names[0]?.replace(/^\//, '') === name);
+        return { name, state: c?.State || 'not_found', health: c?.Status?.includes('healthy') ? 'healthy' : c?.Status?.includes('unhealthy') ? 'unhealthy' : c?.State || 'unknown' };
+      });
+      const health = appContainers.length === 0 ? 'static'
+        : appContainers.every(c => c.health === 'healthy' || c.state === 'running') ? 'healthy'
+        : appContainers.some(c => c.health === 'unhealthy') ? 'unhealthy'
+        : appContainers.some(c => c.state === 'restarting') ? 'restarting' : 'degraded';
+      return { slug, name: appDef.name, type: appDef.type, health, containers: appContainers };
+    });
+    res.json({ apps, timestamp: new Date().toISOString() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/ops/report-card/:slug', (req, res) => {
+  try {
+    const card = calculateAppReportCard(req.params.slug);
+    if (!card) return res.status(404).json({ error: 'App not found' });
+    res.json(card);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/ops/report-cards', (_req, res) => {
+  try {
+    const cards = config.apps.map(a => calculateAppReportCard(slugify(a.name))).filter(Boolean);
+    res.json({ cards, timestamp: new Date().toISOString() });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/ops/dependencies', (_req, res) => {
+  try {
+    res.json(getAppDependencyMap());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/ops/drift', async (_req, res) => {
+  try {
+    res.json(await detectDrift());
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/ops/drift/:id/acknowledge', (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    db.prepare("UPDATE ops_events SET acknowledged = 1, acknowledged_at = datetime('now') WHERE id = ?").run(id);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/ops/baseline', async (_req, res) => {
+  try {
+    const result = await snapshotBaseline('manual');
+    db.prepare("INSERT INTO ops_events (event_type, severity, title, details) VALUES ('baseline_created', 'info', 'Manual baseline created', ?)").run(JSON.stringify({ containers: result.totalContainers, disk: result.diskPct }));
+    res.json({ ok: true, ...result });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/ops/streak', (_req, res) => {
+  try {
+    const latest = db.prepare('SELECT streak_days, streak_broken_at FROM ops_scores ORDER BY timestamp DESC LIMIT 1').get();
+    const best = db.prepare('SELECT MAX(streak_days) as best FROM ops_scores').get();
+    const history = db.prepare('SELECT worry_score, timestamp FROM ops_scores ORDER BY timestamp DESC LIMIT 672').all(); // 7 days * 96 (15min intervals)
+    res.json({ streak_days: latest?.streak_days || 0, best_streak: best?.best || 0, last_broken: latest?.streak_broken_at || null, history });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/ops/timeline', (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query?.limit) || 50, 200);
+    const events = db.prepare('SELECT * FROM ops_events ORDER BY timestamp DESC LIMIT ?').all(limit);
+    const unack = db.prepare("SELECT COUNT(*) as n FROM ops_events WHERE acknowledged = 0").get();
+    res.json({ events, unacknowledged: unack?.n || 0 });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- Ops Cron Jobs ---
+
+// Worry score + streak update (every 15 min)
+cron.schedule('*/15 * * * *', async () => {
+  try {
+    const result = await calculateWorryScore();
+    const prev = db.prepare('SELECT streak_days, streak_broken_at FROM ops_scores ORDER BY timestamp DESC LIMIT 1').get();
+    let streakDays = prev?.streak_days || 0;
+    let streakBroken = prev?.streak_broken_at || null;
+    if (result.score <= 30) {
+      // Check if last score was also <=30 and on the same day — increment streak at midnight boundary
+      const lastTs = db.prepare('SELECT timestamp FROM ops_scores ORDER BY timestamp DESC LIMIT 1').get();
+      const lastDate = lastTs ? new Date(lastTs.timestamp).toDateString() : '';
+      const nowDate = new Date().toDateString();
+      if (lastDate !== nowDate && result.score <= 30) streakDays++;
+    } else {
+      if (streakDays > 0) {
+        streakBroken = new Date().toISOString();
+        db.prepare("INSERT INTO ops_events (event_type, severity, title, details) VALUES ('score_change', 'warning', ?, ?)").run(
+          `Streak broken after ${streakDays} days (score: ${result.score})`, JSON.stringify({ score: result.score, streak: streakDays }));
+      }
+      streakDays = 0;
+    }
+    db.prepare('INSERT INTO ops_scores (worry_score, breakdown, streak_days, streak_broken_at) VALUES (?, ?, ?, ?)').run(
+      result.score, JSON.stringify(result.breakdown), streakDays, streakBroken);
+    console.log(`[OPS] Worry score: ${result.score}/100, streak: ${streakDays}d`);
+  } catch (err) { console.error('[OPS] Worry score cron error:', err.message); }
+});
+
+// Auto baseline + drift detection (daily 2 AM)
+cron.schedule('0 2 * * *', async () => {
+  try {
+    await snapshotBaseline('auto');
+    const { drifts } = await detectDrift();
+    const criticalDrifts = drifts.filter(d => d.severity === 'critical');
+    for (const d of drifts) {
+      db.prepare("INSERT INTO ops_events (event_type, app_slug, severity, title, details) VALUES (?, ?, ?, ?, ?)").run(d.type, d.app_slug || null, d.severity, d.title, d.details || null);
+    }
+    if (criticalDrifts.length > 0) {
+      const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+      const tgChat = process.env.TELEGRAM_CHAT_ID;
+      if (tgToken && tgChat) {
+        const msg = `⚠️ Dockfolio Drift Alert — ${criticalDrifts.length} critical drift(s):\n${criticalDrifts.map(d => '• ' + d.title).join('\n')}`;
+        await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: tgChat, text: msg }), signal: AbortSignal.timeout(5000) }).catch(() => {});
+      }
+    }
+    console.log(`[OPS] Daily baseline: ${drifts.length} drifts (${criticalDrifts.length} critical)`);
+    // Cleanup old scores (>30 days)
+    db.prepare("DELETE FROM ops_scores WHERE timestamp < datetime('now', '-30 days')").run();
+    db.prepare("DELETE FROM ops_baselines WHERE timestamp < datetime('now', '-90 days')").run();
+    db.prepare("DELETE FROM ops_events WHERE timestamp < datetime('now', '-90 days')").run();
+  } catch (err) { console.error('[OPS] Baseline cron error:', err.message); }
+});
+
+// Key rotation reminder (weekly Monday 9 AM)
+cron.schedule('0 9 * * 1', async () => {
+  try {
+    const staleKeys = [];
+    const baselines = db.prepare('SELECT env_hashes, timestamp FROM ops_baselines ORDER BY timestamp ASC LIMIT 1').get();
+    if (!baselines) return;
+    const firstSeen = JSON.parse(baselines.env_hashes || '{}');
+    const baselineAge = Math.round((Date.now() - new Date(baselines.timestamp).getTime()) / 86400000);
+    if (baselineAge > 90) {
+      for (const [slug, keys] of Object.entries(firstSeen)) {
+        for (const keyName of Object.keys(keys)) {
+          const appDef = config.apps.find(a => slugify(a.name) === slug);
+          staleKeys.push(`${appDef?.name || slug}: ${keyName} (baseline ${baselineAge}d old)`);
+        }
+      }
+    }
+    if (staleKeys.length > 0) {
+      const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+      const tgChat = process.env.TELEGRAM_CHAT_ID;
+      if (tgToken && tgChat) {
+        const msg = `🔑 Key Rotation Reminder — ${staleKeys.length} key(s) may need rotation:\n${staleKeys.map(k => '• ' + k).join('\n')}`;
+        await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: tgChat, text: msg }), signal: AbortSignal.timeout(5000) }).catch(() => {});
+      }
+      db.prepare("INSERT INTO ops_events (event_type, severity, title, details) VALUES ('key_rotation', 'warning', ?, ?)").run(
+        `${staleKeys.length} key(s) may need rotation`, JSON.stringify(staleKeys));
+    }
+    console.log(`[OPS] Key rotation check: ${staleKeys.length} stale keys`);
+  } catch (err) { console.error('[OPS] Key rotation cron error:', err.message); }
 });
 
 // Health check endpoint

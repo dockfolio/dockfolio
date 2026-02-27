@@ -453,6 +453,144 @@
     .sec-scan-btn:hover { opacity: 0.9; }
     .sec-scan-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .sec-timestamp { font-size: 10px; color: var(--text-muted); }
+    /* Projects Manager */
+    .projects-panel { display: none; padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .projects-panel.active { display: block; animation: tabFadeIn 0.3s ease; }
+    .proj-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+    .proj-tab { background: none; border: none; color: var(--text-dim); font-size: 12px; padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .proj-tab:hover { color: var(--text); }
+    .proj-tab.active { color: var(--text); border-bottom-color: var(--purple); }
+    .proj-tab-content { display: none; }
+    .proj-tab-content.active { display: block; }
+    .proj-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+    .proj-kpi { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+    .proj-kpi-value { font-size: 28px; font-weight: 700; line-height: 1.2; }
+    .proj-kpi-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+    .proj-lifecycle-strip { display: flex; gap: 8px; margin-bottom: 14px; overflow-x: auto; }
+    .proj-lane { flex: 0 0 auto; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+    .proj-lane-title { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px; }
+    .proj-chip { font-size: 11px; padding: 3px 8px; border-radius: 4px; margin-bottom: 3px; background: var(--surface3); border: 1px solid var(--border); cursor: pointer; white-space: nowrap; }
+    .proj-chip:hover { border-color: var(--border-hover); }
+    .proj-app-row { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; font-size: 12px; }
+    .proj-app-row:hover { border-color: var(--border-hover); }
+    .proj-lifecycle-badge { font-size: 9px; padding: 2px 8px; border-radius: 3px; font-weight: 600; text-transform: uppercase; }
+    .proj-lifecycle-badge.idea { background: rgba(85,85,104,0.2); color: var(--text-muted); }
+    .proj-lifecycle-badge.development { background: rgba(59,130,246,0.15); color: var(--blue); }
+    .proj-lifecycle-badge.beta { background: rgba(234,179,8,0.15); color: var(--yellow); }
+    .proj-lifecycle-badge.launched { background: rgba(34,197,94,0.15); color: var(--green); }
+    .proj-lifecycle-badge.mature { background: rgba(6,182,212,0.15); color: var(--cyan); }
+    .proj-lifecycle-badge.deprecated { background: rgba(239,68,68,0.1); color: var(--red); }
+    .proj-priority-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .proj-priority-dot.p1 { background: var(--red); }
+    .proj-priority-dot.p2 { background: var(--yellow); }
+    .proj-priority-dot.p3 { background: var(--text-muted); }
+    .proj-priority-dot.p4 { background: var(--text-muted); opacity: 0.4; }
+    .proj-task-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; font-size: 12px; cursor: default; }
+    .proj-task-row:hover { border-color: var(--border-hover); }
+    .proj-task-row.done { opacity: 0.5; }
+    .proj-task-row.done .proj-task-title { text-decoration: line-through; }
+    .proj-task-title { flex: 1; font-weight: 500; }
+    .proj-task-due { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+    .proj-task-due.overdue { color: var(--red); font-weight: 600; }
+    .proj-task-app { font-size: 9px; padding: 1px 6px; border-radius: 3px; background: rgba(168,85,247,0.1); color: var(--purple); white-space: nowrap; }
+    .proj-task-priority { width: 4px; height: 16px; border-radius: 2px; flex-shrink: 0; }
+    .proj-task-priority.critical { background: var(--red); }
+    .proj-task-priority.high { background: var(--orange); }
+    .proj-task-priority.medium { background: var(--yellow); }
+    .proj-task-priority.low { background: var(--text-muted); }
+    .proj-kanban { display: flex; gap: 10px; overflow-x: auto; }
+    .proj-kanban-col { flex: 1; min-width: 220px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+    .proj-kanban-col-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; display: flex; justify-content: space-between; }
+    .proj-kanban-card { background: var(--surface3); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; font-size: 12px; cursor: pointer; transition: all 0.2s; }
+    .proj-kanban-card:hover { border-color: var(--border-hover); transform: translateY(-1px); }
+    .proj-impact-badge, .proj-effort-badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 500; }
+    .proj-impact-badge.high { background: rgba(34,197,94,0.15); color: var(--green); }
+    .proj-impact-badge.medium { background: rgba(234,179,8,0.15); color: var(--yellow); }
+    .proj-impact-badge.low { background: rgba(85,85,104,0.15); color: var(--text-muted); }
+    .proj-effort-badge.high { background: rgba(239,68,68,0.1); color: var(--red); }
+    .proj-effort-badge.medium { background: rgba(234,179,8,0.1); color: var(--yellow); }
+    .proj-effort-badge.low { background: rgba(34,197,94,0.1); color: var(--green); }
+    .proj-insight-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+    .proj-insight-card h4 { font-size: 13px; font-weight: 600; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .proj-insight-content { font-size: 12px; color: var(--text-dim); line-height: 1.6; white-space: pre-wrap; }
+    .proj-filter-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    .proj-filter-bar select { font-size: 11px; padding: 4px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); }
+    .proj-overdue-banner { background: rgba(234,179,8,0.1); border: 1px solid rgba(234,179,8,0.3); border-radius: 6px; padding: 8px 12px; font-size: 12px; color: var(--yellow); margin-bottom: 10px; }
+    .proj-form { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; display: none; }
+    .proj-form.active { display: block; }
+    .proj-form input, .proj-form select, .proj-form textarea { font-size: 12px; padding: 6px 10px; background: var(--surface3); border: 1px solid var(--border); border-radius: 4px; color: var(--text); width: 100%; }
+    .proj-form textarea { min-height: 60px; resize: vertical; font-family: inherit; }
+    .proj-form-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: flex-end; flex-wrap: wrap; }
+    .proj-form-field { flex: 1; min-width: 120px; }
+    .proj-form-field label { display: block; font-size: 10px; color: var(--text-muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* Ops Intelligence Panel */
+    .ops-panel { display: none; padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .ops-panel.active { display: block; animation: tabFadeIn 0.3s ease; }
+    .ops-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+    .ops-tab { background: none; border: none; color: var(--text-dim); font-size: 12px; padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .ops-tab:hover { color: var(--text); }
+    .ops-tab.active { color: var(--text); border-bottom-color: #f97316; }
+    .ops-tab-content { display: none; }
+    .ops-tab-content.active { display: block; }
+    .worry-score-display { text-align: center; padding: 20px; }
+    .worry-score-number { font-size: 64px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+    .worry-score-number.green { color: var(--green); }
+    .worry-score-number.yellow { color: #eab308; }
+    .worry-score-number.orange { color: #f97316; }
+    .worry-score-number.red { color: var(--red); }
+    .worry-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-top: 4px; }
+    .worry-breakdown { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; margin-top: 16px; }
+    .worry-factor { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
+    .worry-factor-score { font-size: 20px; font-weight: 700; }
+    .worry-factor-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+    .streak-display { display: inline-flex; align-items: center; gap: 8px; justify-content: center; margin-top: 12px; padding: 8px 16px; background: var(--surface2); border-radius: 8px; }
+    .streak-count { font-size: 18px; font-weight: 700; color: #f97316; }
+    .streak-label { font-size: 11px; color: var(--text-muted); }
+    .heartbeat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; margin-top: 12px; }
+    .heartbeat-app { text-align: center; padding: 12px 8px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border); cursor: pointer; transition: all 0.2s; }
+    .heartbeat-app:hover { border-color: var(--text-muted); transform: scale(1.05); }
+    .heartbeat-dot { width: 20px; height: 20px; border-radius: 50%; margin: 0 auto 6px; }
+    .heartbeat-dot.healthy { background: var(--green); box-shadow: 0 0 12px rgba(34,197,94,0.4); animation: heartPulse 2s ease infinite; }
+    .heartbeat-dot.unhealthy { background: var(--red); box-shadow: 0 0 12px rgba(239,68,68,0.4); animation: heartPulse 0.8s ease infinite; }
+    .heartbeat-dot.restarting { background: #eab308; animation: heartPulse 1.2s ease infinite; }
+    .heartbeat-dot.degraded { background: #f97316; animation: heartPulse 1.5s ease infinite; }
+    .heartbeat-dot.static { background: var(--text-muted); opacity: 0.5; }
+    .heartbeat-name { font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    @keyframes heartPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
+    .report-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+    .report-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .report-card-grade { font-size: 28px; font-weight: 800; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 10px; }
+    .report-card-grade.A { background: rgba(34,197,94,0.15); color: var(--green); }
+    .report-card-grade.B { background: rgba(59,130,246,0.15); color: #3b82f6; }
+    .report-card-grade.C { background: rgba(234,179,8,0.15); color: #eab308; }
+    .report-card-grade.D { background: rgba(249,115,22,0.15); color: #f97316; }
+    .report-card-grade.F { background: rgba(239,68,68,0.15); color: var(--red); }
+    .report-dims { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 8px; }
+    .report-dim { text-align: center; padding: 4px 2px; border-radius: 4px; }
+    .report-dim-score { font-size: 12px; font-weight: 700; }
+    .report-dim-label { font-size: 8px; text-transform: uppercase; color: var(--text-muted); }
+    .dep-shared-key { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 6px; }
+    .dep-key-name { font-size: 12px; font-weight: 600; color: var(--cyan); margin-bottom: 4px; }
+    .dep-app-list { display: flex; flex-wrap: wrap; gap: 4px; }
+    .dep-app-badge { font-size: 10px; padding: 2px 8px; border-radius: 4px; background: rgba(59,130,246,0.1); color: #3b82f6; }
+    body.adhd-mode .heartbeat-app.ok { opacity: 0.2; }
+    body.adhd-mode .worry-factor.zero { opacity: 0.2; }
+    body.adhd-mode .report-card.grade-a, body.adhd-mode .report-card.grade-b { opacity: 0.2; }
+    .worry-badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; margin-left: 4px; font-weight: 700; }
+    .worry-badge.green { background: rgba(34,197,94,0.15); color: var(--green); }
+    .worry-badge.yellow { background: rgba(234,179,8,0.15); color: #eab308; }
+    .worry-badge.orange { background: rgba(249,115,22,0.15); color: #f97316; }
+    .worry-badge.red { background: rgba(239,68,68,0.15); color: var(--red); }
+    .ops-event { padding: 8px 12px; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border); margin-bottom: 4px; font-size: 12px; display: flex; align-items: center; gap: 10px; }
+    .ops-event.critical { border-left: 3px solid var(--red); }
+    .ops-event.warning { border-left: 3px solid #eab308; }
+    .ops-event.info { border-left: 3px solid #3b82f6; }
+    .ops-event-time { font-size: 10px; color: var(--text-muted); font-family: monospace; min-width: 65px; }
+    .ops-event-title { flex: 1; }
+    .ops-event-ack { font-size: 10px; padding: 2px 8px; background: none; border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); cursor: pointer; }
+    .ops-event-ack:hover { background: var(--surface3); color: var(--text); }
+
     .settings-panel { display: none; padding: 20px 32px; border-bottom: 1px solid var(--border); background: var(--surface); }
     .settings-panel.active { display: block; }
     .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
@@ -636,6 +774,8 @@
       <button class="header-btn" onclick="toggleBriefing()" id="briefingBtn">Briefing</button>
       <button class="header-btn" onclick="toggleHealing()" id="healingBtn"><span class="healing-shield" id="healingShield">Healing</span></button>
       <button class="header-btn" onclick="toggleSecurity()" id="securityBtn">Security <span id="secGradeBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;display:none"></span></button>
+      <button class="header-btn" onclick="toggleProjects()" id="projectsBtn">Projects <span id="projTaskBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;background:rgba(168,85,247,0.15);color:var(--purple);display:none"></span></button>
+      <button class="header-btn" onclick="toggleOps()" id="opsBtn">Ops <span id="worryBadge" class="worry-badge" style="display:none"></span></button>
       <button class="header-btn" onclick="toggleMarketing()">Marketing</button>
       <a class="header-btn primary" href="/uptime/status-page/status" target="_blank">Status Page</a>
       <button class="header-btn" onclick="dockerPrune(this)">Prune</button>
@@ -748,6 +888,44 @@
     <div id="sec-certificates" class="sec-tab-content"><div id="secCertificatesContent"></div></div>
     <div id="sec-headers" class="sec-tab-content"><div id="secHeadersContent"></div></div>
     <div id="sec-network" class="sec-tab-content"><div id="secNetworkContent"></div></div>
+  </div>
+
+  <div id="projectsPanel" class="projects-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <span style="font-size:14px;font-weight:600">Projects Manager</span>
+      <button class="btn" onclick="fetchProjectsOverview(true)" style="font-size:11px;color:var(--purple)">Refresh</button>
+    </div>
+    <div class="proj-tabs">
+      <button class="proj-tab active" onclick="switchProjTab('overview',this)">Overview</button>
+      <button class="proj-tab" onclick="switchProjTab('tasks',this)">Tasks</button>
+      <button class="proj-tab" onclick="switchProjTab('roadmap',this)">Roadmap</button>
+      <button class="proj-tab" onclick="switchProjTab('insights',this)">Insights</button>
+    </div>
+    <div id="proj-overview" class="proj-tab-content active"><div id="projOverviewContent"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div></div>
+    <div id="proj-tasks" class="proj-tab-content"><div id="projTasksContent"></div></div>
+    <div id="proj-roadmap" class="proj-tab-content"><div id="projRoadmapContent"></div></div>
+    <div id="proj-insights" class="proj-tab-content"><div id="projInsightsContent"></div></div>
+  </div>
+
+  <div id="opsPanel" class="ops-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <span style="font-size:14px;font-weight:600">Ops Intelligence</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn" onclick="toggleADHDMode()" title="ADHD Mode: show only issues" id="adhdModeBtn">ADHD</button>
+        <button class="btn" onclick="createBaseline()">Snapshot Baseline</button>
+        <button class="btn" onclick="fetchOpsAll(true)">Refresh</button>
+      </div>
+    </div>
+    <div class="ops-tabs">
+      <button class="ops-tab active" onclick="switchOpsTab('pulse',this)">Pulse</button>
+      <button class="ops-tab" onclick="switchOpsTab('keys',this)">Keys &amp; Deps</button>
+      <button class="ops-tab" onclick="switchOpsTab('reportcards',this)">Report Cards</button>
+      <button class="ops-tab" onclick="switchOpsTab('timeline',this)">Timeline</button>
+    </div>
+    <div id="ops-pulse" class="ops-tab-content active"><div id="opsPulseContent"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div></div>
+    <div id="ops-keys" class="ops-tab-content"><div id="opsKeysContent"></div></div>
+    <div id="ops-reportcards" class="ops-tab-content"><div id="opsReportCardsContent"></div></div>
+    <div id="ops-timeline" class="ops-tab-content"><div id="opsTimelineContent"></div></div>
   </div>
 
   <div id="settingsPanel" class="settings-panel">
@@ -3307,6 +3485,14 @@
           prune: () => dockerPrune(document.querySelector('.header-btn[onclick*="dockerPrune"]')),
           healing: () => toggleHealing(),
           security: () => toggleSecurity(),
+          projects: () => toggleProjects(),
+          tasks: () => { toggleProjects(); setTimeout(() => switchProjTab('tasks', document.querySelector('.proj-tab:nth-child(2)')), 100); },
+          roadmap: () => { toggleProjects(); setTimeout(() => switchProjTab('roadmap', document.querySelector('.proj-tab:nth-child(3)')), 100); },
+          overdue: () => { toggleProjects(); setTimeout(() => { switchProjTab('tasks', document.querySelector('.proj-tab:nth-child(2)')); projTaskFilter.status = 'overdue'; fetchProjectTasks(); }, 100); },
+          ops: () => toggleOps(),
+          worry: () => { toggleOps(); setTimeout(() => switchOpsTab('pulse', document.querySelector('.ops-tab:first-child')), 100); },
+          drift: () => { toggleOps(); setTimeout(() => switchOpsTab('timeline', document.querySelector('.ops-tab:nth-child(4)')), 100); },
+          reportcards: () => { toggleOps(); setTimeout(() => switchOpsTab('reportcards', document.querySelector('.ops-tab:nth-child(3)')), 100); },
           emails: () => { if (!document.getElementById('marketingPanel').classList.contains('active')) toggleMarketing(); setTimeout(() => switchMktTab('emails', document.querySelector('.mkt-tab:nth-child(5)')), 100); },
           content: () => { if (!document.getElementById('marketingPanel').classList.contains('active')) toggleMarketing(); setTimeout(() => switchMktTab('content', document.querySelector('.mkt-tab:nth-child(6)')), 100); },
           cohorts: () => { if (!document.getElementById('marketingPanel').classList.contains('active')) toggleMarketing(); setTimeout(() => { switchMktTab('revenue', document.querySelector('.mkt-tab:nth-child(2)')); setTimeout(() => switchRevenueSubtab('cohorts', document.querySelector('.mkt-subtab:nth-child(2)')), 100); }, 100); },
@@ -3778,6 +3964,680 @@
       } catch {}
     }
 
+    // --- Projects Manager ---
+    let projOverviewData = null;
+    let projTasksData = null;
+    let projRoadmapData = null;
+    let projTaskFilter = { app: '', status: '', priority: '' };
+
+    function toggleProjects() {
+      const panel = document.getElementById('projectsPanel');
+      panel.classList.toggle('active');
+      if (panel.classList.contains('active') && !projOverviewData) fetchProjectsOverview();
+    }
+
+    function switchProjTab(tabName, btn) {
+      document.querySelectorAll('.proj-tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.proj-tab').forEach(b => b.classList.remove('active'));
+      document.getElementById('proj-' + tabName).classList.add('active');
+      if (btn) btn.classList.add('active');
+      if (tabName === 'tasks' && !projTasksData) fetchProjectTasks();
+      if (tabName === 'roadmap' && !projRoadmapData) fetchProjectRoadmap();
+      if (tabName === 'insights') fetchProjectInsights();
+    }
+
+    async function fetchProjectsOverview(force) {
+      try {
+        const el = document.getElementById('projOverviewContent');
+        el.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Loading...</span>';
+        const res = await fetch('/api/projects/overview');
+        projOverviewData = await res.json();
+        renderProjectsOverview();
+        // Update badge
+        const badge = document.getElementById('projTaskBadge');
+        if (projOverviewData.totals.openTasks > 0) {
+          badge.textContent = projOverviewData.totals.openTasks;
+          badge.style.display = 'inline';
+          if (projOverviewData.totals.overdueTasks > 0) { badge.style.background = 'rgba(239,68,68,0.15)'; badge.style.color = 'var(--red)'; }
+          else { badge.style.background = 'rgba(168,85,247,0.15)'; badge.style.color = 'var(--purple)'; }
+        } else { badge.style.display = 'none'; }
+      } catch (err) {
+        document.getElementById('projOverviewContent').innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${escapeHtml(err.message)}</span>`;
+      }
+    }
+
+    function renderProjectsOverview() {
+      const d = projOverviewData;
+      if (!d) return;
+      const el = document.getElementById('projOverviewContent');
+
+      // Lifecycle swimlanes
+      const lifecycles = ['idea', 'development', 'beta', 'launched', 'mature', 'deprecated'];
+      const laneHtml = lifecycles.map(lc => {
+        const apps = d.apps.filter(a => a.lifecycle === lc);
+        return `<div class="proj-lane"><div class="proj-lane-title">${lc} (${apps.length})</div>${apps.map(a => `<div class="proj-chip" onclick="showProjAppEdit('${escapeHtml(a.slug)}')">${escapeHtml(a.name)}</div>`).join('')}</div>`;
+      }).join('');
+
+      // KPI cards
+      const totalMRR = d.apps.reduce((s, a) => s + (a.mrr || 0), 0);
+      const kpiHtml = `
+        <div class="proj-kpi"><div class="proj-kpi-value" style="color:var(--green)">€${(totalMRR / 100).toFixed(0)}</div><div class="proj-kpi-label">Total MRR</div></div>
+        <div class="proj-kpi"><div class="proj-kpi-value" style="color:${d.totals.overdueTasks > 0 ? 'var(--red)' : 'var(--text)'}">${d.totals.openTasks}</div><div class="proj-kpi-label">Open Tasks${d.totals.overdueTasks > 0 ? ` (${d.totals.overdueTasks} overdue)` : ''}</div></div>
+        <div class="proj-kpi"><div class="proj-kpi-value" style="color:var(--cyan)">${d.totals.completedThisWeek}</div><div class="proj-kpi-label">Done This Week</div></div>
+        <div class="proj-kpi"><div class="proj-kpi-value">${d.apps.filter(a => a.type === 'saas' || a.type === 'tool').length}</div><div class="proj-kpi-label">Active Products</div></div>
+      `;
+
+      // App rows
+      const sorted = [...d.apps].sort((a, b) => a.priority - b.priority);
+      const appRowsHtml = sorted.map(a => {
+        const goalPct = a.revenue_goal_mrr ? Math.min(100, Math.round((a.mrr / a.revenue_goal_mrr) * 100)) : null;
+        return `<div class="proj-app-row">
+          <span class="proj-lifecycle-badge ${a.lifecycle}">${a.lifecycle}</span>
+          <span class="proj-priority-dot p${a.priority}" title="Priority ${a.priority}"></span>
+          <span style="font-weight:600;min-width:100px">${escapeHtml(a.name)}</span>
+          <span style="color:var(--text-muted);flex:1;font-size:11px">${escapeHtml(a.type)}</span>
+          ${a.mrr ? `<span style="color:var(--green)">€${(a.mrr/100).toFixed(0)}</span>` : ''}
+          ${a.seo_score !== null ? `<span style="color:var(--text-dim)">SEO:${a.seo_score}</span>` : ''}
+          ${a.security_findings > 0 ? `<span style="color:var(--orange)">${a.security_findings} findings</span>` : ''}
+          <span style="color:var(--text-dim)">${a.tasks.open} tasks</span>
+          ${goalPct !== null ? `<span style="font-size:10px;color:${goalPct >= 80 ? 'var(--green)' : goalPct >= 40 ? 'var(--yellow)' : 'var(--red)'}">${goalPct}% of goal</span>` : ''}
+          <button class="btn" onclick="showProjAppEdit('${escapeHtml(a.slug)}')" style="font-size:10px;color:var(--purple);padding:2px 8px">Edit</button>
+        </div>`;
+      }).join('');
+
+      el.innerHTML = `
+        <div class="proj-lifecycle-strip">${laneHtml}</div>
+        <div class="proj-kpi-grid">${kpiHtml}</div>
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:8px">All Apps</div>
+        ${appRowsHtml}
+      `;
+    }
+
+    function showProjAppEdit(slug) {
+      const a = projOverviewData?.apps?.find(x => x.slug === slug);
+      if (!a) return;
+      const html = `<div class="proj-form active" id="projEditForm">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px">Edit ${escapeHtml(a.name)}</div>
+        <div class="proj-form-row">
+          <div class="proj-form-field"><label>Lifecycle</label><select id="projEditLifecycle"><option ${a.lifecycle==='idea'?'selected':''}>idea</option><option ${a.lifecycle==='development'?'selected':''}>development</option><option ${a.lifecycle==='beta'?'selected':''}>beta</option><option ${a.lifecycle==='launched'?'selected':''}>launched</option><option ${a.lifecycle==='mature'?'selected':''}>mature</option><option ${a.lifecycle==='deprecated'?'selected':''}>deprecated</option></select></div>
+          <div class="proj-form-field"><label>Priority</label><select id="projEditPriority"><option value="1" ${a.priority===1?'selected':''}>1 - Focus</option><option value="2" ${a.priority===2?'selected':''}>2 - Maintain</option><option value="3" ${a.priority===3?'selected':''}>3 - Idle</option><option value="4" ${a.priority===4?'selected':''}>4 - Sunset</option></select></div>
+          <div class="proj-form-field"><label>MRR Goal (cents)</label><input type="number" id="projEditMRR" value="${a.revenue_goal_mrr||''}" placeholder="e.g. 50000 = €500"></div>
+        </div>
+        <div class="proj-form-row">
+          <div class="proj-form-field"><label>Traffic Goal (monthly PV)</label><input type="number" id="projEditTraffic" value="${a.traffic_goal_mpv||''}" placeholder="e.g. 10000"></div>
+          <div class="proj-form-field"><label>User Goal</label><input type="number" id="projEditUsers" value="${a.user_goal||''}" placeholder="e.g. 100"></div>
+        </div>
+        <div class="proj-form-row"><div class="proj-form-field" style="flex:3"><label>Notes</label><textarea id="projEditNotes" placeholder="Strategic notes...">${escapeHtml(a.notes||'')}</textarea></div></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn" onclick="saveProjMeta('${escapeHtml(slug)}')" style="color:var(--purple);padding:5px 14px;font-size:12px">Save</button>
+          <button class="btn" onclick="document.getElementById('projEditForm').remove()" style="color:var(--text-muted);font-size:12px">Cancel</button>
+        </div>
+      </div>`;
+      const old = document.getElementById('projEditForm');
+      if (old) old.remove();
+      document.getElementById('projOverviewContent').insertAdjacentHTML('afterbegin', html);
+    }
+
+    async function saveProjMeta(slug) {
+      try {
+        await fetch('/api/projects/meta/' + slug, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lifecycle: document.getElementById('projEditLifecycle').value,
+            priority: parseInt(document.getElementById('projEditPriority').value),
+            revenue_goal_mrr: parseInt(document.getElementById('projEditMRR').value) || null,
+            traffic_goal_mpv: parseInt(document.getElementById('projEditTraffic').value) || null,
+            user_goal: parseInt(document.getElementById('projEditUsers').value) || null,
+            notes: document.getElementById('projEditNotes').value || null,
+          })
+        });
+        showToast('Saved', 'success');
+        const f = document.getElementById('projEditForm');
+        if (f) f.remove();
+        fetchProjectsOverview(true);
+      } catch (err) { showToast(err.message, 'error'); }
+    }
+
+    // --- Tasks ---
+    async function fetchProjectTasks() {
+      try {
+        const el = document.getElementById('projTasksContent');
+        el.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Loading...</span>';
+        let url = '/api/projects/tasks?';
+        if (projTaskFilter.status === 'overdue') {
+          url = '/api/projects/tasks/overdue';
+        } else {
+          if (projTaskFilter.app) url += `app=${projTaskFilter.app}&`;
+          if (projTaskFilter.status) url += `status=${projTaskFilter.status}&`;
+          if (projTaskFilter.priority) url += `priority=${projTaskFilter.priority}&`;
+        }
+        const res = await fetch(url);
+        projTasksData = await res.json();
+        renderProjectTasks();
+      } catch (err) {
+        document.getElementById('projTasksContent').innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${escapeHtml(err.message)}</span>`;
+      }
+    }
+
+    function renderProjectTasks() {
+      const el = document.getElementById('projTasksContent');
+      const tasks = projTasksData || [];
+      const today = new Date().toISOString().split('T')[0];
+      const overdue = tasks.filter(t => t.due_date && t.due_date < today && t.status !== 'done' && t.status !== 'cancelled');
+
+      // App options from overview
+      const appOptions = (projOverviewData?.apps || []).map(a => `<option value="${escapeHtml(a.slug)}" ${projTaskFilter.app === a.slug ? 'selected' : ''}>${escapeHtml(a.name)}</option>`).join('');
+
+      const filterHtml = `<div class="proj-filter-bar">
+        <select onchange="projTaskFilter.app=this.value;fetchProjectTasks()"><option value="">All Apps</option>${appOptions}</select>
+        <select onchange="projTaskFilter.status=this.value;fetchProjectTasks()">
+          <option value="" ${!projTaskFilter.status?'selected':''}>All Status</option>
+          <option value="todo" ${projTaskFilter.status==='todo'?'selected':''}>Todo</option>
+          <option value="in_progress" ${projTaskFilter.status==='in_progress'?'selected':''}>In Progress</option>
+          <option value="blocked" ${projTaskFilter.status==='blocked'?'selected':''}>Blocked</option>
+          <option value="done" ${projTaskFilter.status==='done'?'selected':''}>Done</option>
+          <option value="overdue" ${projTaskFilter.status==='overdue'?'selected':''}>Overdue</option>
+        </select>
+        <select onchange="projTaskFilter.priority=this.value;fetchProjectTasks()">
+          <option value="" ${!projTaskFilter.priority?'selected':''}>All Priority</option>
+          <option value="critical" ${projTaskFilter.priority==='critical'?'selected':''}>Critical</option>
+          <option value="high" ${projTaskFilter.priority==='high'?'selected':''}>High</option>
+          <option value="medium" ${projTaskFilter.priority==='medium'?'selected':''}>Medium</option>
+          <option value="low" ${projTaskFilter.priority==='low'?'selected':''}>Low</option>
+        </select>
+        <button class="btn" onclick="showTaskForm()" style="color:var(--purple);font-size:11px">+ New Task</button>
+        <button class="btn" onclick="showImportForm()" style="color:var(--text-dim);font-size:11px">Import</button>
+      </div>`;
+
+      const overdueHtml = overdue.length > 0 ? `<div class="proj-overdue-banner">⚠ ${overdue.length} overdue task${overdue.length > 1 ? 's' : ''}</div>` : '';
+
+      const taskFormHtml = `<div class="proj-form" id="projTaskForm">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px">New Task</div>
+        <div class="proj-form-row">
+          <div class="proj-form-field" style="flex:3"><label>Title</label><input type="text" id="projNewTaskTitle" placeholder="Task title..."></div>
+          <div class="proj-form-field"><label>App</label><select id="projNewTaskApp"><option value="">Portfolio</option>${appOptions}</select></div>
+        </div>
+        <div class="proj-form-row">
+          <div class="proj-form-field"><label>Priority</label><select id="projNewTaskPriority"><option value="medium" selected>Medium</option><option value="critical">Critical</option><option value="high">High</option><option value="low">Low</option></select></div>
+          <div class="proj-form-field"><label>Due Date</label><input type="date" id="projNewTaskDue"></div>
+          <div class="proj-form-field"><label>Reminder</label><input type="datetime-local" id="projNewTaskReminder"></div>
+        </div>
+        <div class="proj-form-row"><div class="proj-form-field" style="flex:3"><label>Description</label><textarea id="projNewTaskDesc" placeholder="Details..."></textarea></div></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn" onclick="createTask()" style="color:var(--purple);padding:5px 14px;font-size:12px">Create</button>
+          <button class="btn" onclick="document.getElementById('projTaskForm').classList.remove('active')" style="color:var(--text-muted);font-size:12px">Cancel</button>
+        </div>
+      </div>`;
+
+      const importFormHtml = `<div class="proj-form" id="projImportForm">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px">Import from Markdown</div>
+        <div class="proj-form-row">
+          <div class="proj-form-field" style="flex:3"><label>Paste markdown (- [ ] todo / - [x] done)</label><textarea id="projImportText" style="min-height:100px" placeholder="- [ ] Post Show HN\n- [ ] Fix billing\n- [x] Deploy security manager"></textarea></div>
+          <div class="proj-form-field"><label>App</label><select id="projImportApp"><option value="">Portfolio</option>${appOptions}</select></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn" onclick="importTasks()" style="color:var(--purple);padding:5px 14px;font-size:12px">Import</button>
+          <button class="btn" onclick="document.getElementById('projImportForm').classList.remove('active')" style="color:var(--text-muted);font-size:12px">Cancel</button>
+        </div>
+      </div>`;
+
+      const taskListHtml = tasks.map(t => {
+        const isDone = t.status === 'done' || t.status === 'cancelled';
+        const isOverdue = t.due_date && t.due_date < today && !isDone;
+        const appName = projOverviewData?.apps?.find(a => a.slug === t.app_slug)?.name || '';
+        return `<div class="proj-task-row ${isDone ? 'done' : ''}">
+          <input type="checkbox" ${isDone ? 'checked disabled' : ''} onchange="completeTask(${t.id})" style="cursor:pointer">
+          <div class="proj-task-priority ${t.priority}"></div>
+          <span class="proj-task-title">${escapeHtml(t.title)}</span>
+          ${appName ? `<span class="proj-task-app">${escapeHtml(appName)}</span>` : ''}
+          ${t.due_date ? `<span class="proj-task-due ${isOverdue ? 'overdue' : ''}">${t.due_date}</span>` : ''}
+          ${t.reminder_at && !t.reminder_sent ? '<span title="Reminder set" style="font-size:10px">🔔</span>' : ''}
+          <select onchange="updateTaskStatus(${t.id}, this.value)" style="font-size:10px;padding:2px 4px;background:var(--surface3);border:1px solid var(--border);border-radius:3px;color:var(--text-dim)">
+            <option value="todo" ${t.status==='todo'?'selected':''}>todo</option>
+            <option value="in_progress" ${t.status==='in_progress'?'selected':''}>in progress</option>
+            <option value="blocked" ${t.status==='blocked'?'selected':''}>blocked</option>
+            <option value="done" ${t.status==='done'?'selected':''}>done</option>
+          </select>
+          <button class="sec-dismiss-btn" onclick="deleteTask(${t.id})" title="Delete">✕</button>
+        </div>`;
+      }).join('');
+
+      el.innerHTML = filterHtml + taskFormHtml + importFormHtml + overdueHtml + (tasks.length > 0 ? taskListHtml : '<span style="color:var(--text-muted);font-size:12px">No tasks yet. Click "+ New Task" to create one.</span>');
+    }
+
+    function showTaskForm() { document.getElementById('projTaskForm').classList.add('active'); document.getElementById('projNewTaskTitle').focus(); }
+    function showImportForm() { document.getElementById('projImportForm').classList.add('active'); document.getElementById('projImportText').focus(); }
+
+    async function createTask() {
+      try {
+        const title = document.getElementById('projNewTaskTitle').value.trim();
+        if (!title) { showToast('Title required', 'warning'); return; }
+        await fetch('/api/projects/tasks', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title,
+            app_slug: document.getElementById('projNewTaskApp').value || null,
+            priority: document.getElementById('projNewTaskPriority').value,
+            due_date: document.getElementById('projNewTaskDue').value || null,
+            reminder_at: document.getElementById('projNewTaskReminder').value || null,
+            description: document.getElementById('projNewTaskDesc').value || null,
+          })
+        });
+        showToast('Task created', 'success');
+        document.getElementById('projTaskForm').classList.remove('active');
+        document.getElementById('projNewTaskTitle').value = '';
+        document.getElementById('projNewTaskDesc').value = '';
+        fetchProjectTasks();
+        fetchProjectsOverview(true);
+      } catch (err) { showToast(err.message, 'error'); }
+    }
+
+    async function importTasks() {
+      try {
+        const text = document.getElementById('projImportText').value;
+        if (!text.trim()) { showToast('Paste some markdown', 'warning'); return; }
+        const res = await fetch('/api/projects/tasks/import', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, app_slug: document.getElementById('projImportApp').value || null })
+        });
+        const data = await res.json();
+        showToast(`Imported ${data.created} tasks`, 'success');
+        document.getElementById('projImportForm').classList.remove('active');
+        document.getElementById('projImportText').value = '';
+        fetchProjectTasks();
+        fetchProjectsOverview(true);
+      } catch (err) { showToast(err.message, 'error'); }
+    }
+
+    async function completeTask(id) { try { await fetch('/api/projects/tasks/' + id + '/complete', { method: 'POST' }); fetchProjectTasks(); fetchProjectsOverview(true); } catch {} }
+    async function updateTaskStatus(id, status) { try { await fetch('/api/projects/tasks/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }); fetchProjectTasks(); } catch {} }
+    async function deleteTask(id) { if (!confirm('Delete this task?')) return; try { await fetch('/api/projects/tasks/' + id, { method: 'DELETE' }); fetchProjectTasks(); fetchProjectsOverview(true); showToast('Task deleted', 'success'); } catch {} }
+
+    // --- Roadmap ---
+    async function fetchProjectRoadmap() {
+      try {
+        const el = document.getElementById('projRoadmapContent');
+        el.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Loading...</span>';
+        const res = await fetch('/api/projects/roadmap');
+        projRoadmapData = await res.json();
+        renderProjectRoadmap();
+      } catch (err) {
+        document.getElementById('projRoadmapContent').innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${escapeHtml(err.message)}</span>`;
+      }
+    }
+
+    function renderProjectRoadmap() {
+      const items = projRoadmapData || [];
+      const el = document.getElementById('projRoadmapContent');
+      const statuses = ['idea', 'planned', 'in_progress', 'shipped'];
+      const statusLabels = { idea: 'Ideas', planned: 'Planned', in_progress: 'In Progress', shipped: 'Shipped' };
+
+      const appOptions = (projOverviewData?.apps || []).map(a => `<option value="${escapeHtml(a.slug)}">${escapeHtml(a.name)}</option>`).join('');
+
+      const formHtml = `<div class="proj-form" id="projRoadmapForm">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px">New Roadmap Item</div>
+        <div class="proj-form-row">
+          <div class="proj-form-field" style="flex:3"><label>Title</label><input type="text" id="projNewRmTitle" placeholder="Feature name..."></div>
+          <div class="proj-form-field"><label>App</label><select id="projNewRmApp"><option value="">Portfolio</option>${appOptions}</select></div>
+        </div>
+        <div class="proj-form-row">
+          <div class="proj-form-field"><label>Type</label><select id="projNewRmType"><option value="feature">Feature</option><option value="milestone">Milestone</option><option value="release">Release</option><option value="experiment">Experiment</option></select></div>
+          <div class="proj-form-field"><label>Impact</label><select id="projNewRmImpact"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select></div>
+          <div class="proj-form-field"><label>Effort</label><select id="projNewRmEffort"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select></div>
+          <div class="proj-form-field"><label>Target Date</label><input type="date" id="projNewRmDate"></div>
+        </div>
+        <div class="proj-form-row"><div class="proj-form-field" style="flex:3"><label>Description</label><textarea id="projNewRmDesc" placeholder="What and why..."></textarea></div></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn" onclick="createRoadmapItem()" style="color:var(--purple);padding:5px 14px;font-size:12px">Create</button>
+          <button class="btn" onclick="document.getElementById('projRoadmapForm').classList.remove('active')" style="color:var(--text-muted);font-size:12px">Cancel</button>
+        </div>
+      </div>`;
+
+      const kanbanHtml = statuses.map(s => {
+        const colItems = items.filter(i => i.status === s);
+        const cards = colItems.map(i => {
+          const appName = projOverviewData?.apps?.find(a => a.slug === i.app_slug)?.name || '';
+          return `<div class="proj-kanban-card" onclick="editRoadmapItem(${i.id})">
+            <div style="display:flex;gap:4px;margin-bottom:4px;flex-wrap:wrap">
+              <span class="proj-impact-badge ${i.impact}">↑${i.impact}</span>
+              <span class="proj-effort-badge ${i.effort}">⚡${i.effort}</span>
+              ${i.type !== 'feature' ? `<span style="font-size:9px;color:var(--text-muted)">${i.type}</span>` : ''}
+            </div>
+            <div style="font-weight:500;margin-bottom:3px">${escapeHtml(i.title)}</div>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              ${appName ? `<span class="proj-task-app">${escapeHtml(appName)}</span>` : '<span></span>'}
+              ${i.target_date ? `<span style="font-size:10px;color:var(--text-muted)">${i.target_date}</span>` : ''}
+            </div>
+            ${s === 'in_progress' ? `<button class="btn" onclick="event.stopPropagation();shipRoadmapItem(${i.id})" style="margin-top:6px;font-size:10px;color:var(--green);padding:2px 8px">Mark Shipped</button>` : ''}
+          </div>`;
+        }).join('');
+        return `<div class="proj-kanban-col"><div class="proj-kanban-col-title"><span>${statusLabels[s]}</span><span>${colItems.length}</span></div>${cards}</div>`;
+      }).join('');
+
+      el.innerHTML = `
+        <div style="margin-bottom:12px"><button class="btn" onclick="showRoadmapForm()" style="color:var(--purple);font-size:11px">+ New Roadmap Item</button></div>
+        ${formHtml}
+        <div class="proj-kanban">${kanbanHtml}</div>
+      `;
+    }
+
+    function showRoadmapForm() { document.getElementById('projRoadmapForm').classList.add('active'); document.getElementById('projNewRmTitle').focus(); }
+
+    async function createRoadmapItem() {
+      try {
+        const title = document.getElementById('projNewRmTitle').value.trim();
+        if (!title) { showToast('Title required', 'warning'); return; }
+        await fetch('/api/projects/roadmap', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title,
+            app_slug: document.getElementById('projNewRmApp').value || null,
+            type: document.getElementById('projNewRmType').value,
+            impact: document.getElementById('projNewRmImpact').value,
+            effort: document.getElementById('projNewRmEffort').value,
+            target_date: document.getElementById('projNewRmDate').value || null,
+            description: document.getElementById('projNewRmDesc').value || null,
+          })
+        });
+        showToast('Roadmap item created', 'success');
+        document.getElementById('projRoadmapForm').classList.remove('active');
+        document.getElementById('projNewRmTitle').value = '';
+        document.getElementById('projNewRmDesc').value = '';
+        fetchProjectRoadmap();
+      } catch (err) { showToast(err.message, 'error'); }
+    }
+
+    async function shipRoadmapItem(id) { try { await fetch('/api/projects/roadmap/' + id + '/ship', { method: 'POST' }); showToast('Shipped!', 'success'); fetchProjectRoadmap(); } catch {} }
+
+    function editRoadmapItem(id) {
+      const item = projRoadmapData?.find(i => i.id === id);
+      if (!item) return;
+      const appOptions = (projOverviewData?.apps || []).map(a => `<option value="${escapeHtml(a.slug)}" ${item.app_slug===a.slug?'selected':''}>${escapeHtml(a.name)}</option>`).join('');
+      const html = `<div class="proj-form active" id="projRmEditForm" style="margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px">Edit: ${escapeHtml(item.title)}</div>
+        <div class="proj-form-row">
+          <div class="proj-form-field" style="flex:3"><label>Title</label><input type="text" id="projRmEditTitle" value="${escapeHtml(item.title)}"></div>
+          <div class="proj-form-field"><label>Status</label><select id="projRmEditStatus"><option ${item.status==='idea'?'selected':''}>idea</option><option ${item.status==='planned'?'selected':''}>planned</option><option ${item.status==='in_progress'?'selected':''}>in_progress</option><option ${item.status==='shipped'?'selected':''}>shipped</option><option ${item.status==='cancelled'?'selected':''}>cancelled</option></select></div>
+          <div class="proj-form-field"><label>App</label><select id="projRmEditApp"><option value="">Portfolio</option>${appOptions}</select></div>
+        </div>
+        <div class="proj-form-row">
+          <div class="proj-form-field"><label>Impact</label><select id="projRmEditImpact"><option ${item.impact==='high'?'selected':''}>high</option><option ${item.impact==='medium'?'selected':''}>medium</option><option ${item.impact==='low'?'selected':''}>low</option></select></div>
+          <div class="proj-form-field"><label>Effort</label><select id="projRmEditEffort"><option ${item.effort==='low'?'selected':''}>low</option><option ${item.effort==='medium'?'selected':''}>medium</option><option ${item.effort==='high'?'selected':''}>high</option></select></div>
+          <div class="proj-form-field"><label>Target Date</label><input type="date" id="projRmEditDate" value="${item.target_date||''}"></div>
+        </div>
+        <div class="proj-form-row"><div class="proj-form-field" style="flex:3"><label>Description</label><textarea id="projRmEditDesc">${escapeHtml(item.description||'')}</textarea></div></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="btn" onclick="saveRoadmapEdit(${id})" style="color:var(--purple);padding:5px 14px;font-size:12px">Save</button>
+          <button class="btn" onclick="document.getElementById('projRmEditForm').remove()" style="color:var(--text-muted);font-size:12px">Cancel</button>
+        </div>
+      </div>`;
+      const old = document.getElementById('projRmEditForm');
+      if (old) old.remove();
+      document.getElementById('projRoadmapContent').insertAdjacentHTML('afterbegin', html);
+    }
+
+    async function saveRoadmapEdit(id) {
+      try {
+        await fetch('/api/projects/roadmap/' + id, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: document.getElementById('projRmEditTitle').value,
+            status: document.getElementById('projRmEditStatus').value,
+            app_slug: document.getElementById('projRmEditApp').value || null,
+            impact: document.getElementById('projRmEditImpact').value,
+            effort: document.getElementById('projRmEditEffort').value,
+            target_date: document.getElementById('projRmEditDate').value || null,
+            description: document.getElementById('projRmEditDesc').value || null,
+          })
+        });
+        showToast('Saved', 'success');
+        document.getElementById('projRmEditForm').remove();
+        fetchProjectRoadmap();
+      } catch (err) { showToast(err.message, 'error'); }
+    }
+
+    // --- Insights ---
+    async function fetchProjectInsights() {
+      const el = document.getElementById('projInsightsContent');
+      el.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Loading portfolio summary...</span>';
+      try {
+        // Portfolio summary
+        const summaryRes = await fetch('/api/projects/insights/portfolio/summary');
+        const summary = await summaryRes.json();
+        const saasApps = (projOverviewData?.apps || []).filter(a => a.type === 'saas' || a.type === 'tool');
+
+        let html = `<div class="proj-insight-card">
+          <h4>Portfolio Summary <span style="font-size:10px;font-weight:400;color:var(--text-muted)">${summary.cached ? 'cached' : 'fresh'} — ${summary.generated_at ? new Date(summary.generated_at).toLocaleString() : ''}</span></h4>
+          <div class="proj-insight-content">${escapeHtml(summary.content || summary.error || 'No summary available')}</div>
+        </div>`;
+
+        // Per-app insight cards
+        html += '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin:12px 0 8px">Per-App Insights</div>';
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:10px">';
+        for (const app of saasApps) {
+          html += `<div class="proj-insight-card" id="projInsight-${app.slug}">
+            <h4>${escapeHtml(app.name)} <button class="btn" onclick="refreshInsight('${escapeHtml(app.slug)}')" style="font-size:10px;color:var(--purple);padding:2px 8px">Generate</button></h4>
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px">${app.lifecycle} · priority ${app.priority} · €${((app.mrr||0)/100).toFixed(0)} MRR · ${app.tasks.open} open tasks</div>
+            <div class="proj-insight-content" id="projInsightContent-${app.slug}" style="color:var(--text-muted)">Click "Generate" for AI-powered next actions</div>
+          </div>`;
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch (err) {
+        el.innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${escapeHtml(err.message)}</span>`;
+      }
+    }
+
+    async function refreshInsight(slug) {
+      const el = document.getElementById('projInsightContent-' + slug);
+      if (!el) return;
+      el.innerHTML = '<span style="color:var(--text-muted)">Generating...</span>';
+      try {
+        const res = await fetch('/api/projects/insights/' + slug + '?force=true');
+        const data = await res.json();
+        el.textContent = data.content || data.error || 'No insight generated';
+        el.style.color = 'var(--text-dim)';
+      } catch (err) {
+        el.innerHTML = `<span style="color:var(--red)">${escapeHtml(err.message)}</span>`;
+      }
+    }
+
+    // ========== OPS INTELLIGENCE ==========
+    let opsLoaded = false;
+    let adhdMode = localStorage.getItem('adhdMode') === '1';
+    if (adhdMode) document.body.classList.add('adhd-mode');
+
+    function toggleOps() {
+      const panel = document.getElementById('opsPanel');
+      panel.classList.toggle('active');
+      if (panel.classList.contains('active') && !opsLoaded) fetchOpsAll();
+    }
+
+    function switchOpsTab(tab, btn) {
+      document.querySelectorAll('.ops-tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.ops-tab').forEach(t => t.classList.remove('active'));
+      document.getElementById('ops-' + tab).classList.add('active');
+      if (btn) btn.classList.add('active');
+      if (tab === 'reportcards') fetchOpsReportCards();
+      if (tab === 'keys') fetchOpsDependencies();
+    }
+
+    function toggleADHDMode() {
+      adhdMode = !adhdMode;
+      document.body.classList.toggle('adhd-mode', adhdMode);
+      localStorage.setItem('adhdMode', adhdMode ? '1' : '0');
+      document.getElementById('adhdModeBtn').style.borderColor = adhdMode ? '#f97316' : '';
+      showToast(adhdMode ? 'ADHD Mode: showing only issues' : 'ADHD Mode off: showing everything', 'info');
+    }
+
+    function worryColor(score) {
+      if (score <= 15) return 'green';
+      if (score <= 35) return 'yellow';
+      if (score <= 60) return 'orange';
+      return 'red';
+    }
+
+    function updateWorryBadge(score) {
+      const badge = document.getElementById('worryBadge');
+      if (score === undefined || score === null) { badge.style.display = 'none'; return; }
+      badge.style.display = '';
+      badge.textContent = score;
+      badge.className = 'worry-badge ' + worryColor(score);
+    }
+
+    async function fetchOpsAll(force) {
+      try {
+        const [worryRes, heartbeatRes, timelineRes] = await Promise.all([
+          fetch('/api/ops/worry-score'), fetch('/api/ops/heartbeat'), fetch('/api/ops/timeline')
+        ]);
+        const worry = await worryRes.json();
+        const heartbeat = await heartbeatRes.json();
+        const timeline = await timelineRes.json();
+        opsLoaded = true;
+        renderOpsPulse(worry, heartbeat);
+        renderOpsTimeline(timeline);
+        updateWorryBadge(worry.score);
+      } catch (err) { console.error('Ops fetch error:', err); }
+    }
+
+    async function fetchOpsReportCards() {
+      try {
+        const res = await fetch('/api/ops/report-cards');
+        const data = await res.json();
+        renderOpsReportCards(data.cards);
+      } catch (err) { document.getElementById('opsReportCardsContent').innerHTML = '<span style="color:var(--red);font-size:12px">Error: ' + escapeHtml(err.message) + '</span>'; }
+    }
+
+    async function fetchOpsDependencies() {
+      try {
+        const res = await fetch('/api/ops/dependencies');
+        const data = await res.json();
+        renderOpsDependencies(data);
+      } catch (err) { document.getElementById('opsKeysContent').innerHTML = '<span style="color:var(--red);font-size:12px">Error: ' + escapeHtml(err.message) + '</span>'; }
+    }
+
+    async function createBaseline() {
+      try {
+        const res = await fetch('/api/ops/baseline', { method: 'POST' });
+        const data = await res.json();
+        showToast(data.ok ? 'Baseline snapshot created' : 'Failed to create baseline', data.ok ? 'success' : 'error');
+      } catch (err) { showToast('Error: ' + err.message, 'error'); }
+    }
+
+    async function acknowledgeDrift(id) {
+      try {
+        await fetch('/api/ops/drift/' + id + '/acknowledge', { method: 'POST' });
+        fetchOpsAll(true);
+      } catch {}
+    }
+
+    function renderOpsPulse(worry, heartbeat) {
+      const color = worryColor(worry.score);
+      const labels = { containers: 'Containers', keys: 'API Keys', disk: 'Disk', backups: 'Backups', security: 'Security', healing: 'Healing', seo: 'SEO' };
+      const statusText = worry.score <= 15 ? 'All clear' : worry.score <= 35 ? 'Minor issues' : worry.score <= 60 ? 'Needs attention' : 'Critical issues';
+      let html = '<div style="display:grid;grid-template-columns:1fr 2fr;gap:20px">';
+      // Left: Score + Streak
+      html += '<div class="worry-score-display">';
+      html += '<div class="worry-score-number ' + color + '">' + worry.score + '</div>';
+      html += '<div class="worry-label">Worry Score</div>';
+      html += '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">' + statusText + '</div>';
+      if (worry.streak) html += '<div class="streak-display"><span class="streak-count">' + worry.streak.days + '</span><span class="streak-label">day streak</span></div>';
+      html += '</div>';
+      // Right: Breakdown + Heartbeat
+      html += '<div><div class="worry-breakdown">';
+      for (const [key, value] of Object.entries(worry.breakdown || {})) {
+        const max = worry.maxScores?.[key] || 0;
+        const fc = value === 0 ? 'var(--green)' : value >= max * 0.7 ? 'var(--red)' : '#eab308';
+        html += '<div class="worry-factor' + (value === 0 ? ' zero' : '') + '"><div class="worry-factor-score" style="color:' + fc + '">' + value + '/' + max + '</div><div class="worry-factor-label">' + (labels[key] || key) + '</div></div>';
+      }
+      html += '</div>';
+      html += '<div style="margin-top:14px"><div style="font-size:11px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;font-weight:600">App Heartbeat</div>';
+      html += '<div class="heartbeat-grid">';
+      for (const app of (heartbeat.apps || [])) {
+        const isOk = app.health === 'healthy' || app.health === 'static';
+        html += '<div class="heartbeat-app' + (isOk ? ' ok' : '') + '" title="' + escapeHtml(app.name) + ' (' + app.health + ')">';
+        html += '<div class="heartbeat-dot ' + app.health + '"></div>';
+        html += '<div class="heartbeat-name">' + escapeHtml(app.name) + '</div></div>';
+      }
+      html += '</div></div></div></div>';
+      document.getElementById('opsPulseContent').innerHTML = html;
+    }
+
+    function renderOpsReportCards(cards) {
+      if (!cards || cards.length === 0) { document.getElementById('opsReportCardsContent').innerHTML = '<span style="color:var(--text-muted);font-size:12px">No report card data</span>'; return; }
+      let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">';
+      for (const card of cards.sort((a, b) => a.overall - b.overall)) {
+        html += '<div class="report-card grade-' + card.grade.toLowerCase() + '">';
+        html += '<div class="report-card-header"><div><div style="font-size:13px;font-weight:600">' + escapeHtml(card.name) + '</div>';
+        html += '<div style="font-size:10px;color:var(--text-muted)">' + card.type + ' &middot; ' + card.overall + '/100</div></div>';
+        html += '<div class="report-card-grade ' + card.grade + '">' + card.grade + '</div></div>';
+        html += '<div class="report-dims">';
+        for (const [dim, data] of Object.entries(card.dimensions)) {
+          const dc = (data.score >= 80) ? 'var(--green)' : (data.score >= 60) ? '#eab308' : 'var(--red)';
+          html += '<div class="report-dim"><div class="report-dim-score" style="color:' + dc + '">' + (data.grade || '-') + '</div><div class="report-dim-label">' + dim.slice(0, 5) + '</div></div>';
+        }
+        html += '</div></div>';
+      }
+      html += '</div>';
+      document.getElementById('opsReportCardsContent').innerHTML = html;
+    }
+
+    function renderOpsDependencies(data) {
+      let html = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px"><div>';
+      html += '<div style="font-size:11px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;font-weight:600">Shared Keys (Blast Radius)</div>';
+      if (!data.shared_keys?.length) html += '<div style="font-size:12px;color:var(--text-muted)">No shared keys detected</div>';
+      for (const shared of (data.shared_keys || [])) {
+        html += '<div class="dep-shared-key"><div class="dep-key-name">' + escapeHtml(shared.key) + ' <span style="color:var(--text-muted);font-size:10px">' + escapeHtml(shared.maskedValue) + '</span></div>';
+        html += '<div class="dep-app-list">' + shared.apps.map(a => '<span class="dep-app-badge">' + escapeHtml(a) + '</span>').join('') + '</div>';
+        html += '<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Blast radius: ' + shared.apps.length + ' apps affected if key expires</div></div>';
+      }
+      html += '</div><div>';
+      html += '<div style="font-size:11px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;font-weight:600">App Connections</div>';
+      const adjMap = {};
+      for (const edge of (data.edges || [])) {
+        if (!adjMap[edge.source]) adjMap[edge.source] = [];
+        adjMap[edge.source].push({ target: edge.target, label: edge.label });
+      }
+      for (const [source, targets] of Object.entries(adjMap)) {
+        html += '<div style="font-size:12px;margin-bottom:6px"><span style="color:var(--text);font-weight:500">' + escapeHtml(source) + '</span> <span style="color:var(--text-muted)">shares with:</span>';
+        for (const t of targets) html += ' <span style="color:var(--cyan)">' + escapeHtml(t.target) + '</span><span style="color:var(--text-muted);font-size:10px"> (' + escapeHtml(t.label) + ')</span>';
+        html += '</div>';
+      }
+      if (Object.keys(adjMap).length === 0) html += '<div style="font-size:12px;color:var(--text-muted)">No shared connections</div>';
+      html += '</div></div>';
+      document.getElementById('opsKeysContent').innerHTML = html;
+    }
+
+    function renderOpsTimeline(data) {
+      let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+      html += '<span style="font-size:11px;color:var(--text-muted)">' + (data.unacknowledged || 0) + ' unacknowledged</span>';
+      html += '<button class="btn" onclick="fetchOpsAll(true)">Refresh</button></div>';
+      if (!data.events?.length) {
+        html += '<span style="color:var(--text-muted);font-size:12px">No ops events yet. Create a baseline to start tracking drift.</span>';
+        document.getElementById('opsTimelineContent').innerHTML = html;
+        return;
+      }
+      for (const ev of data.events) {
+        const time = new Date(ev.timestamp).toLocaleString('de-DE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        html += '<div class="ops-event ' + ev.severity + '">';
+        html += '<span class="ops-event-time">' + time + '</span>';
+        html += '<span class="ops-event-title">' + escapeHtml(ev.title) + '</span>';
+        html += ev.acknowledged ? '<span style="font-size:10px;color:var(--green)">&#10003;</span>' : '<button class="ops-event-ack" onclick="acknowledgeDrift(' + ev.id + ')">Ack</button>';
+        html += '</div>';
+      }
+      document.getElementById('opsTimelineContent').innerHTML = html;
+    }
+
+    // Auto-refresh worry badge every 5 min
+    let lastWorryFetch = 0;
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/ops/worry-score');
+        const data = await res.json();
+        updateWorryBadge(data.score);
+      } catch {}
+    }, 300000);
+
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
       // Command palette takes priority
@@ -3799,6 +4659,9 @@
       if (e.key === 'd') toggleBriefing();
       if (e.key === 'h') toggleHealing();
       if (e.key === 'S') toggleSecurity();
+      if (e.key === 'j') toggleProjects();
+      if (e.key === 'o') toggleOps();
+      if (e.key === 'A') toggleADHDMode();
       if (e.key === 'x') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('crosspromo', document.querySelector('.mkt-tab:nth-child(7)')), 100); }
       if (e.key === 'B') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('banners', document.querySelector('.mkt-tab:nth-child(8)')), 100); }
       if (e.key === 'p') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('playbook', document.querySelector('.mkt-tab:nth-child(9)')), 100); }
