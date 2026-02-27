@@ -1,0 +1,7 @@
+node_modules/
+.htpasswd
+*.log
+.claude/
+scripts/visit-watcher.sh
+.env
+auth.db

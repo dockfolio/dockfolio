@@ -1,0 +1,12 @@
+.git
+.github
+.claude
+.env
+*.md
+!dashboard/public/**
+plans/
+scripts/
+node_modules/
+*.log
+auth.db
+LICENSE

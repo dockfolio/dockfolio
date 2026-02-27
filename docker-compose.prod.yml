@@ -1,0 +1,35 @@
+# Dockfolio — Production Docker Compose (for new installs)
+# Usage: docker compose -f docker-compose.prod.yml up -d
+
+services:
+  dashboard:
+    image: ghcr.io/dockfolio/dockfolio:latest
+    container_name: dockfolio
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-9091}:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - dockfolio-data:/data
+      - ./config.yml:/app/config.yml
+    environment:
+      - NODE_ENV=production
+      - AUTH_DB_PATH=/data/auth.db
+      - MARKETING_DB_PATH=/data/marketing.db
+      - PLAUSIBLE_URL=${PLAUSIBLE_URL:-}
+      - PLAUSIBLE_API_KEY=${PLAUSIBLE_API_KEY:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  dockfolio-data:
