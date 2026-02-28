@@ -6062,8 +6062,8 @@ app.get('/api/analytics/pixel.gif', rlPublicRead, (req, res) => {
 app.get('/api/analytics/track.js', rlPublicRead, (req, res) => {
   res.setHeader('Content-Type', 'application/javascript');
   res.setHeader('Cache-Control', 'public, max-age=3600');
-  const host = req.get('host');
-  res.send(`(function(){var s=document.currentScript&&document.currentScript.dataset.app;if(!s)return;var i=new Image();i.src='//${host}/api/analytics/pixel.gif?app='+s+'&url='+encodeURIComponent(location.pathname)+'&ref='+encodeURIComponent(document.referrer);})();`);
+  const host = process.env.DASHBOARD_URL || req.get('host');
+  res.send(`(function(){var s=document.currentScript&&document.currentScript.dataset.app;if(!s)return;var i=new Image();i.src='https://${host}/api/analytics/pixel.gif?app='+s+'&url='+encodeURIComponent(location.pathname)+'&ref='+encodeURIComponent(document.referrer);})();`);
 });
 
 // Public: POST-based tracker for SPAs
