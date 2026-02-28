@@ -1109,8 +1109,8 @@ app.get('/api/marketing/overview', asyncRoute(async (_req, res) => {
     // Traffic (from cached analytics)
     const trafficData = cachedAnalytics?.apps?.[appDef.name] || null;
 
-    // Security score
-    const secRow = db.prepare('SELECT score, grade FROM security_scans WHERE app_slug = ? ORDER BY timestamp DESC LIMIT 1').get(slug);
+    // Security score (scans are global, not per-app)
+    const secRow = db.prepare('SELECT overall_score as score, grade FROM security_scans ORDER BY timestamp DESC LIMIT 1').get();
 
     // SEO score
     const seoRow = db.prepare('SELECT score FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug);
@@ -1127,7 +1127,7 @@ app.get('/api/marketing/overview', asyncRoute(async (_req, res) => {
     const bannerCount = db.prepare("SELECT COUNT(*) as n FROM banner_placements WHERE app_slug = ? AND status = 'active'").get(slug)?.n || 0;
 
     // Project meta
-    const meta = db.prepare('SELECT lifecycle, priority, revenue_goal, traffic_goal, user_goal FROM project_meta WHERE app_slug = ?').get(slug);
+    const meta = db.prepare('SELECT lifecycle, priority, revenue_goal_mrr as revenue_goal, traffic_goal_mpv as traffic_goal, user_goal FROM project_meta WHERE app_slug = ?').get(slug);
 
     return {
       name: appDef.name,
