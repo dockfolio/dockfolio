@@ -1,8 +1,14 @@
 # Dockfolio
 
-**The dashboard your Docker apps deserve.** Monitor containers, track revenue, automate marketing, and heal your infrastructure. All from one keyboard-driven interface.
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-94%20passing-green)]()
+[![Docker](https://img.shields.io/badge/docker-ready-2496ED)](https://github.com/dockfolio/dockfolio)
 
-Unlike Portainer or Coolify, Dockfolio combines infrastructure management with business intelligence. Know how your apps are performing *as a business*, not just whether they're running.
+**The dashboard your Docker apps deserve.** Monitor containers, track revenue, audit security, heal infrastructure, and focus with ADHD mode. All from one keyboard-driven interface.
+
+Unlike Portainer or Coolify, Dockfolio combines infrastructure management with business intelligence. Know how your apps are performing *as a business*, not just whether they're running. Built by a developer with ADHD, for developers who ship.
+
+**[Website](https://dockfolio.dev)** | **[Install](#quick-start)** | **[Screenshots](#screenshots)**
 
 ## Screenshots
 
@@ -60,11 +66,20 @@ Unlike Portainer or Coolify, Dockfolio combines infrastructure management with b
 - Security finding dismiss/acknowledge workflow
 - Baseline drift detection
 
+**ADHD-Friendly Design**
+- ADHD Mode (Shift+A): Dims healthy items, kills animations, boosts contrast
+- Focus Mode (Shift+Z): Single-app view, zero distractions
+- Streak bar: Gamified uptime tracking
+- Worry Score: One number (0-100) that tells you if you need to pay attention
+
 **Developer Experience**
-- Keyboard-first UX (18 shortcuts)
+- Keyboard-first UX (21 shortcuts)
 - Environment variable management with API key health checks
 - Shared key detection across apps
 - Dark theme, glassmorphic UI
+- Built-in analytics (privacy-first, no cookies, replaces Plausible)
+- Alert rules with custom thresholds and Telegram notifications
+- GitHub webhook auto-deploy on push
 
 ## Quick Start
 
@@ -132,6 +147,8 @@ PLAUSIBLE_API_KEY=your-api-key
 | AI operations (briefings) | **Yes** | No | No | No |
 | Auto-healing | **Yes** | No | No | No |
 | Marketing automation | **Yes** | No | No | No |
+| Built-in analytics | **Yes** | No | No | No |
+| ADHD mode | **Yes** | No | No | No |
 | Command palette (Ctrl+K) | **Yes** | No | No | No |
 | Git deployments | No | Yes | No | Yes |
 | Kubernetes support | No | No | Yes | No |
@@ -154,21 +171,25 @@ PLAUSIBLE_API_KEY=your-api-key
 | `Shift+B` | Banner Management tab |
 | `p` | Marketing Playbook tab |
 | `e` | Error Tracking panel |
+| `Shift+A` | ADHD Mode |
+| `Shift+Z` | Focus Mode (single app) |
 | `Shift+S` | Security Manager |
+| `o` | Ops Panel (Worry Score) |
+| `j` | Projects / Kanban |
 | `Escape` | Close panel / modal |
 | `/` | Focus search |
 
 ## Architecture
 
-Single-container Node.js app (~5,600 line backend, ~5,000 line frontend). SQLite for data persistence. No external dependencies required. Connects to your Docker socket and reads your apps' .env files for API keys. 101 tests (71 unit + 30 integration).
+Single-container Node.js app (~6,400 line backend, ~5,500 line frontend). SQLite for data persistence. No external dependencies required. Connects to your Docker socket and reads your apps' .env files for API keys. 124 tests (94 unit + 30 integration).
 
 ```
 Dockfolio
-├── Express API (119 endpoints)
+├── Express API (144 endpoints)
 ├── Dockerode (container management)
-├── SQLite (17 tables: auth, metrics, SEO, cohorts, emails, content, healing, banners, playbooks, errors, perf)
-├── node-cron (19 scheduled jobs)
-└── Vanilla JS SPA (keyboard-driven UI, 18 shortcuts)
+├── SQLite (33 tables: auth, metrics, SEO, cohorts, emails, content, healing, banners, playbooks, errors, perf, analytics, alerts)
+├── node-cron (28 scheduled jobs)
+└── Vanilla JS SPA (keyboard-driven UI, 21 shortcuts, ADHD mode)
 ```
 
 ## Development
