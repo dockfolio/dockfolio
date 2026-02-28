@@ -6,7 +6,8 @@ import {
   slugify, containerName, hashValue, todayString, percent, safeJSON,
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
   getMarketableApps, diskScore, securityScore, seoScore,
-  parseId, asyncRoute, errorFingerprint, errorScore, rateLimit, toCsv
+  parseId, asyncRoute, errorFingerprint, errorScore, rateLimit, toCsv,
+  isBot, evaluateCondition
 } from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -429,6 +430,29 @@ test('different IPs have separate limits', () => {
   mw({ ip: '2.2.2.2' }, res, () => { calls++; });
   assert.equal(calls, 2);
 });
+
+// --- isBot ---
+console.log('\nisBot()');
+
+test('detects Googlebot', () => { assert.equal(isBot('Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'), true); });
+test('detects curl', () => { assert.equal(isBot('curl/7.68.0'), true); });
+test('detects Lighthouse', () => { assert.equal(isBot('Mozilla/5.0 Chrome/90.0 Lighthouse'), true); });
+test('allows normal Chrome', () => { assert.equal(isBot('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0'), false); });
+test('returns true for null', () => { assert.equal(isBot(null), true); });
+test('returns true for empty string', () => { assert.equal(isBot(''), true); });
+
+// --- evaluateCondition ---
+console.log('\nevaluateCondition()');
+
+test('greater than true', () => { assert.equal(evaluateCondition(50, '>', '40'), true); });
+test('greater than false', () => { assert.equal(evaluateCondition(30, '>', '40'), false); });
+test('less than', () => { assert.equal(evaluateCondition(10, '<', '20'), true); });
+test('greater or equal', () => { assert.equal(evaluateCondition(40, '>=', '40'), true); });
+test('less or equal', () => { assert.equal(evaluateCondition(39, '<=', '40'), true); });
+test('equals', () => { assert.equal(evaluateCondition(42, '==', '42'), true); });
+test('contains', () => { assert.equal(evaluateCondition('hello world', 'contains', 'world'), true); });
+test('contains miss', () => { assert.equal(evaluateCondition('hello', 'contains', 'xyz'), false); });
+test('unknown operator', () => { assert.equal(evaluateCondition(1, '~', '1'), false); });
 
 // --- Summary ---
 console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed\n`);

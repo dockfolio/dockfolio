@@ -1,11 +1,11 @@
 import express from 'express';
 import Docker from 'dockerode';
-import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync, statSync, readdirSync } from 'fs';
+import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync, statSync, readdirSync, unlinkSync } from 'fs';
 import yaml from 'js-yaml';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHmac } from 'crypto';
 import Database from 'better-sqlite3';
 import cron from 'node-cron';
 import bcrypt from 'bcryptjs';
@@ -15,7 +15,8 @@ import {
   slugify, containerName, hashValue, todayString, percent, safeJSON,
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
   getMarketableApps, getAppsWithEnv, diskScore, securityScore, seoScore,
-  parseId, asyncRoute, errorFingerprint, errorScore, rateLimit, toCsv
+  parseId, asyncRoute, errorFingerprint, errorScore, rateLimit, toCsv,
+  isBot, evaluateCondition
 } from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -80,7 +81,7 @@ app.use((req, res, next) => {
   // Validate on state-changing methods (skip public paths and static assets)
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
     const normalizedPath = req.path.replace(/\/\.\.+/g, '').replace(/\/+/g, '/');
-    const CSRF_EXEMPT = ['/api/auth/login', '/api/auth/setup', '/api/banners/', '/api/crosspromo/', '/api/errors/ingest', '/api/errors/envelope'];
+    const CSRF_EXEMPT = ['/api/auth/login', '/api/auth/setup', '/api/banners/', '/api/crosspromo/', '/api/errors/ingest', '/api/errors/envelope', '/api/analytics/', '/api/webhooks/'];
     if (!CSRF_EXEMPT.some(p => normalizedPath.startsWith(p))) {
       const headerToken = req.headers['x-csrf-token'];
       const cookieToken = req.cookies._csrf;
@@ -146,7 +147,7 @@ function isSetupComplete() {
 }
 
 // --- Auth Middleware ---
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status'];
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status', '/api/analytics/pixel.gif', '/api/analytics/track.js', '/api/analytics/event'];
 
 function authMiddleware(req, res, next) {
   // Normalize path to prevent traversal bypass (e.g. /api/crosspromo/../marketing/crosspromo)
@@ -1864,6 +1865,46 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
 `);
+
+// In-house analytics tables (replace Plausible dependency)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS page_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL,
+    url TEXT NOT NULL,
+    referrer TEXT,
+    user_agent TEXT,
+    country TEXT,
+    session_id TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_pv_app_ts ON page_views(app_slug, created_at);
+  CREATE INDEX IF NOT EXISTS idx_pv_url ON page_views(url);
+
+  CREATE TABLE IF NOT EXISTS analytics_daily (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL,
+    date TEXT NOT NULL,
+    visitors INTEGER DEFAULT 0,
+    pageviews INTEGER DEFAULT 0,
+    top_pages TEXT,
+    top_referrers TEXT,
+    countries TEXT,
+    UNIQUE(app_slug, date)
+  );
+  CREATE INDEX IF NOT EXISTS idx_ad_app_date ON analytics_daily(app_slug, date);
+
+  CREATE TABLE IF NOT EXISTS analytics_hourly (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL,
+    hour TEXT NOT NULL,
+    visitors INTEGER DEFAULT 0,
+    pageviews INTEGER DEFAULT 0,
+    UNIQUE(app_slug, hour)
+  );
+`);
+
+const TRANSPARENT_GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 
 const upsertMetric = db.prepare(`
   INSERT INTO metrics_daily (app_slug, date, metric_type, value, metadata)
@@ -5997,6 +6038,301 @@ function auditLog(req, action, target, details = {}) {
     );
   } catch (err) { console.error('[AUDIT]', err.message); }
 }
+
+// ========== IN-HOUSE ANALYTICS ==========
+
+// Public: 1x1 tracking pixel (no-JS fallback)
+app.get('/api/analytics/pixel.gif', rlPublicRead, (req, res) => {
+  const { app: appSlug, url, ref } = req.query;
+  if (!appSlug) { res.setHeader('Content-Type', 'image/gif'); return res.send(TRANSPARENT_GIF); }
+  const ua = req.headers['user-agent'] || '';
+  if (isBot(ua)) { res.setHeader('Content-Type', 'image/gif'); return res.send(TRANSPARENT_GIF); }
+  const sessionId = hashValue(req.ip + ua + todayString(), 16);
+  const country = req.headers['cf-ipcountry'] || req.headers['x-country'] || null;
+  try {
+    db.prepare('INSERT INTO page_views (app_slug, url, referrer, user_agent, country, session_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(appSlug, url || '/', ref || null, ua.slice(0, 200), country, sessionId);
+  } catch (err) { console.error('[ANALYTICS]', err.message); }
+  res.setHeader('Content-Type', 'image/gif');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(TRANSPARENT_GIF);
+});
+
+// Public: JS tracking snippet
+app.get('/api/analytics/track.js', rlPublicRead, (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  const host = req.get('host');
+  res.send(`(function(){var s=document.currentScript&&document.currentScript.dataset.app;if(!s)return;var i=new Image();i.src='//${host}/api/analytics/pixel.gif?app='+s+'&url='+encodeURIComponent(location.pathname)+'&ref='+encodeURIComponent(document.referrer);})();`);
+});
+
+// Public: POST-based tracker for SPAs
+app.post('/api/analytics/event', rlPublicRead, (req, res) => {
+  const { app: appSlug, url, referrer } = req.body || {};
+  if (!appSlug) return res.status(400).json({ error: 'app required' });
+  const ua = req.headers['user-agent'] || '';
+  if (isBot(ua)) return res.json({ ok: true });
+  const sessionId = hashValue(req.ip + ua + todayString(), 16);
+  const country = req.headers['cf-ipcountry'] || req.headers['x-country'] || null;
+  try {
+    db.prepare('INSERT INTO page_views (app_slug, url, referrer, user_agent, country, session_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(appSlug, url || '/', referrer || null, ua.slice(0, 200), country, sessionId);
+  } catch (err) { console.error('[ANALYTICS]', err.message); }
+  res.json({ ok: true });
+});
+
+// Authenticated: analytics overview
+app.get('/api/analytics/overview', asyncRoute(async (req, res) => {
+  const period = req.query.period || '30d';
+  const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
+  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const rows = db.prepare('SELECT app_slug, SUM(visitors) as visitors, SUM(pageviews) as pageviews FROM analytics_daily WHERE date >= ? GROUP BY app_slug ORDER BY visitors DESC').all(since);
+  const total = rows.reduce((s, r) => ({ visitors: s.visitors + (r.visitors || 0), pageviews: s.pageviews + (r.pageviews || 0) }), { visitors: 0, pageviews: 0 });
+  res.json({ period, total, apps: rows });
+}));
+
+// Authenticated: per-app analytics
+app.get('/api/analytics/:slug', asyncRoute(async (req, res) => {
+  const slug = req.params.slug;
+  const days = parseInt(req.query.days) || 30;
+  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const daily = db.prepare('SELECT * FROM analytics_daily WHERE app_slug = ? AND date >= ? ORDER BY date').all(slug, since);
+  const latest = daily[daily.length - 1];
+  res.json({ slug, days, daily, topPages: safeJSON(latest?.top_pages, []), topReferrers: safeJSON(latest?.top_referrers, []), countries: safeJSON(latest?.countries, {}) });
+}));
+
+// Authenticated: realtime visitors (last 5 min)
+app.get('/api/analytics/realtime', asyncRoute(async (_req, res) => {
+  const rows = db.prepare("SELECT app_slug, COUNT(DISTINCT session_id) as active FROM page_views WHERE created_at >= datetime('now', '-5 minutes') GROUP BY app_slug").all();
+  res.json(rows);
+}));
+
+// Streaks endpoint (for ADHD mode gamification)
+app.get('/api/streaks', asyncRoute(async (_req, res) => {
+  // Calculate uptime streak: consecutive days where all apps had status='up'
+  let streak = 0;
+  try {
+    const days = db.prepare(`
+      SELECT date(checked_at) as d, COUNT(DISTINCT app_slug) as apps,
+        SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_count
+      FROM uptime_history WHERE checked_at >= datetime('now', '-90 days')
+      GROUP BY date(checked_at) ORDER BY d DESC
+    `).all();
+    for (const day of days) {
+      if (day.up_count === day.apps && day.apps > 0) streak++;
+      else break;
+    }
+  } catch { streak = 0; }
+  // Get latest security grade
+  let securityGrade = '--';
+  try {
+    const sec = db.prepare("SELECT score FROM security_scans ORDER BY scanned_at DESC LIMIT 1").get();
+    if (sec) securityGrade = sec.score >= 90 ? 'A' : sec.score >= 80 ? 'B' : sec.score >= 70 ? 'C' : sec.score >= 60 ? 'D' : 'F';
+  } catch { /* ok */ }
+  res.json({ streak, securityGrade });
+}));
+
+// ========== ANALYTICS CRONS ==========
+
+// Hourly :05 — roll up page_views into analytics_hourly
+cron.schedule('5 * * * *', () => {
+  try {
+    const prevHour = new Date(Date.now() - 3600000);
+    const hour = prevHour.toISOString().slice(0, 13);
+    const start = hour + ':00:00';
+    const nextHour = new Date(prevHour.getTime() + 3600000).toISOString().slice(0, 13) + ':00:00';
+    const rows = db.prepare('SELECT app_slug, COUNT(*) as pageviews, COUNT(DISTINCT session_id) as visitors FROM page_views WHERE created_at >= ? AND created_at < ? GROUP BY app_slug').all(start, nextHour);
+    const upsert = db.prepare('INSERT INTO analytics_hourly (app_slug, hour, visitors, pageviews) VALUES (?, ?, ?, ?) ON CONFLICT(app_slug, hour) DO UPDATE SET visitors = excluded.visitors, pageviews = excluded.pageviews');
+    for (const r of rows) upsert.run(r.app_slug, hour, r.visitors, r.pageviews);
+    if (rows.length) console.log(`[ANALYTICS] Hourly rollup: ${rows.length} apps for ${hour}`);
+  } catch (err) { console.error('[ANALYTICS] Hourly rollup error:', err.message); }
+});
+
+// Daily 1:30 AM — roll up into analytics_daily + prune raw page_views >7 days
+cron.schedule('30 1 * * *', () => {
+  try {
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const rows = db.prepare(`
+      SELECT app_slug, COUNT(*) as pageviews, COUNT(DISTINCT session_id) as visitors
+      FROM page_views WHERE date(created_at) = ? GROUP BY app_slug
+    `).all(yesterday);
+    const upsert = db.prepare(`INSERT INTO analytics_daily (app_slug, date, visitors, pageviews) VALUES (?, ?, ?, ?)
+      ON CONFLICT(app_slug, date) DO UPDATE SET visitors = excluded.visitors, pageviews = excluded.pageviews`);
+    for (const r of rows) upsert.run(r.app_slug, yesterday, r.visitors, r.pageviews);
+    // Top pages + referrers per app
+    for (const r of rows) {
+      const pages = db.prepare("SELECT url, COUNT(*) as c FROM page_views WHERE app_slug = ? AND date(created_at) = ? GROUP BY url ORDER BY c DESC LIMIT 10").all(r.app_slug, yesterday);
+      const refs = db.prepare("SELECT referrer, COUNT(*) as c FROM page_views WHERE app_slug = ? AND date(created_at) = ? AND referrer IS NOT NULL AND referrer != '' GROUP BY referrer ORDER BY c DESC LIMIT 10").all(r.app_slug, yesterday);
+      const countries = db.prepare("SELECT country, COUNT(*) as c FROM page_views WHERE app_slug = ? AND date(created_at) = ? AND country IS NOT NULL GROUP BY country ORDER BY c DESC").all(r.app_slug, yesterday);
+      const countryObj = {};
+      for (const c of countries) countryObj[c.country] = c.c;
+      db.prepare("UPDATE analytics_daily SET top_pages = ?, top_referrers = ?, countries = ? WHERE app_slug = ? AND date = ?")
+        .run(JSON.stringify(pages.map(p => p.url)), JSON.stringify(refs.map(r => r.referrer)), JSON.stringify(countryObj), r.app_slug, yesterday);
+    }
+    // Prune raw events older than 7 days
+    const pruned = db.prepare("DELETE FROM page_views WHERE created_at < datetime('now', '-7 days')").run();
+    console.log(`[ANALYTICS] Daily rollup for ${yesterday}: ${rows.length} apps, pruned ${pruned.changes} old events`);
+  } catch (err) { console.error('[ANALYTICS] Daily rollup error:', err.message); }
+});
+
+// ========== GITHUB WEBHOOK (auto-deploy) ==========
+
+app.post('/api/webhooks/github', express.raw({ type: 'application/json' }), (req, res) => {
+  const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
+  if (!WEBHOOK_SECRET) return res.status(500).json({ error: 'Webhook secret not configured' });
+  const sig = req.headers['x-hub-signature-256'];
+  const expected = 'sha256=' + createHmac('sha256', WEBHOOK_SECRET).update(req.body).digest('hex');
+  if (sig !== expected) return res.status(401).json({ error: 'Invalid signature' });
+  const event = req.headers['x-github-event'];
+  let payload;
+  try { payload = JSON.parse(req.body); } catch { return res.status(400).json({ error: 'Bad JSON' }); }
+  if (event === 'push' && (payload.ref === 'refs/heads/main' || payload.ref === 'refs/heads/master')) {
+    const appSlug = matchRepoToApp(payload.repository?.full_name);
+    if (!appSlug) return res.json({ ok: true, skipped: 'no matching app' });
+    auditLog(req, 'github_deploy', appSlug, { commit: payload.head_commit?.id?.slice(0, 7), message: payload.head_commit?.message });
+    console.log(`[DEPLOY] GitHub push to ${appSlug}: ${payload.head_commit?.message}`);
+    const appDef = config.apps.find(a => slugify(a.name) === appSlug);
+    if (appDef?.composePath) {
+      try {
+        const dir = dirname(appDef.composePath);
+        execSync(`cd ${dir} && git pull && docker compose up -d --build`, { timeout: 300000 });
+        sendTelegram(`Deploy complete: ${appSlug} (${payload.head_commit?.id?.slice(0, 7)})`);
+      } catch (err) {
+        console.error(`[DEPLOY] ${appSlug} failed:`, err.message);
+        sendTelegram(`Deploy FAILED: ${appSlug} — ${err.message.slice(0, 200)}`);
+      }
+    }
+    res.json({ ok: true, deploying: appSlug });
+  } else {
+    res.json({ ok: true, event, skipped: true });
+  }
+});
+
+function matchRepoToApp(repoFullName) {
+  if (!repoFullName) return null;
+  for (const appDef of config.apps) {
+    if (appDef.repo === repoFullName || appDef.repo === `https://github.com/${repoFullName}` || appDef.repo?.endsWith('/' + repoFullName)) {
+      return slugify(appDef.name);
+    }
+  }
+  return null;
+}
+
+// ========== ALERT RULES PROCESSOR ==========
+
+// Every 2 min: evaluate alert rules
+cron.schedule('*/2 * * * *', async () => {
+  try {
+    const rules = db.prepare("SELECT * FROM alert_rules WHERE enabled = 1").all();
+    if (rules.length === 0) return;
+    for (const rule of rules) {
+      try {
+        const value = evaluateAlertMetric(rule.metric, rule.app_slug, rule.window_minutes || 5);
+        if (value === null) continue;
+        const triggered = evaluateCondition(value, rule.operator, rule.threshold);
+        if (!triggered) continue;
+        // Cooldown check
+        if (rule.last_fired_at) {
+          const cooldown = (rule.window_minutes || 5) * 60000;
+          if (Date.now() - new Date(rule.last_fired_at).getTime() < cooldown) continue;
+        }
+        const message = `Alert: ${rule.metric} ${rule.operator} ${rule.threshold} (actual: ${value})${rule.app_slug ? ' on ' + rule.app_slug : ''}`;
+        if (rule.action === 'telegram') sendTelegram(message);
+        db.prepare("UPDATE alert_rules SET last_fired_at = datetime('now') WHERE id = ?").run(rule.id);
+        console.log(`[ALERTS] Fired rule ${rule.id}: ${message}`);
+      } catch (err) { console.error(`[ALERTS] Rule ${rule.id}:`, err.message); }
+    }
+  } catch (err) { console.error('[ALERTS] Cron error:', err.message); }
+});
+
+function evaluateAlertMetric(metric, appSlug, windowMin) {
+  const since = new Date(Date.now() - windowMin * 60000).toISOString();
+  switch (metric) {
+    case 'error_rate': {
+      const row = appSlug
+        ? db.prepare('SELECT COUNT(*) as c FROM error_events WHERE app_slug = ? AND created_at >= ?').get(appSlug, since)
+        : db.prepare('SELECT COUNT(*) as c FROM error_events WHERE created_at >= ?').get(since);
+      return row?.c || 0;
+    }
+    case 'response_time': {
+      const row = db.prepare('SELECT AVG(response_ms) as avg FROM uptime_history WHERE app_slug = ? AND checked_at >= ?').get(appSlug || '%', since);
+      return row?.avg ? Math.round(row.avg) : null;
+    }
+    case 'error_count_24h': {
+      const row = appSlug
+        ? db.prepare("SELECT COUNT(*) as c FROM error_events WHERE app_slug = ? AND created_at >= datetime('now', '-24 hours')").get(appSlug)
+        : db.prepare("SELECT COUNT(*) as c FROM error_events WHERE created_at >= datetime('now', '-24 hours')").get();
+      return row?.c || 0;
+    }
+    default: return null;
+  }
+}
+
+// ========== SQLITE BACKUP CRON ==========
+
+// Daily 3 AM: backup data.db + auth.db
+cron.schedule('0 3 * * *', async () => {
+  try {
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const backupDir = join(BACKUP_DIR, 'sqlite');
+    if (!existsSync(backupDir)) mkdirSync(backupDir, { recursive: true });
+    await db.backup(join(backupDir, `data-${timestamp}.db`));
+    console.log(`[BACKUP] data.db backed up`);
+    await authDb.backup(join(backupDir, `auth-${timestamp}.db`));
+    console.log(`[BACKUP] auth.db backed up`);
+    // Prune backups older than 7 days
+    const cutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    for (const f of readdirSync(backupDir)) {
+      const match = f.match(/\d{4}-\d{2}-\d{2}/);
+      if (match && match[0] < cutoff) {
+        unlinkSync(join(backupDir, f));
+        console.log(`[BACKUP] Pruned old backup: ${f}`);
+      }
+    }
+  } catch (err) { console.error('[BACKUP] SQLite backup error:', err.message); }
+});
+
+// ========== ENV FILE CHANGE MONITOR ==========
+
+const envFileHashes = new Map();
+
+// Every 15 min: detect .env file changes
+cron.schedule('*/15 * * * *', () => {
+  try {
+    for (const appDef of config.apps) {
+      if (!appDef.envFile || !existsSync(appDef.envFile)) continue;
+      const slug = slugify(appDef.name);
+      const content = readFileSync(appDef.envFile, 'utf8');
+      const hash = hashValue(content);
+      const prevHash = envFileHashes.get(slug);
+      if (prevHash && prevHash !== hash) {
+        sendTelegram(`Env file changed: ${slug}\nRe-verify env health or restart container.`);
+        auditLog(null, 'env_change_detected', slug, { previous: prevHash, current: hash });
+        console.log(`[ENV] Change detected: ${slug}`);
+      }
+      envFileHashes.set(slug, hash);
+    }
+  } catch (err) { console.error('[ENV] Monitor error:', err.message); }
+});
+
+// ========== SMART CROSS-PROMO AUTO-PLACEMENT ==========
+
+app.post('/api/marketing/crosspromo/auto-place', asyncRoute(async (req, res) => {
+  const traffic = db.prepare("SELECT app_slug, SUM(visitors) as visitors FROM analytics_daily WHERE date >= date('now', '-30 days') GROUP BY app_slug ORDER BY visitors DESC").all();
+  const banners = db.prepare("SELECT * FROM banners WHERE status = 'active'").all();
+  const placements = [];
+  for (const app of traffic) {
+    const otherBanners = banners.filter(b => b.app_slug !== app.app_slug);
+    if (otherBanners.length === 0) continue;
+    const sorted = otherBanners.sort((a, b) => {
+      const aT = traffic.find(t => t.app_slug === a.app_slug)?.visitors || 0;
+      const bT = traffic.find(t => t.app_slug === b.app_slug)?.visitors || 0;
+      return aT - bT;
+    }).slice(0, 2);
+    for (const banner of sorted) placements.push({ app_slug: app.app_slug, banner_id: banner.id });
+  }
+  res.json({ placements, count: placements.length });
+}));
 
 // Health check endpoint
 app.get('/health', (_req, res) => res.send('ok'));

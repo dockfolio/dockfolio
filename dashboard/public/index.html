@@ -574,9 +574,84 @@
     .dep-key-name { font-size: 12px; font-weight: 600; color: var(--cyan); margin-bottom: 4px; }
     .dep-app-list { display: flex; flex-wrap: wrap; gap: 4px; }
     .dep-app-badge { font-size: 10px; padding: 2px 8px; border-radius: 4px; background: rgba(59,130,246,0.1); color: #3b82f6; }
+    /* === ADHD Mode: comprehensive redesign === */
+    body.adhd-mode {
+      --text-muted: #8888a0;
+      --text-dim: #a0a0b8;
+      --green: #4ade80; --red: #f87171; --yellow: #fbbf24;
+      --blue: #60a5fa; --purple: #a78bfa; --cyan: #67e8f9; --orange: #fb923c;
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    /* Kill ALL animations in ADHD mode */
+    body.adhd-mode *, body.adhd-mode *::before, body.adhd-mode *::after {
+      animation-duration: 0s !important;
+      animation-delay: 0s !important;
+      transition-duration: 0.1s !important;
+    }
+    body.adhd-mode body::before { display: none !important; }
+    /* Respect OS reduced-motion preference globally */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0s !important;
+        transition-duration: 0.15s !important;
+      }
+      body::before { display: none !important; }
+    }
+    /* Progressive disclosure: collapse app cards to essentials */
+    body.adhd-mode .app-desc { display: none; }
+    body.adhd-mode .app-meta { display: none; }
+    body.adhd-mode .app-badges { display: none; }
+    body.adhd-mode .app-card:hover .app-meta { display: flex; font-size: 12px; }
+    body.adhd-mode .app-card:hover .app-badges { display: flex; }
+    /* Wider cards with more whitespace */
+    body.adhd-mode .app-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+    body.adhd-mode .app-card { padding: 18px 20px; }
+    /* Status dot with text label in ADHD mode */
+    body.adhd-mode .status-dot::after {
+      content: attr(data-label);
+      font-size: 10px; margin-left: 6px; font-weight: 500; vertical-align: middle;
+    }
+    /* Dim healthy items — only show problems */
     body.adhd-mode .heartbeat-app.ok { opacity: 0.2; }
     body.adhd-mode .worry-factor.zero { opacity: 0.2; }
     body.adhd-mode .report-card.grade-a, body.adhd-mode .report-card.grade-b { opacity: 0.2; }
+    /* Dim normal metrics in system bar */
+    body.adhd-mode .metric.normal { opacity: 0.3; }
+    /* Typography bumps */
+    body.adhd-mode .badge { font-size: 11px; padding: 2px 8px; }
+    /* app-meta font-size applied in hover rule above */
+    body.adhd-mode .metric-label { font-size: 12px; }
+    body.adhd-mode .metric-value { font-size: 22px; }
+    body.adhd-mode .metric-detail { font-size: 11px; }
+    body.adhd-mode .section-title { font-size: 13px; }
+    body.adhd-mode .section { padding: 28px 32px 12px; }
+    body.adhd-mode .header-btn { font-size: 13px; padding: 6px 14px; }
+    /* Show keyboard shortcut hints on buttons */
+    .header-btn kbd { display: none; font-size: 9px; padding: 1px 4px; background: var(--surface3); border: 1px solid var(--border); border-radius: 3px; font-family: monospace; margin-right: 3px; }
+    body.adhd-mode .header-btn kbd { display: inline; }
+    /* Header grouping in ADHD mode */
+    body.adhd-mode .header-secondary { display: none; }
+    body.adhd-mode .header-secondary.force-show { display: contents; }
+    /* Streak bar */
+    .streak-bar { display: none; padding: 10px 32px; border-bottom: 1px solid var(--border); background: var(--surface); gap: 24px; align-items: center; font-size: 13px; }
+    body.adhd-mode .streak-bar { display: flex; }
+    .streak-item { display: flex; align-items: center; gap: 6px; }
+    .streak-icon { font-size: 18px; }
+    .streak-label { color: var(--text-dim); }
+    .streak-count { font-size: 20px; font-weight: 700; color: var(--green); font-variant-numeric: tabular-nums; }
+    .streak-progress-bar { width: 120px; height: 6px; background: var(--surface3); border-radius: 3px; overflow: hidden; }
+    .streak-progress-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+    /* Persistent toasts */
+    .toast.persistent { animation: toastIn 0.3s cubic-bezier(.4,0,.2,1) !important; }
+    .toast-dismiss { background: none; border: none; color: inherit; cursor: pointer; font-size: 16px; padding: 0 4px; opacity: 0.6; margin-left: auto; pointer-events: auto; }
+    .toast-dismiss:hover { opacity: 1; }
+    /* Focus mode */
+    body.focus-mode .system-bar { display: none; }
+    body.focus-mode .header-right .header-btn:not(#focusExitBtn) { display: none; }
+    body.focus-mode .header-right .search-input { display: none; }
+    body.focus-mode .header-right .last-updated { display: none; }
+    body.focus-mode .streak-bar { display: none !important; }
     .worry-badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; margin-left: 4px; font-weight: 700; }
     .worry-badge.green { background: rgba(34,197,94,0.15); color: var(--green); }
     .worry-badge.yellow { background: rgba(234,179,8,0.15); color: #eab308; }
@@ -819,10 +894,10 @@
     .status-panel { position: fixed; top: 60px; right: 20px; width: 500px; max-height: 80vh; overflow-y: auto; background: var(--surface); border-radius: 12px; border: 1px solid var(--border); padding: 16px; z-index: 900; display: none; }
     .status-panel.visible { display: block; }
     .status-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
-    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 8px; }
-    .status-dot.up { background: var(--green); }
-    .status-dot.down { background: var(--red); }
-    .status-dot.degraded { background: var(--yellow); }
+    .status-panel .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+    .status-panel .status-dot.up { background: var(--green); }
+    .status-panel .status-dot.down { background: var(--red); }
+    .status-panel .status-dot.degraded { background: var(--yellow); }
     /* Savings card */
     .savings-card { background: linear-gradient(135deg, var(--surface2), var(--surface)); border: 1px solid var(--green); border-radius: 12px; padding: 16px; margin: 12px 0; text-align: center; }
     .savings-amount { font-size: 28px; font-weight: 700; color: var(--green); }
@@ -901,22 +976,24 @@
     <div class="header-right">
       <input class="search-input" id="searchInput" type="text" placeholder="Search apps... (/)" oninput="filterApps(this.value)">
       <span class="last-updated" id="lastUpdated"><span class="refresh-dot"></span><span id="countdown"></span></span>
-      <button class="header-btn" onclick="toggleActivity()">Activity</button>
-      <button class="header-btn" onclick="toggleSSLPanel()">SSL Certs</button>
-      <button class="header-btn" onclick="toggleKeyHealth()">API Keys</button>
-      <button class="header-btn" onclick="toggleBackups()">Backups</button>
-      <button class="header-btn" onclick="toggleBriefing()" id="briefingBtn">Briefing</button>
-      <button class="header-btn" onclick="toggleHealing()" id="healingBtn"><span class="healing-shield" id="healingShield">Healing</span></button>
-      <button class="header-btn" onclick="toggleSecurity()" id="securityBtn">Security <span id="secGradeBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;display:none"></span></button>
-      <button class="header-btn" onclick="toggleProjects()" id="projectsBtn">Projects <span id="projTaskBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;background:rgba(168,85,247,0.15);color:var(--purple);display:none"></span></button>
-      <button class="header-btn" onclick="toggleOps()" id="opsBtn">Ops <span id="worryBadge" class="worry-badge" style="display:none"></span></button>
-      <button class="header-btn" onclick="toggleErrors()" id="errorsBtn">Errors <span id="errCountBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;background:rgba(239,68,68,0.15);color:var(--red);display:none"></span></button>
-      <button class="header-btn" onclick="toggleMarketing()">Marketing</button>
-      <a class="header-btn primary" href="/uptime/status-page/status" target="_blank">Status Page</a>
-      <button class="header-btn" onclick="dockerPrune(this)">Prune</button>
-      <a class="header-btn" href="/uptime/" target="_blank">Uptime Kuma</a>
-      <button class="header-btn" onclick="toggleSettings()">Settings</button>
-      <button class="header-btn" onclick="logout()" title="Sign out" style="color:var(--red)">Logout</button>
+      <button class="header-btn" onclick="toggleBriefing()" id="briefingBtn"><kbd>d</kbd>Briefing</button>
+      <button class="header-btn" onclick="toggleOps()" id="opsBtn"><kbd>o</kbd>Ops <span id="worryBadge" class="worry-badge" style="display:none"></span></button>
+      <button class="header-btn" onclick="toggleErrors()" id="errorsBtn"><kbd>e</kbd>Errors <span id="errCountBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;background:rgba(239,68,68,0.15);color:var(--red);display:none"></span></button>
+      <button class="header-btn" onclick="toggleHealing()" id="healingBtn"><kbd>h</kbd><span class="healing-shield" id="healingShield">Healing</span></button>
+      <button class="header-btn" onclick="toggleMarketing()"><kbd>m</kbd>Marketing</button>
+      <span class="header-secondary" id="headerSecondary">
+        <button class="header-btn" onclick="toggleActivity()"><kbd>a</kbd>Activity</button>
+        <button class="header-btn" onclick="toggleSSLPanel()"><kbd>s</kbd>SSL Certs</button>
+        <button class="header-btn" onclick="toggleKeyHealth()"><kbd>k</kbd>API Keys</button>
+        <button class="header-btn" onclick="toggleBackups()"><kbd>b</kbd>Backups</button>
+        <button class="header-btn" onclick="toggleSecurity()" id="securityBtn">Security <span id="secGradeBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;display:none"></span></button>
+        <button class="header-btn" onclick="toggleProjects()" id="projectsBtn"><kbd>j</kbd>Projects <span id="projTaskBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;background:rgba(168,85,247,0.15);color:var(--purple);display:none"></span></button>
+        <a class="header-btn primary" href="/uptime/status-page/status" target="_blank">Status Page</a>
+        <button class="header-btn" onclick="dockerPrune(this)">Prune</button>
+        <a class="header-btn" href="/uptime/" target="_blank">Uptime Kuma</a>
+        <button class="header-btn" onclick="toggleSettings()">Settings</button>
+        <button class="header-btn" onclick="logout()" title="Sign out" style="color:var(--red)">Logout</button>
+      </span>
     </div>
   </div>
 
@@ -952,6 +1029,23 @@
       </div>
       <div class="metric-bar"><div class="metric-bar-fill" id="loadBar"></div></div>
       <div class="metric-detail" id="loadDetail"></div>
+    </div>
+  </div>
+
+  <div class="streak-bar" id="streakBar">
+    <div class="streak-item">
+      <span class="streak-icon">&#x1F525;</span>
+      <span class="streak-count" id="uptimeStreak">0</span>
+      <span class="streak-label">day uptime streak</span>
+    </div>
+    <div class="streak-item">
+      <span class="streak-icon">&#x2705;</span>
+      <div class="streak-progress-bar"><div class="streak-progress-fill" id="healthProgressFill"></div></div>
+      <span class="streak-label"><span id="healthPct">0</span>% healthy</span>
+    </div>
+    <div class="streak-item">
+      <span class="streak-icon">&#x1F6E1;</span>
+      <span class="streak-label">Security: <span id="streakSecGrade" style="font-weight:700">--</span></span>
     </div>
   </div>
 
@@ -1531,6 +1625,7 @@
         renderApps(appData);
         renderHealthSummary(appData);
         renderErrors(appData, systemData);
+        if (adhdMode) updateStreakBar();
         document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       } catch (err) {
         console.error('Fetch error:', err);
@@ -1555,9 +1650,9 @@
       }
       const el = document.getElementById('healthSummary');
       el.innerHTML = `
-        <span class="hs-item"><span class="status-dot healthy"></span><span class="hs-count">${counts.healthy}</span> healthy</span>
-        ${counts.issues > 0 ? `<span class="hs-item"><span class="status-dot unhealthy"></span><span class="hs-count">${counts.issues}</span> issues</span>` : ''}
-        <span class="hs-item"><span class="status-dot static"></span><span class="hs-count">${counts.static}</span> static</span>
+        <span class="hs-item"><span class="status-dot healthy" data-label="healthy"></span><span class="hs-count">${counts.healthy}</span> healthy</span>
+        ${counts.issues > 0 ? `<span class="hs-item"><span class="status-dot unhealthy" data-label="issues"></span><span class="hs-count">${counts.issues}</span> issues</span>` : ''}
+        <span class="hs-item"><span class="status-dot static" data-label="static"></span><span class="hs-count">${counts.static}</span> static</span>
       `;
     }
 
@@ -1664,9 +1759,9 @@
             }
           }
 
-          html += `<div class="app-card ${cardClass}" onclick="openDetail('${app.name}')">
+          html += `<div class="app-card ${cardClass}" data-slug="${app.slug || slugify(app.name)}" onclick="openDetail('${app.name}')">
             <div class="app-card-header">
-              <span class="app-name"><span class="status-dot ${h}"></span>${app.name}</span>
+              <span class="app-name"><span class="status-dot ${h}" data-label="${h}"></span>${app.name}</span>
               <div class="app-badges">
                 <span class="badge ${typeBadge[app.type]}">${typeShort[app.type]}</span>
                 ${app.hasEnvFile ? (app.hasSentry ? '<span class="badge-sentry">S</span>' : '<span class="badge-no-sentry">!S</span>') : ''}
@@ -3377,14 +3472,15 @@
       return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    function showToast(message, type = 'info') {
+    function showToast(message, type = 'info', persistent = false) {
       const container = document.getElementById('toastContainer');
       const icons = { success: '\u2713', error: '\u2717', info: '\u2139', warning: '\u26A0' };
       const toast = document.createElement('div');
-      toast.className = 'toast ' + type;
-      toast.innerHTML = `<span>${icons[type] || ''}</span><span>${escapeHtml(message)}</span>`;
+      const isPersistent = persistent || adhdMode;
+      toast.className = 'toast ' + type + (isPersistent ? ' persistent' : '');
+      toast.innerHTML = `<span>${icons[type] || ''}</span><span>${escapeHtml(message)}</span><button class="toast-dismiss" onclick="this.parentElement.remove()" aria-label="Dismiss">&times;</button>`;
       container.appendChild(toast);
-      setTimeout(() => { if (toast.parentNode) toast.remove(); }, 4200);
+      if (!isPersistent) setTimeout(() => { if (toast.parentNode) toast.remove(); }, 4200);
     }
 
     function renderSkeletons(containerId, count = 3) {
@@ -4943,7 +5039,53 @@
       document.body.classList.toggle('adhd-mode', adhdMode);
       localStorage.setItem('adhdMode', adhdMode ? '1' : '0');
       document.getElementById('adhdModeBtn').style.borderColor = adhdMode ? '#f97316' : '';
-      showToast(adhdMode ? 'ADHD Mode: showing only issues' : 'ADHD Mode off: showing everything', 'info');
+      // Mark normal metrics as dim
+      document.querySelectorAll('.metric').forEach(m => {
+        const val = parseFloat(m.querySelector('.metric-value')?.textContent);
+        m.classList.toggle('normal', !isNaN(val) && val < 70);
+      });
+      if (adhdMode) updateStreakBar();
+      showToast(adhdMode ? 'ADHD Mode ON: Focus on what matters. Animations off, only issues visible.' : 'ADHD Mode off: showing everything', 'info');
+    }
+
+    let focusMode = false;
+    let focusedAppSlug = null;
+    function toggleFocusMode(slug) {
+      focusMode = !focusMode;
+      if (focusMode && slug) {
+        focusedAppSlug = slug;
+        document.body.classList.add('focus-mode');
+        document.querySelectorAll('.app-card').forEach(c => {
+          c.style.display = c.dataset.slug === slug ? '' : 'none';
+        });
+        showToast('Focus mode: ' + slug + '. Press Shift+Z to exit.', 'info', true);
+      } else {
+        focusedAppSlug = null;
+        document.body.classList.remove('focus-mode');
+        document.querySelectorAll('.app-card').forEach(c => c.style.display = '');
+        showToast('Focus mode off', 'info');
+      }
+    }
+
+    function updateStreakBar() {
+      if (!appData || appData.length === 0) return;
+      const healthy = appData.filter(a => ['healthy','running','static'].includes(a.overallHealth || a.status)).length;
+      const total = appData.length;
+      const pct = total > 0 ? Math.round(healthy / total * 100) : 0;
+      const el = document.getElementById('healthPct');
+      if (el) el.textContent = pct;
+      const fill = document.getElementById('healthProgressFill');
+      if (fill) {
+        fill.style.width = pct + '%';
+        fill.style.background = pct === 100 ? 'var(--green)' : pct > 80 ? 'var(--yellow)' : 'var(--red)';
+      }
+      // Fetch streak from API
+      apiFetch('/api/streaks').then(r => r.json()).then(d => {
+        const s = document.getElementById('uptimeStreak');
+        if (s && d.streak != null) s.textContent = d.streak;
+        const g = document.getElementById('streakSecGrade');
+        if (g && d.securityGrade) { g.textContent = d.securityGrade; g.style.color = d.securityGrade === 'A' ? 'var(--green)' : d.securityGrade === 'B' ? 'var(--green)' : d.securityGrade === 'F' ? 'var(--red)' : 'var(--yellow)'; }
+      }).catch(() => {});
     }
 
     function worryColor(score) {
@@ -5253,6 +5395,7 @@
       if (e.key === '?' && !e.shiftKey) openCommandPalette();
       if (e.key === 'P') toggleStatusPage();
       if (e.key === 'L') toggleAudit();
+      if (e.key === 'Z') { const slug = focusedAppSlug || (appData && appData[0] ? (appData[0].slug || appData[0].name) : null); if (slug) toggleFocusMode(slug); }
       if (e.key === '/' && e.shiftKey) { e.preventDefault(); toggleShortcutsHelp(); }
     });
 

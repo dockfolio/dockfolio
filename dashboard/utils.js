@@ -172,3 +172,23 @@ export function errorScore(criticalCount, errorCount) {
   const errorPoints = Math.min(Math.floor(errorCount / 10), 5);
   return Math.min(criticalPoints + errorPoints, 10);
 }
+
+// Detect bots/crawlers by user-agent
+export function isBot(ua) {
+  if (!ua) return true;
+  return /bot|crawl|spider|lighthouse|headless|phantomjs|wget|curl|python-requests|go-http|java\/|scrapy/i.test(ua);
+}
+
+// Evaluate alert condition (operator + threshold)
+export function evaluateCondition(value, operator, threshold) {
+  const t = parseFloat(threshold);
+  switch (operator) {
+    case '>': return value > t;
+    case '<': return value < t;
+    case '>=': return value >= t;
+    case '<=': return value <= t;
+    case '==': return value == t;
+    case 'contains': return String(value).includes(String(threshold));
+    default: return false;
+  }
+}
