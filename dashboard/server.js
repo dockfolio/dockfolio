@@ -14,7 +14,7 @@ import helmet from 'helmet';
 import {
   slugify, containerName, hashValue, todayString, percent, safeJSON,
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
-  getMarketableApps as _getMarketableApps, diskScore, securityScore, seoScore,
+  getMarketableApps, getAppsWithEnv, diskScore, securityScore, seoScore,
   parseId, asyncRoute
 } from './utils.js';
 
@@ -365,13 +365,6 @@ async function sendTelegram(message) {
   } catch { /* silent — Telegram is best-effort */ }
 }
 
-function getMarketableApps() {
-  return config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
-}
-
-function getAppsWithEnv() {
-  return config.apps.filter(a => a.envFile && existsSync(a.envFile));
-}
 
 // GET /api/apps — all apps with their container status
 app.get('/api/apps', asyncRoute(async (_req, res) => {
@@ -1095,18 +1088,80 @@ app.get('/api/marketing/seo', asyncRoute(async (req, res) => {
   res.json(cachedSEO);
 }));
 
-// GET /api/marketing/overview — combined marketing overview
-app.get('/api/marketing/overview', asyncRoute((_req, res) => {
-  const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
-  const overview = marketableApps.map(appDef => ({
-    name: appDef.name,
-    type: appDef.type,
-    domain: appDef.domain,
-    description: appDef.description,
-    marketing: appDef.marketing || null,
-    hasEnvFile: !!appDef.envFile,
-  }));
-  res.json({ apps: overview });
+// GET /api/marketing/overview — comprehensive portfolio overview
+app.get('/api/marketing/overview', asyncRoute(async (_req, res) => {
+  const overview = config.apps.map(appDef => {
+    const slug = slugify(appDef.name);
+
+    // Revenue (from cached metrics)
+    const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
+    const revRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'revenue' ORDER BY date DESC LIMIT 1").get(slug);
+
+    // Traffic (from cached analytics)
+    const trafficData = cachedAnalytics?.apps?.[appDef.name] || null;
+
+    // Security score
+    const secRow = db.prepare('SELECT score, grade FROM security_scans WHERE app_slug = ? ORDER BY timestamp DESC LIMIT 1').get(slug);
+
+    // SEO score
+    const seoRow = db.prepare('SELECT score FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug);
+
+    // Project tasks
+    const openTasks = db.prepare("SELECT COUNT(*) as n FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled')").get(slug)?.n || 0;
+    const doneTasks = db.prepare("SELECT COUNT(*) as n FROM project_tasks WHERE app_slug = ? AND status = 'done'").get(slug)?.n || 0;
+
+    // Roadmap
+    const roadmapItems = db.prepare("SELECT COUNT(*) as n FROM project_roadmap WHERE app_slug = ?").get(slug)?.n || 0;
+    const roadmapShipped = db.prepare("SELECT COUNT(*) as n FROM project_roadmap WHERE app_slug = ? AND status = 'shipped'").get(slug)?.n || 0;
+
+    // Banner placements
+    const bannerCount = db.prepare("SELECT COUNT(*) as n FROM banner_placements WHERE app_slug = ? AND status = 'active'").get(slug)?.n || 0;
+
+    // Project meta
+    const meta = db.prepare('SELECT lifecycle, priority, revenue_goal, traffic_goal, user_goal FROM project_meta WHERE app_slug = ?').get(slug);
+
+    return {
+      name: appDef.name,
+      slug,
+      type: appDef.type,
+      domain: appDef.domain,
+      description: appDef.description,
+      marketing: appDef.marketing || null,
+      revenue: {
+        mrrCents: mrrRow?.value || 0,
+        revenue30dCents: revRow?.value || 0,
+      },
+      traffic: {
+        visitors30d: trafficData?.visitors || 0,
+        pageviews30d: trafficData?.pageviews || 0,
+        realtime: trafficData?.realtime || 0,
+      },
+      security: secRow ? { score: secRow.score, grade: secRow.grade } : null,
+      seo: seoRow ? { score: seoRow.score } : null,
+      tasks: { open: openTasks, done: doneTasks },
+      roadmap: { total: roadmapItems, shipped: roadmapShipped },
+      bannerPlacements: bannerCount,
+      project: meta || null,
+    };
+  });
+
+  // Portfolio totals
+  const totalMRR = overview.reduce((s, a) => s + (a.revenue.mrrCents || 0), 0);
+  const totalRevenue30d = overview.reduce((s, a) => s + (a.revenue.revenue30dCents || 0), 0);
+  const totalVisitors30d = overview.reduce((s, a) => s + (a.traffic.visitors30d || 0), 0);
+  const totalOpenTasks = overview.reduce((s, a) => s + a.tasks.open, 0);
+
+  res.json({
+    apps: overview,
+    totals: {
+      appCount: overview.length,
+      mrrCents: totalMRR,
+      revenue30dCents: totalRevenue30d,
+      visitors30d: totalVisitors30d,
+      openTasks: totalOpenTasks,
+    },
+    timestamp: new Date().toISOString(),
+  });
 }));
 
 // --- Environment Variable Management ---
@@ -2404,6 +2459,70 @@ app.get('/api/marketing/cohorts', asyncRoute((_req, res) => {
     },
     overlapMatrix,
   });
+}));
+
+// GET /api/marketing/cohorts/crosssell — cross-sell opportunities
+app.get('/api/marketing/cohorts/crosssell', asyncRoute((_req, res) => {
+  // Find customers who use one app but not another — these are cross-sell targets
+  const appCustomerCounts = db.prepare(
+    'SELECT app_slug, COUNT(DISTINCT email_hash) as customers FROM customer_graph GROUP BY app_slug'
+  ).all();
+  const countMap = Object.fromEntries(appCustomerCounts.map(r => [r.app_slug, r.customers]));
+
+  // Find multi-app customers for overlap
+  const multiApp = db.prepare(`
+    SELECT email_hash, GROUP_CONCAT(DISTINCT app_slug) as apps
+    FROM customer_graph GROUP BY email_hash HAVING COUNT(DISTINCT app_slug) >= 2
+  `).all();
+
+  // Build pairwise overlap counts
+  const pairOverlap = {};
+  for (const row of multiApp) {
+    const apps = row.apps.split(',');
+    for (let i = 0; i < apps.length; i++) {
+      for (let j = i + 1; j < apps.length; j++) {
+        const key = [apps[i], apps[j]].sort().join('|');
+        pairOverlap[key] = (pairOverlap[key] || 0) + 1;
+      }
+    }
+  }
+
+  // Generate cross-sell opportunities for marketable app pairs
+  const marketableSlugs = getMarketableApps(config.apps).map(a => slugify(a.name));
+  const opportunities = [];
+
+  for (let i = 0; i < marketableSlugs.length; i++) {
+    for (let j = i + 1; j < marketableSlugs.length; j++) {
+      const a = marketableSlugs[i], b = marketableSlugs[j];
+      const key = [a, b].sort().join('|');
+      const overlap = pairOverlap[key] || 0;
+      const aCount = countMap[a] || 0;
+      const bCount = countMap[b] || 0;
+      if (aCount === 0 && bCount === 0) continue;
+
+      // Potential: customers in A who aren't in B, plus vice versa
+      const potentialReach = Math.max(0, (aCount - overlap)) + Math.max(0, (bCount - overlap));
+      if (potentialReach === 0) continue;
+
+      const appA = config.apps.find(x => slugify(x.name) === a);
+      const appB = config.apps.find(x => slugify(x.name) === b);
+
+      opportunities.push({
+        label: `${appA?.name || a} ↔ ${appB?.name || b}`,
+        apps: [appA?.name || a, appB?.name || b],
+        reason: overlap > 0
+          ? `${overlap} shared customers already — high cross-sell affinity`
+          : `No overlap yet — untapped cross-sell potential`,
+        existingOverlap: overlap,
+        potentialReach,
+      });
+    }
+  }
+
+  // Sort by overlap (proven affinity first), then by potential
+  opportunities.sort((a, b) => b.existingOverlap - a.existingOverlap || b.potentialReach - a.potentialReach);
+
+  res.json({ opportunities });
 }));
 
 // Customer graph cron — daily 3:30AM
@@ -4553,6 +4672,22 @@ cron.schedule('0 6 * * 1', async () => {
       const doneTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND status = 'done'").get(slug)?.count || 0;
       const shipped = db.prepare("SELECT COUNT(*) as count FROM project_roadmap WHERE app_slug = ? AND status = 'shipped'").get(slug)?.count || 0;
       const seo = db.prepare('SELECT score FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug)?.score || null;
+      const secScore = db.prepare('SELECT score FROM security_scans WHERE app_slug = ? ORDER BY timestamp DESC LIMIT 1').get(slug)?.score || null;
+
+      // Plausible traffic (30d visitors)
+      let traffic30d = null;
+      if (appDef.domain && PLAUSIBLE_API_KEY) {
+        try {
+          const tRes = await fetch(
+            `${PLAUSIBLE_URL}/api/v1/stats/aggregate?site_id=${appDef.domain}&period=30d&metrics=visitors`,
+            { headers: { Authorization: `Bearer ${PLAUSIBLE_API_KEY}` }, signal: AbortSignal.timeout(5000) }
+          );
+          if (tRes.ok) {
+            const tData = await tRes.json();
+            traffic30d = tData?.results?.visitors?.value || 0;
+          }
+        } catch { /* Plausible may not track all sites */ }
+      }
 
       // Container health
       let healthStatus = 'unknown';
@@ -4566,11 +4701,11 @@ cron.schedule('0 6 * * 1', async () => {
         } catch { healthStatus = 'unknown'; }
       }
 
-      db.prepare(`INSERT INTO project_snapshots (app_slug, snapshot_date, mrr_cents, task_count_open, task_count_done, roadmap_shipped, seo_score, health_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(app_slug, snapshot_date) DO UPDATE SET
-        mrr_cents = excluded.mrr_cents, task_count_open = excluded.task_count_open, task_count_done = excluded.task_count_done,
-        roadmap_shipped = excluded.roadmap_shipped, seo_score = excluded.seo_score, health_status = excluded.health_status`).run(
-        slug, snapDate, mrr, openTasks, doneTasks, shipped, seo, healthStatus
+      db.prepare(`INSERT INTO project_snapshots (app_slug, snapshot_date, mrr_cents, traffic_30d, task_count_open, task_count_done, roadmap_shipped, security_score, seo_score, health_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(app_slug, snapshot_date) DO UPDATE SET
+        mrr_cents = excluded.mrr_cents, traffic_30d = excluded.traffic_30d, task_count_open = excluded.task_count_open, task_count_done = excluded.task_count_done,
+        roadmap_shipped = excluded.roadmap_shipped, security_score = excluded.security_score, seo_score = excluded.seo_score, health_status = excluded.health_status`).run(
+        slug, snapDate, mrr, traffic30d, openTasks, doneTasks, shipped, secScore, seo, healthStatus
       );
     }
     console.log(`[PROJECTS] Weekly snapshot completed for ${config.apps.length} apps`);
