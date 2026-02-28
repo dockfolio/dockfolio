@@ -15,8 +15,8 @@ Unlike Portainer or Coolify, Dockfolio combines infrastructure management with b
 ![Dashboard Overview](screenshots/01-dashboard-overview.png)
 *System metrics, container status, and app cards organized by category*
 
-![Revenue Tracking](screenshots/02-marketing-revenue.png)
-*Per-app Stripe revenue with MRR, charges, and shared account detection*
+![Marketing & Revenue](screenshots/02-marketing-revenue.png)
+*Portfolio health scores, MRR, revenue, traffic, SEO — per-app breakdown*
 
 ![Command Palette](screenshots/03-command-palette.png)
 *Ctrl+K fuzzy search across apps, commands, and actions*
@@ -24,8 +24,11 @@ Unlike Portainer or Coolify, Dockfolio combines infrastructure management with b
 ![Morning Briefing](screenshots/04-morning-briefing.png)
 *AI-generated daily ops summary via Claude Haiku*
 
-![Settings & Auto-Discovery](screenshots/06-settings.png)
-*Manage apps and auto-discover untracked Docker containers*
+![Ops Intelligence](screenshots/05-ops-panel.png)
+*Worry Score, app heartbeat, streak tracking, and component health breakdown*
+
+![Security Manager](screenshots/08-security-manager.png)
+*Security scanning with 0-100 scoring and A-F grades*
 
 ## Features
 
