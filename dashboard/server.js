@@ -31,9 +31,61 @@ let cachedStats = null;
 let lastStatsUpdate = 0;
 const STATS_TTL = 30_000;
 
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+    }
+  }
+}));
 app.use(express.json());
 app.use(cookieParser());
+
+// --- Request logging & tracing ---
+app.use((req, res, next) => {
+  const requestId = randomUUID();
+  req.id = requestId;
+  res.setHeader('X-Request-ID', requestId);
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    if (req.path.startsWith('/api/')) {
+      console.log(`[REQ] ${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+    }
+  });
+  next();
+});
+
+// --- CSRF protection (double-submit cookie) ---
+app.use((req, res, next) => {
+  // Set CSRF token cookie if not present
+  if (!req.cookies._csrf) {
+    const csrfToken = randomUUID();
+    res.cookie('_csrf', csrfToken, { httpOnly: false, sameSite: 'Strict', secure: process.env.NODE_ENV === 'production' });
+  }
+  // Validate on state-changing methods (skip public paths and static assets)
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+    const normalizedPath = req.path.replace(/\/\.\.+/g, '').replace(/\/+/g, '/');
+    const CSRF_EXEMPT = ['/api/auth/login', '/api/auth/setup', '/api/banners/', '/api/crosspromo/'];
+    if (!CSRF_EXEMPT.some(p => normalizedPath.startsWith(p))) {
+      const headerToken = req.headers['x-csrf-token'];
+      const cookieToken = req.cookies._csrf;
+      if (!headerToken || !cookieToken || headerToken !== cookieToken) {
+        return res.status(403).json({ error: 'CSRF token mismatch' });
+      }
+    }
+  }
+  next();
+});
 
 // --- Auth Database (separate from marketing DB, initialized early) ---
 const AUTH_DB_PATH = process.env.AUTH_DB_PATH || join(__dirname, 'auth.db');
@@ -392,14 +444,14 @@ app.get('/api/system', asyncRoute(async (_req, res) => {
   const swapFree = parse('SwapFree');
 
   // Disk usage
-  const dfOutput = execSync('df -B1 / | tail -1').toString().trim();
+  const dfOutput = execSync('df -B1 / | tail -1', { timeout: 10000 }).toString().trim();
   const dfParts = dfOutput.split(/\s+/);
   const diskTotal = parseInt(dfParts[1], 10);
   const diskUsed = parseInt(dfParts[2], 10);
 
   // Load average
   const loadavg = readFileSync('/proc/loadavg', 'utf8').split(' ');
-  const cpuCount = parseInt(execSync('nproc').toString().trim(), 10);
+  const cpuCount = parseInt(execSync('nproc', { timeout: 5000 }).toString().trim(), 10);
 
   // Uptime
   const uptimeRaw = readFileSync('/proc/uptime', 'utf8').split(' ')[0];
@@ -740,7 +792,7 @@ app.post('/api/actions/prune', asyncRoute(async (_req, res) => {
   result.images = pruneImages.ImagesDeleted?.length || 0;
   result.spaceReclaimed = pruneImages.SpaceReclaimed || 0;
 
-  result.buildCache = execSync('docker builder prune -f 2>&1 | tail -1').toString().trim();
+  result.buildCache = execSync('docker builder prune -f 2>&1 | tail -1', { timeout: 60000 }).toString().trim();
 
   res.json({ ok: true, ...result });
 }));
@@ -831,7 +883,7 @@ app.get('/api/backups', asyncRoute((_req, res) => {
     }
 
     try {
-      const files = execSync(`ls -lt "${dir}" 2>/dev/null | grep -E '\\.(sql\\.gz|gz)$'`).toString().trim().split('\n').filter(Boolean);
+      const files = execSync(`ls -lt "${dir}" 2>/dev/null | grep -E '\\.(sql\\.gz|gz)$'`, { timeout: 10000 }).toString().trim().split('\n').filter(Boolean);
       if (files.length === 0) {
         results[app] = { status: 'no_backups', files: [] };
         continue;
@@ -2012,8 +2064,8 @@ cron.schedule('0 */6 * * *', async () => {
   }
 });
 
-// Daily at 2 AM: run SEO audits and store
-cron.schedule('0 2 * * *', async () => {
+// Daily at 1:30 AM: run SEO audits and store
+cron.schedule('30 1 * * *', async () => {
   console.log('[CRON] Running daily SEO audits...');
   try {
     const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
@@ -2655,7 +2707,7 @@ async function collectBriefingContext() {
     const memTotal = parseInt(memInfo.match(/MemTotal:\s+(\d+)/)?.[1] || '0') * 1024;
     const memAvail = parseInt(memInfo.match(/MemAvailable:\s+(\d+)/)?.[1] || '0') * 1024;
     const memUsedPct = Math.round(((memTotal - memAvail) / memTotal) * 100);
-    const diskLine = execSync('df -B1 / | tail -1').toString().trim().split(/\s+/);
+    const diskLine = execSync('df -B1 / | tail -1', { timeout: 10000 }).toString().trim().split(/\s+/);
     const diskUsedPct = parseInt(diskLine[4]);
     context.system = { memUsedPct, diskUsedPct, diskUsedGB: Math.round(parseInt(diskLine[2]) / 1e9), diskTotalGB: Math.round(parseInt(diskLine[1]) / 1e9) };
   } catch { context.system = { error: 'unavailable' }; }
@@ -2687,7 +2739,7 @@ async function collectBriefingContext() {
       const dir = join(process.env.BACKUP_DIR || '/home/deploy/backups', app);
       if (!existsSync(dir)) { context.backups[app] = 'no_backups'; continue; }
       try {
-        const files = execSync(`ls -t "${dir}" 2>/dev/null | head -1`).toString().trim();
+        const files = execSync(`ls -t "${dir}" 2>/dev/null | head -1`, { timeout: 10000 }).toString().trim();
         if (!files) { context.backups[app] = 'no_backups'; continue; }
         const mtime = statSync(join(dir, files)).mtime;
         const ageH = Math.round((Date.now() - mtime.getTime()) / 3600000);
@@ -2945,7 +2997,7 @@ const HEALING_PLAYBOOKS = [
     condition: 'Disk usage > 90%',
     check: async () => {
       try {
-        const diskLine = execSync('df / | tail -1').toString().trim().split(/\s+/);
+        const diskLine = execSync('df / | tail -1', { timeout: 10000 }).toString().trim().split(/\s+/);
         const pct = parseInt(diskLine[4]);
         return pct > 90 ? [{ name: 'root_disk', pct }] : [];
       } catch { return []; }
@@ -4588,7 +4640,7 @@ async function calculateWorryScore() {
 
   // 3. Disk usage
   try {
-    const diskLine = execSync('df -B1 / | tail -1').toString().trim().split(/\s+/);
+    const diskLine = execSync('df -B1 / | tail -1', { timeout: 10000 }).toString().trim().split(/\s+/);
     const diskPct = parseInt(diskLine[4]);
     if (diskPct >= 90) breakdown.disk = 15;
     else if (diskPct >= 80) breakdown.disk = 10;
@@ -4603,7 +4655,7 @@ async function calculateWorryScore() {
       let staleCount = 0;
       for (const d of dirs) {
         try {
-          const latest = execSync(`ls -t "${join(backupDir, d.name)}" 2>/dev/null | head -1`).toString().trim();
+          const latest = execSync(`ls -t "${join(backupDir, d.name)}" 2>/dev/null | head -1`, { timeout: 10000 }).toString().trim();
           if (!latest) { staleCount++; continue; }
           const ageH = (Date.now() - statSync(join(backupDir, d.name, latest)).mtime.getTime()) / 3600000;
           if (ageH > 25) staleCount++;
@@ -4670,7 +4722,7 @@ async function snapshotBaseline(type = 'auto') {
   const configHash = hashValue(readFileSync(configPath, 'utf8'));
   let diskPct = 0;
   try {
-    diskPct = parseInt(execSync('df -B1 / | tail -1').toString().trim().split(/\s+/)[4]);
+    diskPct = parseInt(execSync('df -B1 / | tail -1', { timeout: 10000 }).toString().trim().split(/\s+/)[4]);
   } catch {}
 
   db.prepare(`INSERT INTO ops_baselines (snapshot_type, env_hashes, container_states, disk_usage_pct, total_containers, config_hash)
@@ -4736,7 +4788,7 @@ async function detectDrift() {
 
   // Disk usage jump
   try {
-    const diskPct = parseInt(execSync('df -B1 / | tail -1').toString().trim().split(/\s+/)[4]);
+    const diskPct = parseInt(execSync('df -B1 / | tail -1', { timeout: 10000 }).toString().trim().split(/\s+/)[4]);
     if (baseline.disk_usage_pct && diskPct > baseline.disk_usage_pct + 10) {
       drifts.push({ type: 'drift_disk', severity: diskPct >= 80 ? 'critical' : 'warning', title: `Disk: ${baseline.disk_usage_pct}% → ${diskPct}%`, details: JSON.stringify({ was: baseline.disk_usage_pct, now: diskPct }) });
     }
@@ -4763,7 +4815,7 @@ function calculateAppReportCard(slug) {
   try {
     const backupDir = join(process.env.BACKUP_DIR || '/home/deploy/backups', slug);
     if (existsSync(backupDir)) {
-      const latest = execSync(`ls -t "${backupDir}" 2>/dev/null | head -1`).toString().trim();
+      const latest = execSync(`ls -t "${backupDir}" 2>/dev/null | head -1`, { timeout: 10000 }).toString().trim();
       if (latest) {
         const ageH = (Date.now() - statSync(join(backupDir, latest)).mtime.getTime()) / 3600000;
         const s = ageH <= 25 ? 100 : ageH <= 48 ? 70 : ageH <= 168 ? 40 : 10;
@@ -4934,8 +4986,8 @@ cron.schedule('*/15 * * * *', async () => {
   } catch (err) { console.error('[OPS] Worry score cron error:', err.message); }
 });
 
-// Auto baseline + drift detection (daily 2 AM)
-cron.schedule('0 2 * * *', async () => {
+// Auto baseline + drift detection (daily 2:30 AM)
+cron.schedule('30 2 * * *', async () => {
   try {
     await snapshotBaseline('auto');
     const { drifts } = await detectDrift();

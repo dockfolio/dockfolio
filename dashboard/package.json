@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node utils.test.js"
+    "test": "node utils.test.js",
+    "test:unit": "node utils.test.js",
+    "test:integration": "node --test server.test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
