@@ -129,6 +129,6 @@ fi
 
 # Send combined alert if any
 if [ -n "$ALERTS" ]; then
-    MESSAGE="🖥️ **App Manager Alert** — \`${HOSTNAME}\`\n\n${ALERTS}"
+    MESSAGE="🖥️ **Dockfolio Alert** — \`${HOSTNAME}\`\n\n${ALERTS}"
     send_alert "$MESSAGE"
 fi

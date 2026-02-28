@@ -1,5 +1,5 @@
 #!/bin/bash
-# Unified database backup script for App Manager
+# Unified database backup script for Dockfolio
 # Usage: backup-databases.sh [appname|all]
 # Runs daily via cron, staggered to avoid load spikes
 # Stores compressed backups in /opt/backups/<appname>/
