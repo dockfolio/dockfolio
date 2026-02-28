@@ -5666,12 +5666,13 @@ cron.schedule('*/5 * * * *', async () => {
       let status = 'unknown';
       let response_ms = null;
       try {
-        if (a.health) {
+        if (a.domain) {
+          const url = a.health ? `https://${a.domain}${a.health}` : `https://${a.domain}`;
           const start = Date.now();
-          const r = await fetch(a.health, { signal: AbortSignal.timeout(10000) });
+          const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
           response_ms = Date.now() - start;
           status = r.ok ? 'up' : 'degraded';
-        } else if (a.domain) {
+        } else if (a.health) {
           const start = Date.now();
           const r = await fetch(`https://${a.domain}`, { signal: AbortSignal.timeout(10000) });
           response_ms = Date.now() - start;
