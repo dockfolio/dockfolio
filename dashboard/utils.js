@@ -130,6 +130,42 @@ export function errorFingerprint(message, stackTrace, appSlug) {
   return createHash('sha256').update(input).digest('hex').slice(0, 32);
 }
 
+// In-memory rate limiter middleware (no external dependency)
+export function rateLimit(maxPerWindow = 60, windowMs = 60000) {
+  const hits = new Map();
+  // Cleanup stale entries every 5 minutes
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, rec] of hits) if (now > rec.resetAt) hits.delete(key);
+  }, 300000).unref();
+
+  return (req, res, next) => {
+    const key = req.ip;
+    const now = Date.now();
+    let rec = hits.get(key);
+    if (!rec || now > rec.resetAt) {
+      rec = { count: 0, resetAt: now + windowMs };
+    }
+    rec.count++;
+    hits.set(key, rec);
+    if (rec.count > maxPerWindow) return res.status(429).json({ error: 'Rate limit exceeded' });
+    next();
+  };
+}
+
+// Convert array of objects to CSV string
+export function toCsv(rows) {
+  if (!rows || rows.length === 0) return '';
+  const headers = Object.keys(rows[0]);
+  const escape = v => {
+    const s = String(v ?? '');
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [headers.join(',')];
+  for (const row of rows) lines.push(headers.map(h => escape(row[h])).join(','));
+  return lines.join('\n');
+}
+
 // Error score for worry score integration
 export function errorScore(criticalCount, errorCount) {
   const criticalPoints = Math.min(criticalCount * 5, 10);

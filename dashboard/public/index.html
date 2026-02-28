@@ -781,10 +781,118 @@
     .err-perf-cell { text-align: right; font-variant-numeric: tabular-nums; }
     .err-perf-slow { color: var(--yellow); }
     .err-perf-critical { color: var(--red); }
+    /* Empty states */
+    .empty-state { text-align: center; padding: 32px 16px; color: var(--text-muted); }
+    .empty-state .empty-icon { font-size: 32px; margin-bottom: 8px; display: block; }
+    .empty-state .empty-msg { font-size: 13px; margin-bottom: 12px; }
+    .empty-state .empty-hint { font-size: 11px; color: var(--text-dim); }
+    .empty-state .retry-btn { margin-top: 10px; padding: 5px 16px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text-dim); cursor: pointer; font-size: 11px; }
+    .empty-state .retry-btn:hover { background: var(--surface3); color: var(--text); }
+    /* Keyboard shortcuts help */
+    .shortcuts-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9999; display: none; align-items: center; justify-content: center; }
+    .shortcuts-overlay.active { display: flex; }
+    .shortcuts-grid { background: var(--surface); border-radius: 12px; padding: 24px; max-width: 520px; width: 90%; max-height: 80vh; overflow-y: auto; border: 1px solid var(--border); }
+    .shortcuts-grid h3 { margin: 0 0 16px; font-size: 16px; color: var(--text); }
+    .shortcuts-grid .shortcut-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .shortcuts-grid .shortcut-key { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 8px; font-family: monospace; font-size: 11px; color: var(--text); min-width: 40px; text-align: center; }
+    .shortcuts-grid .shortcut-desc { color: var(--text-dim); }
+    /* Custom confirm modal */
+    .confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 10000; display: none; align-items: center; justify-content: center; }
+    .confirm-overlay.active { display: flex; }
+    .confirm-box { background: var(--surface); border-radius: 12px; padding: 20px; max-width: 400px; width: 90%; border: 1px solid var(--border); }
+    .confirm-box h4 { margin: 0 0 8px; font-size: 14px; color: var(--text); }
+    .confirm-box p { margin: 0 0 16px; font-size: 12px; color: var(--text-dim); }
+    .confirm-box .confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .confirm-box button { padding: 6px 16px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; font-size: 12px; }
+    .confirm-box .btn-cancel { background: var(--surface2); color: var(--text-dim); }
+    .confirm-box .btn-confirm { background: var(--red); color: white; border-color: var(--red); }
+    .confirm-box .btn-confirm:hover { opacity: 0.9; }
+    /* Toast stacking */
+    .toast-container .toast { margin-bottom: 8px; }
+    /* Audit log panel */
+    .audit-panel { position: fixed; top: 60px; right: 20px; width: 460px; max-height: 80vh; overflow-y: auto; background: var(--surface); border-radius: 12px; border: 1px solid var(--border); padding: 16px; z-index: 900; display: none; }
+    .audit-panel.visible { display: block; }
+    .audit-row { padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 11px; }
+    .audit-action { color: var(--blue); font-weight: 500; }
+    .audit-time { color: var(--text-dim); font-size: 10px; }
+    /* Status panel */
+    .status-panel { position: fixed; top: 60px; right: 20px; width: 500px; max-height: 80vh; overflow-y: auto; background: var(--surface); border-radius: 12px; border: 1px solid var(--border); padding: 16px; z-index: 900; display: none; }
+    .status-panel.visible { display: block; }
+    .status-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+    .status-dot.up { background: var(--green); }
+    .status-dot.down { background: var(--red); }
+    .status-dot.degraded { background: var(--yellow); }
+    /* Savings card */
+    .savings-card { background: linear-gradient(135deg, var(--surface2), var(--surface)); border: 1px solid var(--green); border-radius: 12px; padding: 16px; margin: 12px 0; text-align: center; }
+    .savings-amount { font-size: 28px; font-weight: 700; color: var(--green); }
+    .savings-label { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+    /* Export button */
+    .export-btn { font-size: 10px; padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text-dim); cursor: pointer; }
+    .export-btn:hover { background: var(--surface3); color: var(--text); }
   </style>
 </head>
 <body>
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Keyboard Shortcuts Help -->
+  <div class="shortcuts-overlay" id="shortcutsOverlay" onclick="if(event.target===this)this.classList.remove('active')">
+    <div class="shortcuts-grid">
+      <h3>Keyboard Shortcuts</h3>
+      <div class="shortcut-row"><span class="shortcut-key">Ctrl+K</span><span class="shortcut-desc">Command Palette</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">/</span><span class="shortcut-desc">Focus search</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">r</span><span class="shortcut-desc">Refresh all data</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">Esc</span><span class="shortcut-desc">Close panel / modal</span></div>
+      <div class="shortcut-row" style="margin-top:8px;border-top:2px solid var(--border);padding-top:8px"><span class="shortcut-key">a</span><span class="shortcut-desc">Activity log</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">s</span><span class="shortcut-desc">SSL certificates</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">k</span><span class="shortcut-desc">API key health</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">b</span><span class="shortcut-desc">Backups</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">m</span><span class="shortcut-desc">Marketing manager</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">d</span><span class="shortcut-desc">Morning briefing</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">h</span><span class="shortcut-desc">Auto-healing log</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">e</span><span class="shortcut-desc">Error tracking</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">o</span><span class="shortcut-desc">Ops dashboard</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">j</span><span class="shortcut-desc">Projects manager</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">Shift+S</span><span class="shortcut-desc">Security manager</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">Shift+L</span><span class="shortcut-desc">Audit log</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">Shift+P</span><span class="shortcut-desc">Status page</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">x</span><span class="shortcut-desc">Cross-promotion tab</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">Shift+B</span><span class="shortcut-desc">Banners tab</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">p</span><span class="shortcut-desc">Playbook tab</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">?</span><span class="shortcut-desc">This help</span></div>
+    </div>
+  </div>
+
+  <!-- Custom Confirm Dialog -->
+  <div class="confirm-overlay" id="confirmOverlay" onclick="if(event.target===this)cancelConfirm()">
+    <div class="confirm-box">
+      <h4 id="confirmTitle">Confirm</h4>
+      <p id="confirmMessage">Are you sure?</p>
+      <div class="confirm-actions">
+        <button class="btn-cancel" onclick="cancelConfirm()">Cancel</button>
+        <button class="btn-confirm" id="confirmBtn" onclick="execConfirm()">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audit Log Panel -->
+  <div class="audit-panel" id="auditPanel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0;font-size:14px">Audit Log</h3>
+      <button onclick="document.getElementById('auditPanel').classList.remove('visible')" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:16px">&times;</button>
+    </div>
+    <div id="auditList"></div>
+  </div>
+
+  <!-- Status Page Panel -->
+  <div class="status-panel" id="statusPanel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0;font-size:14px">Status Page</h3>
+      <button onclick="document.getElementById('statusPanel').classList.remove('visible')" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:16px">&times;</button>
+    </div>
+    <div id="statusList"></div>
+  </div>
+
   <div class="header">
     <div class="header-left">
       <h1>Dockfolio</h1>
@@ -1332,6 +1440,7 @@
     </div>
   </div>
 
+  <div class="savings-card" id="savingsCard" style="display:none"></div>
   <div id="appSections"></div>
 
   <div class="modal-overlay" id="modal">
@@ -3563,7 +3672,12 @@
           crosspromo: () => { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('crosspromo', document.querySelector('.mkt-tab:nth-child(7)')), 100); },
           banners: () => { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('banners', document.querySelector('.mkt-tab:nth-child(8)')), 100); },
           playbook: () => { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('playbook', document.querySelector('.mkt-tab:nth-child(9)')), 100); },
-          status: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
+          status: () => toggleStatusPage(),
+          audit: () => toggleAudit(),
+          shortcuts: () => toggleShortcutsHelp(),
+          'export errors': () => exportData('errors'),
+          'export security': () => exportData('security'),
+          'export tasks': () => exportData('tasks'),
         };
         if (cmdMap[r.cmd]) cmdMap[r.cmd]();
       }
@@ -5001,6 +5115,114 @@
     }, 300000);
 
     // Keyboard shortcuts
+    // --- Empty state helper ---
+    function showEmpty(containerId, icon, message, hint, retryFn) {
+      const el = document.getElementById(containerId);
+      if (!el) return;
+      el.innerHTML = `<div class="empty-state">
+        <span class="empty-icon">${icon}</span>
+        <div class="empty-msg">${message}</div>
+        ${hint ? `<div class="empty-hint">${hint}</div>` : ''}
+        ${retryFn ? `<button class="retry-btn" onclick="${retryFn}()">Retry</button>` : ''}
+      </div>`;
+    }
+
+    // --- Custom confirm dialog ---
+    let confirmCallback = null;
+    function confirmAction(title, message, onConfirm) {
+      document.getElementById('confirmTitle').textContent = title;
+      document.getElementById('confirmMessage').textContent = message;
+      confirmCallback = onConfirm;
+      document.getElementById('confirmOverlay').classList.add('active');
+    }
+    function execConfirm() {
+      document.getElementById('confirmOverlay').classList.remove('active');
+      if (confirmCallback) confirmCallback();
+      confirmCallback = null;
+    }
+    function cancelConfirm() {
+      document.getElementById('confirmOverlay').classList.remove('active');
+      confirmCallback = null;
+    }
+
+    // --- Keyboard shortcuts help ---
+    function toggleShortcutsHelp() {
+      document.getElementById('shortcutsOverlay').classList.toggle('active');
+    }
+
+    // --- Audit log panel ---
+    async function toggleAudit() {
+      const panel = document.getElementById('auditPanel');
+      if (panel.classList.contains('visible')) { panel.classList.remove('visible'); return; }
+      panel.classList.add('visible');
+      document.getElementById('auditList').innerHTML = '<span style="color:var(--text-muted);font-size:12px">Loading...</span>';
+      try {
+        const res = await apiFetch('/api/audit?limit=50');
+        const data = await res.json();
+        if (!data.data || data.data.length === 0) {
+          showEmpty('auditList', '\ud83d\udcdd', 'No audit entries yet', 'Actions like container restarts and config changes will appear here');
+          return;
+        }
+        document.getElementById('auditList').innerHTML = data.data.map(a =>
+          `<div class="audit-row">
+            <span class="audit-action">${escapeHtml(a.action)}</span>
+            ${a.target ? ` <span style="color:var(--text)">${escapeHtml(a.target)}</span>` : ''}
+            <span style="color:var(--text-dim)"> by ${escapeHtml(a.user || 'system')}</span>
+            <div class="audit-time">${a.created_at}</div>
+          </div>`
+        ).join('');
+      } catch (err) {
+        showEmpty('auditList', '\u2717', 'Failed to load audit log', err.message, 'toggleAudit');
+      }
+    }
+
+    // --- Status page panel ---
+    async function toggleStatusPage() {
+      const panel = document.getElementById('statusPanel');
+      if (panel.classList.contains('visible')) { panel.classList.remove('visible'); return; }
+      panel.classList.add('visible');
+      document.getElementById('statusList').innerHTML = '<span style="color:var(--text-muted);font-size:12px">Checking all apps...</span>';
+      try {
+        const res = await apiFetch('/api/status');
+        const data = await res.json();
+        if (!data.apps || data.apps.length === 0) {
+          showEmpty('statusList', '\ud83c\udf10', 'No apps configured', 'Add apps in Settings to see their status');
+          return;
+        }
+        document.getElementById('statusList').innerHTML = data.apps.map(a =>
+          `<div class="status-row">
+            <div><span class="status-dot ${a.status}"></span>${escapeHtml(a.name)}${a.domain ? ` <span style="color:var(--text-dim);font-size:10px">${a.domain}</span>` : ''}</div>
+            <div style="display:flex;gap:12px;align-items:center">
+              ${a.response_ms !== null ? `<span style="font-size:10px;color:var(--text-dim)">${a.response_ms}ms</span>` : ''}
+              ${a.uptime_24h !== null ? `<span style="font-size:10px;font-weight:500;color:${a.uptime_24h >= 99.5 ? 'var(--green)' : a.uptime_24h >= 95 ? 'var(--yellow)' : 'var(--red)'}">${a.uptime_24h}%</span>` : ''}
+              <span style="font-size:10px;font-weight:600;color:${a.status === 'up' ? 'var(--green)' : a.status === 'degraded' ? 'var(--yellow)' : 'var(--red)'}">${a.status.toUpperCase()}</span>
+            </div>
+          </div>`
+        ).join('') + `<div style="margin-top:12px;font-size:10px;color:var(--text-dim)">Generated: ${data.generated_at}</div>`;
+      } catch (err) {
+        showEmpty('statusList', '\u2717', 'Failed to load status', err.message, 'toggleStatusPage');
+      }
+    }
+
+    // --- Export helper ---
+    function exportData(entity, format = 'csv') {
+      window.open('/api/export/' + entity + '?format=' + format, '_blank');
+    }
+
+    // --- Savings tracker ---
+    async function fetchSavings() {
+      try {
+        const res = await apiFetch('/api/savings');
+        const data = await res.json();
+        const el = document.getElementById('savingsCard');
+        if (el) {
+          el.innerHTML = `<div class="savings-amount">$${data.monthly_savings}/mo</div>
+            <div class="savings-label">saved by self-hosting (${data.percent_saved}% less than SaaS)</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:6px">SaaS equivalent: $${data.monthly_if_saas}/mo | Your cost: $${data.actual_cost}/mo</div>`;
+        }
+      } catch { /* savings card is optional */ }
+    }
+
     document.addEventListener('keydown', (e) => {
       // Command palette takes priority
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); openCommandPalette(); return; }
@@ -5028,7 +5250,10 @@
       if (e.key === 'x') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('crosspromo', document.querySelector('.mkt-tab:nth-child(7)')), 100); }
       if (e.key === 'B') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('banners', document.querySelector('.mkt-tab:nth-child(8)')), 100); }
       if (e.key === 'p') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('playbook', document.querySelector('.mkt-tab:nth-child(9)')), 100); }
-      if (e.key === '?') openCommandPalette();
+      if (e.key === '?' && !e.shiftKey) openCommandPalette();
+      if (e.key === 'P') toggleStatusPage();
+      if (e.key === 'L') toggleAudit();
+      if (e.key === '/' && e.shiftKey) { e.preventDefault(); toggleShortcutsHelp(); }
     });
 
     // Auto-refresh with countdown
@@ -5043,6 +5268,10 @@
     setInterval(() => fetchHealingLog(), 60000);
 
     fetchAll();
+    fetchSavings().then(() => {
+      const sc = document.getElementById('savingsCard');
+      if (sc && sc.innerHTML) sc.style.display = '';
+    });
     setInterval(tick, 1000);
 
     // Auto-show briefing on first visit

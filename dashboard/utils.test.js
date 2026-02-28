@@ -6,7 +6,7 @@ import {
   slugify, containerName, hashValue, todayString, percent, safeJSON,
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
   getMarketableApps, diskScore, securityScore, seoScore,
-  parseId, asyncRoute, errorFingerprint, errorScore
+  parseId, asyncRoute, errorFingerprint, errorScore, rateLimit, toCsv
 } from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -367,6 +367,67 @@ test('regular errors: 1 point per 10, max 5', () => {
 
 test('total capped at 10', () => {
   assert.equal(errorScore(3, 100), 10);
+});
+
+// --- toCsv ---
+console.log('\ntoCsv()');
+
+test('converts array of objects to CSV', () => {
+  const rows = [{ name: 'Alice', age: 30 }, { name: 'Bob', age: 25 }];
+  assert.equal(toCsv(rows), 'name,age\nAlice,30\nBob,25');
+});
+
+test('escapes commas and quotes', () => {
+  const rows = [{ text: 'hello, world', val: 'say "hi"' }];
+  const csv = toCsv(rows);
+  assert.ok(csv.includes('"hello, world"'));
+  assert.ok(csv.includes('"say ""hi"""'));
+});
+
+test('returns empty string for empty array', () => {
+  assert.equal(toCsv([]), '');
+});
+
+test('handles null/undefined values', () => {
+  const rows = [{ a: null, b: undefined, c: 0 }];
+  assert.equal(toCsv(rows), 'a,b,c\n,,0');
+});
+
+// --- rateLimit ---
+console.log('\nrateLimit()');
+
+test('returns a middleware function', () => {
+  const mw = rateLimit(10, 60000);
+  assert.equal(typeof mw, 'function');
+});
+
+test('allows requests under limit', () => {
+  const mw = rateLimit(5, 60000);
+  let nextCalled = false;
+  const req = { ip: '127.0.0.1' };
+  const res = { status() { return { json() {} }; } };
+  mw(req, res, () => { nextCalled = true; });
+  assert.equal(nextCalled, true);
+});
+
+test('blocks requests over limit', () => {
+  const mw = rateLimit(2, 60000);
+  let blocked = false;
+  const req = { ip: '10.0.0.1' };
+  const res = { status(code) { if (code === 429) blocked = true; return { json() {} }; } };
+  mw(req, res, () => {});
+  mw(req, res, () => {});
+  mw(req, res, () => {});
+  assert.equal(blocked, true);
+});
+
+test('different IPs have separate limits', () => {
+  const mw = rateLimit(1, 60000);
+  let calls = 0;
+  const res = { status() { return { json() {} }; } };
+  mw({ ip: '1.1.1.1' }, res, () => { calls++; });
+  mw({ ip: '2.2.2.2' }, res, () => { calls++; });
+  assert.equal(calls, 2);
 });
 
 // --- Summary ---

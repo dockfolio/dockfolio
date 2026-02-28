@@ -15,13 +15,17 @@ import {
   slugify, containerName, hashValue, todayString, percent, safeJSON,
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
   getMarketableApps, getAppsWithEnv, diskScore, securityScore, seoScore,
-  parseId, asyncRoute, errorFingerprint, errorScore
+  parseId, asyncRoute, errorFingerprint, errorScore, rateLimit, toCsv
 } from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 const BACKUP_DIR = process.env.BACKUP_DIR || join(process.env.HOME || '/home/deploy', 'backups');
+const rlErrorIngest = rateLimit(30, 60000);   // 30 req/min for error ingestion
+const rlBannerServe = rateLimit(120, 60000);   // 120 req/min for banner serving
+const rlBannerTrack = rateLimit(60, 60000);    // 60 req/min for click/view tracking
+const rlPublicRead  = rateLimit(30, 60000);    // 30 req/min for public read endpoints
 
 // Load app config
 const configPath = join(__dirname, 'config.yml');
@@ -48,7 +52,7 @@ app.use(helmet({
     }
   }
 }));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
 // --- Request logging & tracing ---
@@ -142,7 +146,7 @@ function isSetupComplete() {
 }
 
 // --- Auth Middleware ---
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js'];
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status'];
 
 function authMiddleware(req, res, next) {
   // Normalize path to prevent traversal bypass (e.g. /api/crosspromo/../marketing/crosspromo)
@@ -570,6 +574,7 @@ app.post('/api/containers/:name/restart', asyncRoute(async (req, res) => {
 
   const container = docker.getContainer(target.Id);
   await container.restart({ t: 10 });
+  auditLog(req, 'container.restart', req.params.name);
   res.json({ ok: true, message: `Container ${req.params.name} restarted` });
 }));
 
@@ -777,7 +782,7 @@ app.get('/api/disk', asyncRoute(async (_req, res) => {
 }));
 
 // POST /api/actions/prune — clean up Docker resources
-app.post('/api/actions/prune', asyncRoute(async (_req, res) => {
+app.post('/api/actions/prune', asyncRoute(async (req, res) => {
   const result = {};
   const pruneContainers = await docker.pruneContainers();
   result.containers = pruneContainers.ContainersDeleted?.length || 0;
@@ -788,6 +793,7 @@ app.post('/api/actions/prune', asyncRoute(async (_req, res) => {
 
   result.buildCache = execSync('docker builder prune -f 2>&1 | tail -1', { timeout: 60000 }).toString().trim();
 
+  auditLog(req, 'docker.prune', null, result);
   res.json({ ok: true, ...result });
 }));
 
@@ -1473,6 +1479,7 @@ db.exec(`
     metadata TEXT,
     UNIQUE(app_slug, date, metric_type)
   );
+  CREATE INDEX IF NOT EXISTS idx_metrics_daily_lookup ON metrics_daily(app_slug, date, metric_type);
   CREATE TABLE IF NOT EXISTS seo_audits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     app_slug TEXT NOT NULL,
@@ -1482,6 +1489,7 @@ db.exec(`
     checks TEXT,
     UNIQUE(app_slug, date)
   );
+  CREATE INDEX IF NOT EXISTS idx_seo_audits_app ON seo_audits(app_slug);
 
   CREATE TABLE IF NOT EXISTS customer_graph (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1507,6 +1515,7 @@ db.exec(`
     steps TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (date('now'))
   );
+  CREATE INDEX IF NOT EXISTS idx_email_sequences_active ON email_sequences(active);
 
   CREATE TABLE IF NOT EXISTS subscribers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1737,6 +1746,7 @@ db.exec(`
     generated_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(app_slug, insight_type)
   );
+  CREATE INDEX IF NOT EXISTS idx_ai_insights_lookup ON project_ai_insights(app_slug, insight_type);
 
   CREATE TABLE IF NOT EXISTS ops_baselines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1820,6 +1830,39 @@ db.exec(`
     UNIQUE(app_slug, endpoint, hour)
   );
   CREATE INDEX IF NOT EXISTS idx_perf_metrics_hour ON perf_metrics(hour);
+
+  CREATE TABLE IF NOT EXISTS uptime_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL,
+    checked_at TEXT NOT NULL DEFAULT (datetime('now')),
+    status TEXT NOT NULL,
+    response_ms INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_uptime_app_ts ON uptime_history(app_slug, checked_at);
+
+  CREATE TABLE IF NOT EXISTS alert_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT,
+    metric TEXT NOT NULL,
+    operator TEXT NOT NULL,
+    threshold TEXT NOT NULL,
+    window_minutes INTEGER DEFAULT 5,
+    action TEXT DEFAULT 'telegram',
+    enabled INTEGER DEFAULT 1,
+    last_fired_at TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user TEXT,
+    action TEXT NOT NULL,
+    target TEXT,
+    details TEXT,
+    ip TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
 `);
 
 const upsertMetric = db.prepare(`
@@ -2414,6 +2457,15 @@ app.patch('/api/marketing/content/:id', asyncRoute((req, res) => {
   res.json({ ok: true });
 }));
 
+// DELETE /api/marketing/content/:id — Delete content item
+app.delete('/api/marketing/content/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid content ID' });
+  const result = db.prepare('DELETE FROM content_queue WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Content not found' });
+  res.json({ ok: true });
+}));
+
 // Weekly content generation cron — Sunday 3AM
 cron.schedule('0 3 * * 0', async () => {
   console.log('[CRON] Starting weekly content generation...');
@@ -2890,6 +2942,36 @@ app.post('/api/marketing/emails/resume/:id', asyncRoute((req, res) => {
   db.prepare("UPDATE email_queue SET status = 'pending' WHERE sequence_id = ? AND status = 'paused'").run(id);
   console.log(`[EMAIL] Sequence ${id} resumed`);
   res.json({ ok: true, active: true });
+}));
+
+// POST /api/marketing/emails/sequences — Create sequence
+app.post('/api/marketing/emails/sequences', asyncRoute((req, res) => {
+  const { name, app_slug, segment, steps, active } = req.body;
+  if (!name || !segment || !steps) return res.status(400).json({ error: 'name, segment, and steps are required' });
+  const result = db.prepare('INSERT INTO email_sequences (name, segment, app_slug, active, steps) VALUES (?, ?, ?, ?, ?)').run(name, segment || 'all', app_slug || null, active ? 1 : 0, typeof steps === 'string' ? steps : JSON.stringify(steps));
+  res.json({ ok: true, id: result.lastInsertRowid });
+}));
+
+// PUT /api/marketing/emails/sequences/:id — Update sequence
+app.put('/api/marketing/emails/sequences/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid sequence ID' });
+  const { name, app_slug, segment, steps, active } = req.body;
+  const existing = db.prepare('SELECT * FROM email_sequences WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'Sequence not found' });
+  db.prepare('UPDATE email_sequences SET name = ?, segment = ?, app_slug = ?, active = ?, steps = ? WHERE id = ?')
+    .run(name || existing.name, segment || existing.segment, app_slug ?? existing.app_slug, active !== undefined ? (active ? 1 : 0) : existing.active, steps ? (typeof steps === 'string' ? steps : JSON.stringify(steps)) : existing.steps, id);
+  res.json({ ok: true });
+}));
+
+// DELETE /api/marketing/emails/sequences/:id — Delete sequence + cascade
+app.delete('/api/marketing/emails/sequences/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid sequence ID' });
+  db.prepare('DELETE FROM email_queue WHERE sequence_id = ?').run(id);
+  const result = db.prepare('DELETE FROM email_sequences WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Sequence not found' });
+  res.json({ ok: true });
 }));
 
 // Process email queue — hourly cron
@@ -4159,7 +4241,7 @@ app.get('/api/banners/embed.js', (_req, res) => {
 })();`);
 });
 
-app.get('/api/banners/serve', asyncRoute((req, res) => {
+app.get('/api/banners/serve', rlBannerServe, asyncRoute((req, res) => {
   setCORS(res);
   const app = req.query.app;
   const pos = req.query.pos || 'default';
@@ -4207,7 +4289,7 @@ app.get('/api/banners/serve', asyncRoute((req, res) => {
   });
 }));
 
-app.post('/api/banners/:placementId/view', asyncRoute((req, res) => {
+app.post('/api/banners/:placementId/view', rlBannerTrack, asyncRoute((req, res) => {
   setCORS(res);
   const id = parseId(req.params.placementId);
   if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
@@ -4215,7 +4297,7 @@ app.post('/api/banners/:placementId/view', asyncRoute((req, res) => {
   res.json({ ok: true });
 }));
 
-app.get('/api/banners/:placementId/click', (req, res) => {
+app.get('/api/banners/:placementId/click', rlBannerTrack, (req, res) => {
   try {
     const id = parseId(req.params.placementId);
     if (isNaN(id)) return res.redirect('/');
@@ -4649,6 +4731,15 @@ app.post('/api/projects/roadmap/:id/ship', asyncRoute((req, res) => {
   const id = parseId(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: 'Invalid roadmap ID' });
   const result = db.prepare("UPDATE project_roadmap SET status = 'shipped', shipped_date = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Roadmap item not found' });
+  res.json({ ok: true });
+}));
+
+// DELETE /api/projects/roadmap/:id — Delete roadmap item
+app.delete('/api/projects/roadmap/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid roadmap ID' });
+  const result = db.prepare('DELETE FROM project_roadmap WHERE id = ?').run(id);
   if (result.changes === 0) return res.status(404).json({ error: 'Roadmap item not found' });
   res.json({ ok: true });
 }));
@@ -5469,17 +5560,99 @@ cron.schedule('15 3 * * *', () => {
   } catch (err) { console.error('[CLEANUP] Retention error:', err.message); }
 });
 
+// Daily 4:00 AM: Database maintenance (WAL checkpoint + cleanup)
+cron.schedule('0 4 * * *', () => {
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    authDb.pragma('wal_checkpoint(TRUNCATE)');
+    // Clean up old uptime history (>90 days) and audit log (>180 days)
+    const deletedUptime = db.prepare("DELETE FROM uptime_history WHERE checked_at < datetime('now', '-90 days')").run();
+    const deletedAudit = db.prepare("DELETE FROM audit_log WHERE created_at < datetime('now', '-180 days')").run();
+    console.log(`[MAINT] WAL checkpoint done. Pruned ${deletedUptime.changes} uptime rows, ${deletedAudit.changes} audit rows`);
+  } catch (err) { console.error('[MAINT] DB maintenance error:', err.message); }
+});
+
+// Daily 5:00 AM: Backup freshness alerts
+cron.schedule('0 5 * * *', () => {
+  try {
+    if (!existsSync(BACKUP_DIR)) return;
+    const stale = [];
+    const dirs = readdirSync(BACKUP_DIR, { withFileTypes: true }).filter(d => d.isDirectory());
+    for (const d of dirs) {
+      try {
+        const latest = execSync(`ls -t "${join(BACKUP_DIR, d.name)}" 2>/dev/null | head -1`, { timeout: 10000 }).toString().trim();
+        if (!latest) { stale.push(d.name); continue; }
+        const ageH = (Date.now() - statSync(join(BACKUP_DIR, d.name, latest)).mtime.getTime()) / 3600000;
+        if (ageH > 25) stale.push(`${d.name} (${Math.round(ageH)}h ago)`);
+      } catch { stale.push(d.name); }
+    }
+    if (stale.length > 0) {
+      sendTelegram(`\u26a0\ufe0f Stale backups detected:\n${stale.join('\n')}`);
+      console.log(`[BACKUP] ${stale.length} stale backups: ${stale.join(', ')}`);
+    }
+  } catch (err) { console.error('[BACKUP] Freshness check error:', err.message); }
+});
+
+// Daily 7:00 AM: SSL certificate expiry alerts
+cron.schedule('0 7 * * *', async () => {
+  try {
+    const expiring = [];
+    for (const a of config.apps) {
+      if (!a.domain) continue;
+      try {
+        const result = execSync(`echo | openssl s_client -servername ${a.domain} -connect ${a.domain}:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null`, { timeout: 15000 }).toString().trim();
+        const match = result.match(/notAfter=(.*)/);
+        if (match) {
+          const expiresAt = new Date(match[1]);
+          const daysLeft = Math.round((expiresAt - Date.now()) / 86400000);
+          if (daysLeft < 14) expiring.push(`${a.domain}: ${daysLeft}d left`);
+        }
+      } catch { /* skip domains without SSL */ }
+    }
+    if (expiring.length > 0) {
+      sendTelegram(`\ud83d\udd12 SSL certificates expiring soon:\n${expiring.join('\n')}`);
+      console.log(`[SSL] ${expiring.length} certs expiring: ${expiring.join(', ')}`);
+    }
+  } catch (err) { console.error('[SSL] Expiry check error:', err.message); }
+});
+
+// Every 5 min: Uptime health checks
+cron.schedule('*/5 * * * *', async () => {
+  try {
+    const insert = db.prepare('INSERT INTO uptime_history (app_slug, status, response_ms) VALUES (?, ?, ?)');
+    for (const a of config.apps) {
+      const slug = slugify(a.name);
+      let status = 'unknown';
+      let response_ms = null;
+      try {
+        if (a.health) {
+          const start = Date.now();
+          const r = await fetch(a.health, { signal: AbortSignal.timeout(10000) });
+          response_ms = Date.now() - start;
+          status = r.ok ? 'up' : 'degraded';
+        } else if (a.domain) {
+          const start = Date.now();
+          const r = await fetch(`https://${a.domain}`, { signal: AbortSignal.timeout(10000) });
+          response_ms = Date.now() - start;
+          status = r.ok ? 'up' : 'degraded';
+        } else continue;
+      } catch { status = 'down'; }
+      insert.run(slug, status, response_ms);
+    }
+  } catch (err) { console.error('[UPTIME] Check error:', err.message); }
+});
+
 // --- Error Tracking API ---
 
 // Public: Accept error reports from apps
-app.post('/api/errors/ingest', (req, res) => {
+app.post('/api/errors/ingest', rlErrorIngest, (req, res) => {
   const { app: appSlug, message, stack, severity, url, method, breadcrumbs, extra } = req.body;
   const result = ingestError({ app: appSlug, message, stack, severity, source: 'sdk', url, method, breadcrumbs, extra });
   res.status(result.ok ? 200 : 400).json(result);
 });
 
 // Public: Sentry SDK envelope compatibility
-app.post('/api/errors/envelope', express.text({ type: '*/*', limit: '64kb' }), (req, res) => {
+app.post('/api/errors/envelope', rlErrorIngest, express.text({ type: '*/*', limit: '64kb' }), (req, res) => {
   try {
     const lines = (typeof req.body === 'string' ? req.body : '').split('\n').filter(Boolean);
     if (lines.length < 2) return res.status(400).json({ error: 'invalid envelope' });
@@ -5573,6 +5746,18 @@ app.patch('/api/errors/issues/:id', asyncRoute((req, res) => {
   res.json({ ok: true });
 }));
 
+// POST /api/errors/issues/bulk — Bulk update issues
+app.post('/api/errors/issues/bulk', asyncRoute((req, res) => {
+  const { ids, status } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids array required' });
+  if (!['open', 'resolved', 'ignored'].includes(status)) return res.status(400).json({ error: 'status must be open/resolved/ignored' });
+  const resolvedAt = status === 'resolved' ? new Date().toISOString() : null;
+  const update = db.prepare('UPDATE error_issues SET status = ?, resolved_at = ? WHERE id = ?');
+  const tx = db.transaction(() => { for (const id of ids) update.run(status, resolvedAt, id); });
+  tx();
+  res.json({ ok: true, updated: ids.length });
+}));
+
 // Authenticated: Recent events
 app.get('/api/errors/events', asyncRoute((req, res) => {
   const { app: appFilter, issue_id, limit = '50', offset = '0' } = req.query;
@@ -5618,6 +5803,200 @@ app.get('/api/errors/perf', asyncRoute((req, res) => {
     GROUP BY endpoint ORDER BY requests DESC`).all(hours);
   res.json({ metrics, hours });
 }));
+
+// --- Public Status Page ---
+app.get('/api/status', rlPublicRead, asyncRoute(async (_req, res) => {
+  const results = [];
+  const dayAgo = new Date(Date.now() - 86400000).toISOString();
+  for (const a of config.apps) {
+    let status = 'unknown';
+    let response_ms = null;
+    try {
+      if (a.health) {
+        const start = Date.now();
+        const r = await fetch(a.health, { signal: AbortSignal.timeout(5000) });
+        response_ms = Date.now() - start;
+        status = r.ok ? 'up' : 'degraded';
+      } else {
+        status = 'up';
+      }
+    } catch { status = 'down'; }
+    const checks = db.prepare('SELECT COUNT(*) as total, SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as up_count FROM uptime_history WHERE app_slug = ? AND checked_at > ?').get('up', slugify(a.name), dayAgo);
+    const uptime_24h = checks.total > 0 ? Math.round((checks.up_count / checks.total) * 10000) / 100 : null;
+    results.push({ name: a.name, domain: a.domain, status, response_ms, uptime_24h });
+  }
+  res.json({ generated_at: new Date().toISOString(), apps: results });
+}));
+
+// --- Data Export ---
+app.get('/api/export/:entity', asyncRoute((req, res) => {
+  const entity = req.params.entity;
+  const format = req.query.format || 'json';
+  let rows;
+  switch (entity) {
+    case 'errors': rows = db.prepare('SELECT i.*, (SELECT COUNT(*) FROM error_events WHERE issue_id = i.id) as event_count FROM error_issues i ORDER BY i.last_seen DESC LIMIT 1000').all(); break;
+    case 'security': rows = db.prepare("SELECT * FROM security_findings WHERE status != 'dismissed' ORDER BY id DESC LIMIT 1000").all(); break;
+    case 'tasks': rows = db.prepare('SELECT * FROM project_tasks ORDER BY due_date ASC LIMIT 1000').all(); break;
+    case 'roadmap': rows = db.prepare('SELECT * FROM project_roadmap ORDER BY id DESC LIMIT 1000').all(); break;
+    case 'metrics': rows = db.prepare('SELECT * FROM metrics_daily ORDER BY date DESC LIMIT 2000').all(); break;
+    case 'seo': rows = db.prepare('SELECT * FROM seo_audits ORDER BY date DESC LIMIT 500').all(); break;
+    case 'audit': rows = db.prepare('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 1000').all(); break;
+    default: return res.status(400).json({ error: `Unknown entity: ${entity}. Valid: errors, security, tasks, roadmap, metrics, seo, audit` });
+  }
+  if (format === 'csv') {
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${entity}-export.csv"`);
+    return res.send(toCsv(rows));
+  }
+  res.json({ entity, count: rows.length, data: rows });
+}));
+
+// --- Anti-SaaS Savings Tracker ---
+const SAAS_EQUIVALENTS = {
+  plausible: { name: 'Plausible Cloud', cost: 9 },
+  promoforge: { name: 'Mailchimp + Hotjar', cost: 49 },
+  bannerforge: { name: 'AdRoll', cost: 36 },
+  'headshot-ai': { name: 'HeadshotPro', cost: 29 },
+  abschlusscheck: { name: 'Custom SaaS', cost: 19 },
+  lohncheck: { name: 'Custom SaaS', cost: 19 },
+  sacredlens: { name: 'Custom SaaS', cost: 19 },
+  'uptime-kuma': { name: 'Better Uptime', cost: 24 },
+};
+app.get('/api/savings', asyncRoute((_req, res) => {
+  const vmCost = parseFloat(process.env.VM_COST_MONTHLY || '12.48');
+  let totalSaasCost = 0;
+  const breakdown = [];
+  for (const a of config.apps) {
+    const slug = slugify(a.name);
+    const equiv = SAAS_EQUIVALENTS[slug];
+    if (equiv) {
+      totalSaasCost += equiv.cost;
+      breakdown.push({ app: a.name, slug, saas_equivalent: equiv.name, monthly_cost: equiv.cost });
+    }
+  }
+  res.json({
+    monthly_if_saas: totalSaasCost,
+    actual_cost: vmCost,
+    monthly_savings: Math.round((totalSaasCost - vmCost) * 100) / 100,
+    percent_saved: totalSaasCost > 0 ? Math.round(((totalSaasCost - vmCost) / totalSaasCost) * 100) : 0,
+    breakdown
+  });
+}));
+
+// --- Cost Per App Breakdown ---
+app.get('/api/costs', asyncRoute(async (_req, res) => {
+  const vmCost = parseFloat(process.env.VM_COST_MONTHLY || '12.48');
+  const containers = await docker.listContainers();
+  let totalCpu = 0;
+  let totalMem = 0;
+  const appCosts = [];
+  for (const a of config.apps) {
+    const appContainers = containers.filter(c => (a.containers || []).some(n => containerName(c).includes(n)));
+    let cpuPct = 0, memPct = 0;
+    for (const c of appContainers) {
+      try {
+        const stats = await docker.getContainer(c.Id).stats({ stream: false });
+        const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - (stats.precpu_stats?.cpu_usage?.total_usage || 0);
+        const sysDelta = stats.cpu_stats.system_cpu_usage - (stats.precpu_stats?.system_cpu_usage || 0);
+        const cores = stats.cpu_stats.online_cpus || 1;
+        if (sysDelta > 0) cpuPct += (cpuDelta / sysDelta) * cores * 100;
+        if (stats.memory_stats.limit > 0) memPct += (stats.memory_stats.usage / stats.memory_stats.limit) * 100;
+      } catch { /* container might be stopped */ }
+    }
+    totalCpu += cpuPct;
+    totalMem += memPct;
+    appCosts.push({ app: a.name, slug: slugify(a.name), cpu_pct: Math.round(cpuPct * 10) / 10, mem_pct: Math.round(memPct * 10) / 10 });
+  }
+  // Allocate cost proportionally by average of CPU + memory share
+  for (const ac of appCosts) {
+    const share = totalCpu + totalMem > 0 ? ((ac.cpu_pct / Math.max(totalCpu, 1)) + (ac.mem_pct / Math.max(totalMem, 1))) / 2 : 1 / appCosts.length;
+    ac.cost_share = Math.round(vmCost * share * 100) / 100;
+  }
+  appCosts.sort((a, b) => b.cost_share - a.cost_share);
+  res.json({ vm_cost: vmCost, apps: appCosts });
+}));
+
+// --- Uptime History ---
+app.get('/api/uptime/history', asyncRoute((req, res) => {
+  const { app: appSlug, range = '24h' } = req.query;
+  const ranges = { '24h': 1, '7d': 7, '30d': 30 };
+  const days = ranges[range] || 1;
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  let sql = 'SELECT * FROM uptime_history WHERE checked_at > ?';
+  const params = [since];
+  if (appSlug) { sql += ' AND app_slug = ?'; params.push(appSlug); }
+  sql += ' ORDER BY checked_at DESC LIMIT 2000';
+  const rows = db.prepare(sql).all(...params);
+  // Calculate per-app uptime
+  const byApp = {};
+  for (const r of rows) {
+    if (!byApp[r.app_slug]) byApp[r.app_slug] = { total: 0, up: 0 };
+    byApp[r.app_slug].total++;
+    if (r.status === 'up') byApp[r.app_slug].up++;
+  }
+  const uptime = {};
+  for (const [slug, data] of Object.entries(byApp)) {
+    uptime[slug] = Math.round((data.up / data.total) * 10000) / 100;
+  }
+  res.json({ range, since, uptime, data: rows });
+}));
+
+// --- Alert Rules CRUD ---
+app.get('/api/alerts/rules', asyncRoute((_req, res) => {
+  const rules = db.prepare('SELECT * FROM alert_rules ORDER BY created_at DESC').all();
+  res.json(rules);
+}));
+
+app.post('/api/alerts/rules', asyncRoute((req, res) => {
+  const { app_slug, metric, operator, threshold, window_minutes, action } = req.body;
+  if (!metric || !operator || !threshold) return res.status(400).json({ error: 'metric, operator, and threshold are required' });
+  const validMetrics = ['error_rate', 'restart_count', 'response_time', 'log_pattern', 'cpu_usage', 'memory_usage'];
+  if (!validMetrics.includes(metric)) return res.status(400).json({ error: `Invalid metric. Valid: ${validMetrics.join(', ')}` });
+  const validOps = ['>', '<', '>=', '<=', '==', 'contains'];
+  if (!validOps.includes(operator)) return res.status(400).json({ error: `Invalid operator. Valid: ${validOps.join(', ')}` });
+  const result = db.prepare('INSERT INTO alert_rules (app_slug, metric, operator, threshold, window_minutes, action) VALUES (?, ?, ?, ?, ?, ?)').run(app_slug || null, metric, operator, String(threshold), window_minutes || 5, action || 'telegram');
+  res.json({ ok: true, id: result.lastInsertRowid });
+}));
+
+app.put('/api/alerts/rules/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid rule ID' });
+  const existing = db.prepare('SELECT * FROM alert_rules WHERE id = ?').get(id);
+  if (!existing) return res.status(404).json({ error: 'Rule not found' });
+  const { app_slug, metric, operator, threshold, window_minutes, action, enabled } = req.body;
+  db.prepare('UPDATE alert_rules SET app_slug = ?, metric = ?, operator = ?, threshold = ?, window_minutes = ?, action = ?, enabled = ? WHERE id = ?').run(
+    app_slug ?? existing.app_slug, metric || existing.metric, operator || existing.operator,
+    threshold !== undefined ? String(threshold) : existing.threshold, window_minutes || existing.window_minutes,
+    action || existing.action, enabled !== undefined ? (enabled ? 1 : 0) : existing.enabled, id
+  );
+  res.json({ ok: true });
+}));
+
+app.delete('/api/alerts/rules/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid rule ID' });
+  const result = db.prepare('DELETE FROM alert_rules WHERE id = ?').run(id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Rule not found' });
+  res.json({ ok: true });
+}));
+
+// --- Audit Log ---
+app.get('/api/audit', asyncRoute((req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const offset = parseInt(req.query.offset) || 0;
+  const rows = db.prepare('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset);
+  const total = db.prepare('SELECT COUNT(*) as c FROM audit_log').get().c;
+  res.json({ total, limit, offset, data: rows });
+}));
+
+// Audit log helper
+function auditLog(req, action, target, details = {}) {
+  try {
+    db.prepare('INSERT INTO audit_log (user, action, target, details, ip) VALUES (?, ?, ?, ?, ?)').run(
+      req?.session?.username || 'system', action, target || null, JSON.stringify(details), req?.ip || 'unknown'
+    );
+  } catch (err) { console.error('[AUDIT]', err.message); }
+}
 
 // Health check endpoint
 app.get('/health', (_req, res) => res.send('ok'));
