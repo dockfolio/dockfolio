@@ -45,11 +45,26 @@ Unlike Portainer or Coolify, Dockfolio combines infrastructure management with b
 - AI Marketing Playbook: per-app strategy generation
 - Command Palette (Ctrl+K): fuzzy search across apps, commands, and actions
 
+**Error Tracking & Performance**
+- Built-in error tracking (no Sentry needed)
+- Docker log scanner (14 error patterns, 5-min cron)
+- Docker event watcher (die/oom/health events)
+- Sentry SDK envelope compatibility
+- Browser error SDK (~30 lines, `window.onerror` + `unhandledrejection`)
+- Performance metrics (p50/p95/p99 per endpoint)
+- Error fingerprinting and auto-grouping
+
+**Security Manager**
+- 4 security scanners (container, SSL, headers, network)
+- 0-100 scoring with A-F grades
+- Security finding dismiss/acknowledge workflow
+- Baseline drift detection
+
 **Developer Experience**
-- Keyboard-first UX (15 shortcuts)
+- Keyboard-first UX (18 shortcuts)
 - Environment variable management with API key health checks
 - Shared key detection across apps
-- Dark theme, responsive design
+- Dark theme, glassmorphic UI
 
 ## Quick Start
 
@@ -111,6 +126,8 @@ PLAUSIBLE_API_KEY=your-api-key
 |---|:---:|:---:|:---:|:---:|
 | Container management | Yes | Yes | Yes | Yes |
 | Revenue tracking (Stripe) | **Yes** | No | No | No |
+| Error tracking + perf metrics | **Yes** | No | No | No |
+| Security scanning (A-F grades) | **Yes** | No | No | No |
 | SEO monitoring | **Yes** | No | No | No |
 | AI operations (briefings) | **Yes** | No | No | No |
 | Auto-healing | **Yes** | No | No | No |
@@ -136,20 +153,22 @@ PLAUSIBLE_API_KEY=your-api-key
 | `x` | Cross-Promotion tab |
 | `Shift+B` | Banner Management tab |
 | `p` | Marketing Playbook tab |
+| `e` | Error Tracking panel |
+| `Shift+S` | Security Manager |
 | `Escape` | Close panel / modal |
 | `/` | Focus search |
 
 ## Architecture
 
-Single-container Node.js app (~140KB frontend, ~3,850 line backend). SQLite for data persistence. No external dependencies required. Connects to your Docker socket and reads your apps' .env files for API keys.
+Single-container Node.js app (~5,600 line backend, ~5,000 line frontend). SQLite for data persistence. No external dependencies required. Connects to your Docker socket and reads your apps' .env files for API keys. 101 tests (71 unit + 30 integration).
 
 ```
 Dockfolio
-├── Express API (77 endpoints)
+├── Express API (119 endpoints)
 ├── Dockerode (container management)
-├── SQLite (14 tables: auth, metrics, SEO, cohorts, emails, content, healing, banners, playbooks)
-├── node-cron (6 scheduled jobs)
-└── Vanilla JS SPA (keyboard-driven UI)
+├── SQLite (17 tables: auth, metrics, SEO, cohorts, emails, content, healing, banners, playbooks, errors, perf)
+├── node-cron (19 scheduled jobs)
+└── Vanilla JS SPA (keyboard-driven UI, 18 shortcuts)
 ```
 
 ## Development
@@ -166,8 +185,7 @@ Requires Docker running locally for container management features.
 ## Known Limitations
 
 - **Single server only**: multi-server support is planned but not yet implemented
-- **No automated tests**: the codebase has zero test coverage
-- **Monolithic architecture**: single server.js and single index.html
+- **Monolithic architecture**: single server.js and single index.html (by design — KISS)
 - **No git deployments**: no push-to-deploy or webhook-based builds
 - **No RBAC**: single admin user only, no team or role support
 

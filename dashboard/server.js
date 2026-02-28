@@ -21,6 +21,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+const BACKUP_DIR = process.env.BACKUP_DIR || join(process.env.HOME || '/home/deploy', 'backups');
 
 // Load app config
 const configPath = join(__dirname, 'config.yml');
@@ -856,7 +857,7 @@ app.get('/api/discover', asyncRoute(async (_req, res) => {
 
 // GET /api/backups — backup status for all apps
 app.get('/api/backups', asyncRoute((_req, res) => {
-  const backupRoot = process.env.BACKUP_DIR || '/home/deploy/backups';
+  const backupRoot = BACKUP_DIR;
   // Dynamically scan backup directory for subdirectories
   let apps = [];
   try {
@@ -1453,7 +1454,7 @@ app.delete('/api/config/apps/:slug', (req, res) => {
 
 // --- Marketing Manager: SQLite + Revenue + Analytics ---
 
-const MARKETING_DB_PATH = process.env.MARKETING_DB_PATH || '/home/deploy/marketing/data.db';
+const MARKETING_DB_PATH = process.env.MARKETING_DB_PATH || join(process.env.HOME || '/data', 'marketing', 'data.db');
 const MARKETING_DIR = dirname(MARKETING_DB_PATH);
 if (!existsSync(MARKETING_DIR)) mkdirSync(MARKETING_DIR, { recursive: true });
 const db = new Database(MARKETING_DB_PATH);
@@ -2966,7 +2967,7 @@ async function collectBriefingContext() {
 
   // Backup statuses
   try {
-    const backupDir = process.env.BACKUP_DIR || '/home/deploy/backups';
+    const backupDir = BACKUP_DIR;
     let backupApps = [];
     try {
       if (existsSync(backupDir)) {
@@ -2975,7 +2976,7 @@ async function collectBriefingContext() {
     } catch { backupApps = []; }
     context.backups = {};
     for (const app of backupApps) {
-      const dir = join(process.env.BACKUP_DIR || '/home/deploy/backups', app);
+      const dir = join(BACKUP_DIR, app);
       if (!existsSync(dir)) { context.backups[app] = 'no_backups'; continue; }
       try {
         const files = execSync(`ls -t "${dir}" 2>/dev/null | head -1`, { timeout: 10000 }).toString().trim();
@@ -4913,7 +4914,7 @@ async function calculateWorryScore() {
 
   // 4. Backup freshness
   try {
-    const backupDir = process.env.BACKUP_DIR || '/home/deploy/backups';
+    const backupDir = BACKUP_DIR;
     if (existsSync(backupDir)) {
       const dirs = readdirSync(backupDir, { withFileTypes: true }).filter(d => d.isDirectory());
       let staleCount = 0;
@@ -5085,7 +5086,7 @@ function calculateAppReportCard(slug) {
 
   // Backup
   try {
-    const backupDir = join(process.env.BACKUP_DIR || '/home/deploy/backups', slug);
+    const backupDir = join(BACKUP_DIR, slug);
     if (existsSync(backupDir)) {
       const latest = execSync(`ls -t "${backupDir}" 2>/dev/null | head -1`, { timeout: 10000 }).toString().trim();
       if (latest) {
