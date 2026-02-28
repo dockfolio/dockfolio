@@ -105,3 +105,34 @@ export function asyncRoute(fn) {
     if (!res.headersSent) res.status(500).json({ error: err.message });
   });
 }
+
+// Error fingerprinting — groups same logical error across deployments
+export function errorFingerprint(message, stackTrace, appSlug) {
+  const normalizedMsg = (message || '')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<uuid>') // UUIDs
+    .replace(/\b0x[0-9a-f]+\b/gi, '<hex>')     // hex addresses
+    .replace(/\b\d{4,}\b/g, '<num>')            // numbers with 4+ digits
+    .replace(/\/[^\s/]+\.[a-z]{2,4}:\d+/gi, '<file>') // file paths with line numbers
+    .trim();
+
+  // Extract top 3 stack frames, strip absolute paths and line numbers
+  let frames = '';
+  if (stackTrace) {
+    frames = stackTrace
+      .split('\n')
+      .filter(l => /^\s*at\s/.test(l))
+      .slice(0, 3)
+      .map(f => f.replace(/\(.*[/\\]/g, '(').replace(/:\d+:\d+\)?$/, ')').trim())
+      .join('|');
+  }
+
+  const input = `${appSlug || 'unknown'}:${normalizedMsg}:${frames}`;
+  return createHash('sha256').update(input).digest('hex').slice(0, 32);
+}
+
+// Error score for worry score integration
+export function errorScore(criticalCount, errorCount) {
+  const criticalPoints = Math.min(criticalCount * 5, 10);
+  const errorPoints = Math.min(Math.floor(errorCount / 10), 5);
+  return Math.min(criticalPoints + errorPoints, 10);
+}

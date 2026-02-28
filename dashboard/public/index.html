@@ -755,6 +755,32 @@
     .modal::-webkit-scrollbar-track { background:transparent; }
     .modal::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
     .modal::-webkit-scrollbar-thumb:hover { background:var(--border-hover); }
+    .errors-panel { display: none; padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .errors-panel.active { display: block; animation: tabFadeIn 0.3s ease; }
+    .err-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+    .err-tab { background: none; border: none; color: var(--text-dim); font-size: 12px; padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .err-tab:hover { color: var(--text); }
+    .err-tab.active { color: var(--text); border-bottom-color: var(--red); }
+    .err-tab-content { display: none; }
+    .err-tab-content.active { display: block; }
+    .err-severity { font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: 600; text-transform: uppercase; }
+    .err-severity.critical { background: rgba(239,68,68,0.2); color: var(--red); }
+    .err-severity.error { background: rgba(239,68,68,0.12); color: #f87171; }
+    .err-severity.warning { background: rgba(234,179,8,0.15); color: var(--yellow); }
+    .err-severity.info { background: rgba(59,130,246,0.12); color: var(--blue); }
+    .err-source { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: var(--surface3); color: var(--text-dim); }
+    .err-issue-row { padding: 10px 12px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.15s; display: flex; align-items: flex-start; gap: 10px; }
+    .err-issue-row:hover { background: var(--surface2); }
+    .err-issue-expand { display: none; padding: 12px; background: var(--surface3); border-radius: 6px; margin: 4px 12px 8px; font-size: 11px; }
+    .err-issue-expand.active { display: block; }
+    .err-stack { white-space: pre-wrap; font-family: monospace; font-size: 11px; color: var(--text-dim); background: var(--bg); padding: 10px; border-radius: 4px; overflow-x: auto; max-height: 300px; }
+    .err-bar { height: 20px; border-radius: 3px; min-width: 2px; transition: width 0.3s ease; }
+    .err-actions { display: flex; gap: 6px; margin-top: 8px; }
+    .err-actions button { font-size: 10px; padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text-dim); cursor: pointer; }
+    .err-actions button:hover { background: var(--surface3); color: var(--text); }
+    .err-perf-cell { text-align: right; font-variant-numeric: tabular-nums; }
+    .err-perf-slow { color: var(--yellow); }
+    .err-perf-critical { color: var(--red); }
   </style>
 </head>
 <body>
@@ -776,6 +802,7 @@
       <button class="header-btn" onclick="toggleSecurity()" id="securityBtn">Security <span id="secGradeBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;display:none"></span></button>
       <button class="header-btn" onclick="toggleProjects()" id="projectsBtn">Projects <span id="projTaskBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;background:rgba(168,85,247,0.15);color:var(--purple);display:none"></span></button>
       <button class="header-btn" onclick="toggleOps()" id="opsBtn">Ops <span id="worryBadge" class="worry-badge" style="display:none"></span></button>
+      <button class="header-btn" onclick="toggleErrors()" id="errorsBtn">Errors <span id="errCountBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;background:rgba(239,68,68,0.15);color:var(--red);display:none"></span></button>
       <button class="header-btn" onclick="toggleMarketing()">Marketing</button>
       <a class="header-btn primary" href="/uptime/status-page/status" target="_blank">Status Page</a>
       <button class="header-btn" onclick="dockerPrune(this)">Prune</button>
@@ -926,6 +953,26 @@
     <div id="ops-keys" class="ops-tab-content"><div id="opsKeysContent"></div></div>
     <div id="ops-reportcards" class="ops-tab-content"><div id="opsReportCardsContent"></div></div>
     <div id="ops-timeline" class="ops-tab-content"><div id="opsTimelineContent"></div></div>
+  </div>
+
+  <div id="errorsPanel" class="errors-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <span style="font-size:14px;font-weight:600">Error Tracker</span>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span style="font-size:10px;color:var(--text-muted)" id="errLastUpdate"></span>
+        <button class="btn" onclick="fetchErrorsOverview()">Refresh</button>
+      </div>
+    </div>
+    <div class="err-tabs">
+      <button class="err-tab active" onclick="switchErrTab('overview',this)">Overview</button>
+      <button class="err-tab" onclick="switchErrTab('issues',this)">Issues</button>
+      <button class="err-tab" onclick="switchErrTab('events',this)">Events</button>
+      <button class="err-tab" onclick="switchErrTab('perf',this)">Performance</button>
+    </div>
+    <div id="err-overview" class="err-tab-content active"><div id="errOverviewContent"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div></div>
+    <div id="err-issues" class="err-tab-content"><div id="errIssuesContent"></div></div>
+    <div id="err-events" class="err-tab-content"><div id="errEventsContent"></div></div>
+    <div id="err-perf" class="err-tab-content"><div id="errPerfContent"></div></div>
   </div>
 
   <div id="settingsPanel" class="settings-panel">
@@ -3442,6 +3489,7 @@
           { type: 'command', cmd: 'revenue', label: 'Revenue Dashboard', description: 'Open marketing revenue', shortcut: 'm' },
           { type: 'command', cmd: 'seo', label: 'SEO Audit', description: 'Open SEO audit tab', shortcut: '' },
           { type: 'command', cmd: 'backups', label: 'Backup Status', description: 'Database backup panel', shortcut: 'b' },
+          { type: 'command', cmd: 'errors', label: 'Error Tracker', description: 'App errors and performance', shortcut: 'e' },
         ];
         renderCmdResults();
         return;
@@ -3503,6 +3551,7 @@
           roadmap: () => { toggleProjects(); setTimeout(() => switchProjTab('roadmap', document.querySelector('.proj-tab:nth-child(3)')), 100); },
           overdue: () => { toggleProjects(); setTimeout(() => { switchProjTab('tasks', document.querySelector('.proj-tab:nth-child(2)')); projTaskFilter.status = 'overdue'; fetchProjectTasks(); }, 100); },
           ops: () => toggleOps(),
+          errors: () => toggleErrors(),
           worry: () => { toggleOps(); setTimeout(() => switchOpsTab('pulse', document.querySelector('.ops-tab:first-child')), 100); },
           drift: () => { toggleOps(); setTimeout(() => switchOpsTab('timeline', document.querySelector('.ops-tab:nth-child(4)')), 100); },
           reportcards: () => { toggleOps(); setTimeout(() => switchOpsTab('reportcards', document.querySelector('.ops-tab:nth-child(3)')), 100); },
@@ -4475,6 +4524,306 @@
       if (tab === 'keys') fetchOpsDependencies();
     }
 
+    // --- Error Tracker ---
+    let errorsData = null;
+    let errIssuesPage = { status: '', app: '', offset: 0 };
+    let errEventsPage = { offset: 0 };
+
+    function toggleErrors() {
+      const panel = document.getElementById('errorsPanel');
+      panel.classList.toggle('active');
+      if (panel.classList.contains('active') && !errorsData) fetchErrorsOverview();
+    }
+
+    function switchErrTab(tabName, btn) {
+      document.querySelectorAll('.err-tab-content').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.err-tab').forEach(b => b.classList.remove('active'));
+      document.getElementById('err-' + tabName).classList.add('active');
+      if (btn) btn.classList.add('active');
+      if (tabName === 'issues') fetchErrIssues();
+      if (tabName === 'events') fetchErrEvents();
+      if (tabName === 'perf') fetchErrPerf();
+    }
+
+    async function fetchErrorsOverview() {
+      try {
+        document.getElementById('errOverviewContent').innerHTML = '<span style="color:var(--text-muted);font-size:12px">Loading error stats...</span>';
+        const res = await apiFetch('/api/errors/stats');
+        errorsData = await res.json();
+        document.getElementById('errLastUpdate').textContent = 'Updated ' + new Date().toLocaleTimeString();
+        renderErrOverview();
+        // Update badge
+        const badge = document.getElementById('errCountBadge');
+        if (errorsData.totalOpen > 0) {
+          badge.textContent = errorsData.totalOpen;
+          badge.style.display = 'inline';
+        } else {
+          badge.style.display = 'none';
+        }
+      } catch (err) {
+        document.getElementById('errOverviewContent').innerHTML = '<span style="color:var(--red);font-size:12px">Error: ' + escapeHtml(err.message) + '</span>';
+      }
+    }
+
+    function renderErrOverview() {
+      if (!errorsData) return;
+      const d = errorsData;
+      const severityColors = { critical: 'var(--red)', error: '#f87171', warning: 'var(--yellow)', info: 'var(--blue)' };
+
+      // Summary cards
+      let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">';
+      html += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:28px;font-weight:800;color:${d.totalOpen > 0 ? 'var(--red)' : 'var(--green)'}">${d.totalOpen}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Open Issues</div></div>`;
+      html += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;text-align:center">
+        <div style="font-size:28px;font-weight:800;color:var(--text)">${d.last24h}</div>
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Events (24h)</div></div>`;
+
+      // Severity breakdown
+      const sevMap = {};
+      (d.bySeverity || []).forEach(s => { sevMap[s.severity] = s.count; });
+      html += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">
+        <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">By Severity</div>
+        ${['critical','error','warning','info'].map(s => sevMap[s] ? `<span class="err-severity ${s}" style="margin-right:4px">${s} ${sevMap[s]}</span>` : '').join('')}
+        ${Object.keys(sevMap).length === 0 ? '<span style="color:var(--text-muted);font-size:11px">None</span>' : ''}</div>`;
+      html += '</div>';
+
+      // Per-app bar chart
+      if (d.byApp && d.byApp.length > 0) {
+        const maxCount = Math.max(...d.byApp.map(a => a.count));
+        html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px">';
+        html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase">Errors by App</div>';
+        for (const app of d.byApp) {
+          const pct = maxCount > 0 ? Math.round((app.count / maxCount) * 100) : 0;
+          html += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-size:11px;color:var(--text);width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(app.app_slug)}</span>
+            <div style="flex:1;background:var(--surface3);border-radius:3px;height:16px;overflow:hidden">
+              <div class="err-bar" style="width:${pct}%;background:${app.critical > 0 ? 'var(--red)' : 'var(--yellow)'};height:100%"></div>
+            </div>
+            <span style="font-size:11px;color:var(--text-dim);min-width:30px;text-align:right">${app.count}</span></div>`;
+        }
+        html += '</div>';
+      }
+
+      // 7-day trend sparkline
+      if (d.last7d && d.last7d.length > 0) {
+        const maxDay = Math.max(...d.last7d.map(d => d.count));
+        html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px">';
+        html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase">7-Day Trend</div>';
+        html += '<div style="display:flex;align-items:flex-end;gap:4px;height:60px">';
+        for (const day of d.last7d) {
+          const h = maxDay > 0 ? Math.max(4, Math.round((day.count / maxDay) * 56)) : 4;
+          html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+            <span style="font-size:9px;color:var(--text-muted)">${day.count}</span>
+            <div style="width:100%;height:${h}px;background:var(--red);border-radius:2px;opacity:0.7"></div>
+            <span style="font-size:8px;color:var(--text-muted)">${day.day.slice(5)}</span></div>`;
+        }
+        html += '</div></div>';
+      }
+
+      // Top 5 noisiest
+      if (d.noisiest && d.noisiest.length > 0) {
+        html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px">';
+        html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase">Top Noisiest Issues</div>';
+        for (const issue of d.noisiest) {
+          html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">
+            <div style="flex:1;overflow:hidden">
+              <span class="err-severity ${issue.severity}" style="margin-right:6px">${issue.severity}</span>
+              <span style="font-size:11px;color:var(--text)">${escapeHtml(issue.title.slice(0, 80))}${issue.title.length > 80 ? '...' : ''}</span>
+              <span style="font-size:10px;color:var(--text-muted);margin-left:6px">${escapeHtml(issue.app_slug)}</span>
+            </div>
+            <span style="font-size:11px;color:var(--text-dim);font-weight:600;min-width:40px;text-align:right">${issue.occurrence_count}x</span></div>`;
+        }
+        html += '</div>';
+      }
+
+      document.getElementById('errOverviewContent').innerHTML = html;
+    }
+
+    async function fetchErrIssues() {
+      try {
+        const p = errIssuesPage;
+        let url = '/api/errors/issues?limit=50';
+        if (p.status) url += '&status=' + p.status;
+        if (p.app) url += '&app=' + encodeURIComponent(p.app);
+        const res = await apiFetch(url);
+        const data = await res.json();
+        renderErrIssues(data.issues || []);
+      } catch (err) {
+        document.getElementById('errIssuesContent').innerHTML = '<span style="color:var(--red);font-size:12px">Error: ' + escapeHtml(err.message) + '</span>';
+      }
+    }
+
+    function renderErrIssues(issues) {
+      let html = '<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">';
+      ['', 'open', 'resolved', 'ignored'].forEach(s => {
+        const label = s || 'all';
+        const active = errIssuesPage.status === s;
+        html += `<button style="font-size:10px;padding:3px 10px;border-radius:4px;border:1px solid ${active ? 'var(--blue)' : 'var(--border)'};background:${active ? 'rgba(59,130,246,0.12)' : 'var(--surface2)'};color:${active ? 'var(--blue)' : 'var(--text-dim)'};cursor:pointer" onclick="errIssuesPage.status='${s}';fetchErrIssues()">${label}</button>`;
+      });
+      html += '</div>';
+
+      if (issues.length === 0) {
+        html += '<div style="text-align:center;padding:30px;color:var(--text-muted);font-size:12px">No issues found</div>';
+      } else {
+        for (const issue of issues) {
+          const age = timeAgo(issue.last_seen);
+          html += `<div class="err-issue-row" onclick="toggleErrExpand(${issue.id},this)">
+            <span class="err-severity ${issue.severity}">${issue.severity}</span>
+            <div style="flex:1;overflow:hidden">
+              <div style="font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(issue.title)}</div>
+              <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${escapeHtml(issue.app_slug)} &middot; ${issue.occurrence_count}x &middot; ${age} &middot; <span style="color:${issue.status === 'open' ? 'var(--yellow)' : issue.status === 'resolved' ? 'var(--green)' : 'var(--text-muted)'}">${issue.status}</span></div>
+            </div>
+          </div>
+          <div class="err-issue-expand" id="errExpand-${issue.id}"></div>`;
+        }
+      }
+      document.getElementById('errIssuesContent').innerHTML = html;
+    }
+
+    async function toggleErrExpand(issueId, row) {
+      const expand = document.getElementById('errExpand-' + issueId);
+      if (expand.classList.contains('active')) {
+        expand.classList.remove('active');
+        return;
+      }
+      expand.innerHTML = '<span style="color:var(--text-muted)">Loading...</span>';
+      expand.classList.add('active');
+      try {
+        const res = await apiFetch('/api/errors/issues/' + issueId);
+        const data = await res.json();
+        let html = '';
+        if (data.issue) {
+          html += '<div class="err-actions">';
+          if (data.issue.status !== 'resolved') html += `<button onclick="event.stopPropagation();patchErrIssue(${issueId},'resolved')">Resolve</button>`;
+          if (data.issue.status !== 'ignored') html += `<button onclick="event.stopPropagation();patchErrIssue(${issueId},'ignored')">Ignore</button>`;
+          if (data.issue.status !== 'open') html += `<button onclick="event.stopPropagation();patchErrIssue(${issueId},'open')">Reopen</button>`;
+          html += '</div>';
+        }
+        if (data.events && data.events.length > 0) {
+          const latest = data.events[0];
+          if (latest.stack_trace) {
+            html += '<div style="margin-top:8px;font-size:10px;color:var(--text-muted);text-transform:uppercase">Stack Trace</div>';
+            html += '<div class="err-stack">' + escapeHtml(latest.stack_trace) + '</div>';
+          }
+          if (latest.breadcrumbs && latest.breadcrumbs.length > 0) {
+            html += '<div style="margin-top:8px;font-size:10px;color:var(--text-muted);text-transform:uppercase">Breadcrumbs</div>';
+            html += '<div style="font-size:11px;color:var(--text-dim);margin-top:4px">';
+            for (const b of latest.breadcrumbs.slice(-10)) {
+              html += '<div>' + escapeHtml(typeof b === 'string' ? b : JSON.stringify(b)) + '</div>';
+            }
+            html += '</div>';
+          }
+          html += `<div style="margin-top:8px;font-size:10px;color:var(--text-muted)">Showing latest of ${data.events.length} recent events &middot; Source: <span class="err-source">${escapeHtml(latest.source)}</span>${latest.request_url ? ' &middot; ' + escapeHtml(latest.request_method + ' ' + latest.request_url) : ''}</div>`;
+        }
+        expand.innerHTML = html || '<span style="color:var(--text-muted);font-size:11px">No event details</span>';
+      } catch (err) {
+        expand.innerHTML = '<span style="color:var(--red);font-size:11px">Failed to load: ' + escapeHtml(err.message) + '</span>';
+      }
+    }
+
+    async function patchErrIssue(id, status) {
+      try {
+        await apiFetch('/api/errors/issues/' + id, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status })
+        });
+        fetchErrIssues();
+        fetchErrorsOverview();
+      } catch {}
+    }
+
+    async function fetchErrEvents() {
+      try {
+        const res = await apiFetch('/api/errors/events?limit=50&offset=' + errEventsPage.offset);
+        const data = await res.json();
+        renderErrEvents(data.events || []);
+      } catch (err) {
+        document.getElementById('errEventsContent').innerHTML = '<span style="color:var(--red);font-size:12px">Error: ' + escapeHtml(err.message) + '</span>';
+      }
+    }
+
+    function renderErrEvents(events) {
+      if (events.length === 0) {
+        document.getElementById('errEventsContent').innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);font-size:12px">No events recorded yet</div>';
+        return;
+      }
+      let html = '';
+      for (const ev of events) {
+        const age = timeAgo(ev.timestamp);
+        html += `<div style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:11px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="flex:1;overflow:hidden">
+              <span class="err-severity ${ev.severity}">${ev.severity}</span>
+              <span style="margin-left:6px;color:var(--text)">${escapeHtml(ev.issue_title || ev.message).slice(0, 100)}</span>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+              <span class="err-source">${escapeHtml(ev.source)}</span>
+              <span style="color:var(--text-muted);font-size:10px">${escapeHtml(ev.app_slug)}</span>
+              <span style="color:var(--text-muted);font-size:10px">${age}</span>
+            </div>
+          </div>
+          ${ev.container_name ? '<div style="color:var(--text-muted);font-size:10px;margin-top:2px">Container: ' + escapeHtml(ev.container_name) + '</div>' : ''}
+        </div>`;
+      }
+      // Pagination
+      html += '<div style="display:flex;justify-content:center;gap:8px;padding:10px">';
+      if (errEventsPage.offset > 0) html += `<button class="btn" onclick="errEventsPage.offset-=50;fetchErrEvents()">Previous</button>`;
+      if (events.length >= 50) html += `<button class="btn" onclick="errEventsPage.offset+=50;fetchErrEvents()">Next</button>`;
+      html += '</div>';
+      document.getElementById('errEventsContent').innerHTML = html;
+    }
+
+    async function fetchErrPerf() {
+      try {
+        document.getElementById('errPerfContent').innerHTML = '<span style="color:var(--text-muted);font-size:12px">Loading performance data...</span>';
+        const res = await apiFetch('/api/errors/perf?hours=24');
+        const data = await res.json();
+        renderErrPerf(data.metrics || []);
+      } catch (err) {
+        document.getElementById('errPerfContent').innerHTML = '<span style="color:var(--red);font-size:12px">Error: ' + escapeHtml(err.message) + '</span>';
+      }
+    }
+
+    function renderErrPerf(metrics) {
+      if (metrics.length === 0) {
+        document.getElementById('errPerfContent').innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);font-size:12px">No performance data yet. Metrics are collected every 15 minutes.</div>';
+        return;
+      }
+      let html = '<table style="width:100%;border-collapse:collapse;font-size:11px">';
+      html += '<thead><tr style="border-bottom:2px solid var(--border);text-align:left">';
+      html += '<th style="padding:6px 8px;color:var(--text-muted)">Endpoint</th>';
+      html += '<th class="err-perf-cell" style="padding:6px 8px;color:var(--text-muted)">Req/24h</th>';
+      html += '<th class="err-perf-cell" style="padding:6px 8px;color:var(--text-muted)">p50</th>';
+      html += '<th class="err-perf-cell" style="padding:6px 8px;color:var(--text-muted)">p95</th>';
+      html += '<th class="err-perf-cell" style="padding:6px 8px;color:var(--text-muted)">p99</th>';
+      html += '<th class="err-perf-cell" style="padding:6px 8px;color:var(--text-muted)">Errors</th>';
+      html += '</tr></thead><tbody>';
+      for (const m of metrics) {
+        const p95class = m.avg_p95 > 3000 ? 'err-perf-critical' : m.avg_p95 > 1000 ? 'err-perf-slow' : '';
+        const p99class = m.avg_p99 > 3000 ? 'err-perf-critical' : m.avg_p99 > 1000 ? 'err-perf-slow' : '';
+        html += `<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 8px;color:var(--text);font-family:monospace;font-size:10px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(m.endpoint)}</td>
+          <td class="err-perf-cell" style="padding:6px 8px;color:var(--text-dim)">${m.requests}</td>
+          <td class="err-perf-cell" style="padding:6px 8px;color:var(--text-dim)">${m.avg_p50}ms</td>
+          <td class="err-perf-cell ${p95class}" style="padding:6px 8px">${m.avg_p95}ms</td>
+          <td class="err-perf-cell ${p99class}" style="padding:6px 8px">${m.avg_p99}ms</td>
+          <td class="err-perf-cell" style="padding:6px 8px;color:${m.errors > 0 ? 'var(--red)' : 'var(--text-dim)'}">${m.errors}</td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+      document.getElementById('errPerfContent').innerHTML = html;
+    }
+
+    function timeAgo(ts) {
+      if (!ts) return '';
+      const diff = Date.now() - new Date(ts).getTime();
+      if (diff < 60000) return 'just now';
+      if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+      if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+      return Math.floor(diff / 86400000) + 'd ago';
+    }
+
     function toggleADHDMode() {
       adhdMode = !adhdMode;
       document.body.classList.toggle('adhd-mode', adhdMode);
@@ -4674,6 +5023,7 @@
       if (e.key === 'S') toggleSecurity();
       if (e.key === 'j') toggleProjects();
       if (e.key === 'o') toggleOps();
+      if (e.key === 'e') toggleErrors();
       if (e.key === 'A') toggleADHDMode();
       if (e.key === 'x') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('crosspromo', document.querySelector('.mkt-tab:nth-child(7)')), 100); }
       if (e.key === 'B') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('banners', document.querySelector('.mkt-tab:nth-child(8)')), 100); }

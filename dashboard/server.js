@@ -15,7 +15,7 @@ import {
   slugify, containerName, hashValue, todayString, percent, safeJSON,
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
   getMarketableApps, getAppsWithEnv, diskScore, securityScore, seoScore,
-  parseId, asyncRoute
+  parseId, asyncRoute, errorFingerprint, errorScore
 } from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -75,7 +75,7 @@ app.use((req, res, next) => {
   // Validate on state-changing methods (skip public paths and static assets)
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
     const normalizedPath = req.path.replace(/\/\.\.+/g, '').replace(/\/+/g, '/');
-    const CSRF_EXEMPT = ['/api/auth/login', '/api/auth/setup', '/api/banners/', '/api/crosspromo/'];
+    const CSRF_EXEMPT = ['/api/auth/login', '/api/auth/setup', '/api/banners/', '/api/crosspromo/', '/api/errors/ingest', '/api/errors/envelope'];
     if (!CSRF_EXEMPT.some(p => normalizedPath.startsWith(p))) {
       const headerToken = req.headers['x-csrf-token'];
       const cookieToken = req.cookies._csrf;
@@ -1772,6 +1772,53 @@ db.exec(`
     streak_broken_at TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_ops_scores_ts ON ops_scores(timestamp);
+
+  CREATE TABLE IF NOT EXISTS error_issues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint TEXT NOT NULL UNIQUE,
+    app_slug TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'error',
+    status TEXT NOT NULL DEFAULT 'open',
+    title TEXT NOT NULL,
+    first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+    occurrence_count INTEGER NOT NULL DEFAULT 1,
+    resolved_at TEXT,
+    metadata TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_error_issues_app ON error_issues(app_slug);
+  CREATE INDEX IF NOT EXISTS idx_error_issues_status ON error_issues(status);
+
+  CREATE TABLE IF NOT EXISTS error_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id INTEGER NOT NULL REFERENCES error_issues(id),
+    app_slug TEXT NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    message TEXT NOT NULL,
+    stack_trace TEXT,
+    source TEXT NOT NULL DEFAULT 'api',
+    container_name TEXT,
+    request_url TEXT,
+    request_method TEXT,
+    breadcrumbs TEXT,
+    extra TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_error_events_issue ON error_events(issue_id);
+  CREATE INDEX IF NOT EXISTS idx_error_events_ts ON error_events(timestamp);
+
+  CREATE TABLE IF NOT EXISTS perf_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL DEFAULT 'dockfolio',
+    endpoint TEXT NOT NULL,
+    hour TEXT NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 0,
+    p50_ms INTEGER,
+    p95_ms INTEGER,
+    p99_ms INTEGER,
+    error_count INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(app_slug, endpoint, hour)
+  );
+  CREATE INDEX IF NOT EXISTS idx_perf_metrics_hour ON perf_metrics(hour);
 `);
 
 const upsertMetric = db.prepare(`
@@ -1785,6 +1832,79 @@ const upsertSEOAudit = db.prepare(`
   VALUES (?, ?, ?, ?, ?)
   ON CONFLICT(app_slug, date) DO UPDATE SET score = excluded.score, grade = excluded.grade, checks = excluded.checks
 `);
+
+// --- Error Tracking ---
+
+const insertErrorEvent = db.prepare(`
+  INSERT INTO error_events (issue_id, app_slug, message, stack_trace, source, container_name, request_url, request_method, breadcrumbs, extra)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+// Rate tracking for Telegram spike alerts
+const errorRateTracker = new Map(); // appSlug -> { count, windowStart }
+const errorSpikeAlerted = new Map(); // appSlug -> lastAlertTimestamp
+
+function ingestError({ app: appSlug, message, stack, severity = 'error', source = 'api', container, url, method, breadcrumbs, extra }) {
+  if (!message || !appSlug) return { ok: false, error: 'message and app required' };
+
+  const fp = errorFingerprint(message, stack, appSlug);
+  const title = message.length > 200 ? message.slice(0, 200) + '...' : message;
+  const validSeverity = ['critical', 'error', 'warning', 'info'].includes(severity) ? severity : 'error';
+
+  // Upsert the issue
+  const existing = db.prepare('SELECT id, status, occurrence_count FROM error_issues WHERE fingerprint = ?').get(fp);
+  let issueId, isNew = false;
+
+  if (existing) {
+    issueId = existing.id;
+    // Auto-reopen resolved issues
+    if (existing.status === 'resolved') {
+      db.prepare("UPDATE error_issues SET status = 'open', last_seen = datetime('now'), occurrence_count = occurrence_count + 1, resolved_at = NULL WHERE id = ?").run(issueId);
+    } else {
+      db.prepare("UPDATE error_issues SET last_seen = datetime('now'), occurrence_count = occurrence_count + 1 WHERE id = ?").run(issueId);
+    }
+  } else {
+    isNew = true;
+    const result = db.prepare('INSERT INTO error_issues (fingerprint, app_slug, severity, title, metadata) VALUES (?, ?, ?, ?, ?)').run(
+      fp, appSlug, validSeverity, title, JSON.stringify({ source, container })
+    );
+    issueId = result.lastInsertRowid;
+  }
+
+  // Cap events: max 100 per issue per day
+  const today = todayString();
+  const todayCount = db.prepare("SELECT COUNT(*) as n FROM error_events WHERE issue_id = ? AND timestamp >= ?").get(issueId, today + 'T00:00:00');
+  if ((todayCount?.n || 0) < 100) {
+    insertErrorEvent.run(issueId, appSlug, message, stack || null, source, container || null, url || null, method || null,
+      breadcrumbs ? JSON.stringify(breadcrumbs) : null, extra ? JSON.stringify(extra) : null);
+  }
+
+  // Telegram alert for new error fingerprints (critical/error only)
+  if (isNew && (validSeverity === 'critical' || validSeverity === 'error')) {
+    sendTelegram(`🐛 New ${validSeverity}: ${appSlug}\n${title}${source !== 'api' ? `\nSource: ${source}` : ''}`);
+  }
+
+  // Rate spike detection (>20 errors in 5 min for one app)
+  const now = Date.now();
+  const tracker = errorRateTracker.get(appSlug) || { count: 0, windowStart: now };
+  if (now - tracker.windowStart > 300_000) {
+    tracker.count = 1;
+    tracker.windowStart = now;
+  } else {
+    tracker.count++;
+  }
+  errorRateTracker.set(appSlug, tracker);
+
+  if (tracker.count > 20) {
+    const lastAlert = errorSpikeAlerted.get(appSlug) || 0;
+    if (now - lastAlert > 3600_000) { // max once per hour per app
+      errorSpikeAlerted.set(appSlug, now);
+      sendTelegram(`⚡ Error spike: ${appSlug} — ${tracker.count} errors in 5 min`);
+    }
+  }
+
+  return { ok: true, issue_id: issueId, is_new: isNew, fingerprint: fp };
+}
 
 // --- Stripe Revenue ---
 
@@ -2930,6 +3050,15 @@ async function collectBriefingContext() {
     const recentDrifts = db.prepare("SELECT COUNT(*) as n FROM ops_events WHERE event_type LIKE 'drift_%' AND acknowledged = 0 AND timestamp >= datetime('now', '-24 hours')").get();
     context.ops = { worryScore: worryResult.score, breakdown: worryResult.breakdown, streakDays: latestScore?.streak_days || 0, unacknowledgedDrifts: recentDrifts?.n || 0 };
   } catch { context.ops = {}; }
+
+  // Error tracking
+  try {
+    const newIssues24h = db.prepare("SELECT COUNT(*) as n FROM error_issues WHERE first_seen >= datetime('now', '-24 hours')").get();
+    const totalOpen = db.prepare("SELECT COUNT(*) as n FROM error_issues WHERE status = 'open'").get();
+    const noisiest = db.prepare("SELECT app_slug, title, occurrence_count FROM error_issues WHERE status = 'open' ORDER BY occurrence_count DESC LIMIT 5").all();
+    const byApp = db.prepare("SELECT app_slug, COUNT(*) as count FROM error_issues WHERE status = 'open' GROUP BY app_slug").all();
+    context.errors = { newIssues24h: newIssues24h?.n || 0, totalOpen: totalOpen?.n || 0, noisiest, byApp };
+  } catch { context.errors = { newIssues24h: 0, totalOpen: 0 }; }
 
   return context;
 }
@@ -4746,8 +4875,8 @@ cron.schedule('0 4 * * 0', async () => {
 
 
 async function calculateWorryScore() {
-  const breakdown = { containers: 0, keys: 0, disk: 0, backups: 0, security: 0, healing: 0, seo: 0 };
-  const MAX = { containers: 25, keys: 20, disk: 15, backups: 15, security: 10, healing: 10, seo: 5 };
+  const breakdown = { containers: 0, keys: 0, disk: 0, backups: 0, security: 0, healing: 0, seo: 0, errors: 0 };
+  const MAX = { containers: 25, keys: 20, disk: 15, backups: 15, security: 10, healing: 10, seo: 5, errors: 10 };
 
   // 1. Container health
   try {
@@ -4825,6 +4954,14 @@ async function calculateWorryScore() {
       if (avg < 40) breakdown.seo = 5;
       else if (avg < 60) breakdown.seo = 3;
     }
+  } catch {}
+
+  // 8. Error tracking
+  try {
+    const since1h = new Date(Date.now() - 3600000).toISOString();
+    const criticals = db.prepare("SELECT COUNT(*) as n FROM error_issues WHERE severity = 'critical' AND status = 'open' AND last_seen >= ?").get(since1h);
+    const openErrors = db.prepare("SELECT COUNT(*) as n FROM error_events WHERE timestamp >= datetime('now', '-1 hour')").get();
+    breakdown.errors = errorScore(criticals?.n || 0, openErrors?.n || 0);
   } catch {}
 
   const total = Math.min(100, Object.values(breakdown).reduce((a, b) => a + b, 0));
@@ -5165,6 +5302,321 @@ cron.schedule('0 9 * * 1', async () => {
     console.log(`[OPS] Key rotation check: ${staleKeys.length} stale keys`);
   } catch (err) { console.error('[OPS] Key rotation cron error:', err.message); }
 });
+
+// --- Docker Log Scanner (every 5 min) ---
+const logScanLastTimestamps = new Map(); // containerName -> ISO timestamp
+const ERROR_PATTERNS = [
+  /\bError:\s/i, /\bFATAL\b/i, /\bTypeError\b/, /\bReferenceError\b/,
+  /\bSyntaxError\b/, /\bECONNREFUSED\b/, /\bENOENT\b/, /\bOOM\b/i,
+  /\bexit code [1-9]/i, /\bUnhandledPromiseRejection\b/, /\bSegmentation fault\b/i,
+  /\bKilled\b/, /\bpanic\b/i, /\bcritical\b/i
+];
+const NOISE_PATTERNS = [
+  /DeprecationWarning/i, /ExperimentalWarning/i, /npm warn/i,
+  /punycode/i, /DEP0040/i, /node --trace-warnings/i
+];
+
+cron.schedule('*/5 * * * *', async () => {
+  try {
+    const containers = await docker.listContainers();
+    // Map containers to app slugs
+    const containerToApp = new Map();
+    for (const appDef of config.apps) {
+      const slug = slugify(appDef.name);
+      for (const cn of (appDef.containers || [])) {
+        containerToApp.set(cn, slug);
+      }
+    }
+
+    for (const c of containers) {
+      const name = containerName(c);
+      const appSlug = containerToApp.get(name);
+      if (!appSlug) continue;
+
+      const since = logScanLastTimestamps.get(name) || new Date(Date.now() - 300_000).toISOString();
+      logScanLastTimestamps.set(name, new Date().toISOString());
+
+      try {
+        const container = docker.getContainer(c.Id);
+        const logStream = await container.logs({ stdout: true, stderr: true, since: Math.floor(new Date(since).getTime() / 1000), tail: 200 });
+        const logText = typeof logStream === 'string' ? logStream : logStream.toString('utf8');
+        const lines = logText.split('\n').filter(Boolean);
+
+        let errorsIngested = 0;
+        for (let i = 0; i < lines.length && errorsIngested < 50; i++) {
+          const line = lines[i].replace(/^.{8}/, ''); // strip Docker log header bytes
+          if (NOISE_PATTERNS.some(p => p.test(line))) continue;
+          if (!ERROR_PATTERNS.some(p => p.test(line))) continue;
+
+          // Collect stack trace lines following the error
+          let stack = '';
+          for (let j = i + 1; j < lines.length && j < i + 20; j++) {
+            const nextLine = lines[j].replace(/^.{8}/, '');
+            if (/^\s+at\s/.test(nextLine) || /^\s+/.test(nextLine) && !ERROR_PATTERNS.some(p => p.test(nextLine))) {
+              stack += nextLine + '\n';
+            } else break;
+          }
+
+          ingestError({ app: appSlug, message: line.trim(), stack: stack || null, severity: /FATAL|OOM|panic|critical/i.test(line) ? 'critical' : 'error', source: 'docker_log', container: name });
+          errorsIngested++;
+        }
+      } catch { /* container may have stopped between list and logs */ }
+    }
+  } catch (err) { console.error('[ERROR_SCAN] Docker log scan error:', err.message); }
+});
+
+// --- Docker Event Watcher (persistent stream) ---
+let eventStream = null;
+
+async function startEventWatcher() {
+  try {
+    if (eventStream) try { eventStream.destroy(); } catch {}
+    eventStream = await docker.getEvents({ filters: { type: ['container'], event: ['die', 'oom', 'health_status'] } });
+
+    eventStream.on('data', async (chunk) => {
+      try {
+        const event = JSON.parse(chunk.toString());
+        const name = event.Actor?.Attributes?.name;
+        if (!name) return;
+
+        // Find app slug
+        let appSlug = null;
+        for (const appDef of config.apps) {
+          if ((appDef.containers || []).includes(name)) { appSlug = slugify(appDef.name); break; }
+        }
+        if (!appSlug) return;
+
+        if (event.Action === 'oom') {
+          ingestError({ app: appSlug, message: `Container ${name} killed by OOM (out of memory)`, severity: 'critical', source: 'docker_event', container: name });
+        } else if (event.Action === 'die') {
+          const exitCode = event.Actor?.Attributes?.exitCode;
+          if (exitCode && exitCode !== '0') {
+            // Grab last 20 log lines for context
+            let lastLogs = '';
+            try {
+              const container = docker.getContainer(event.Actor.ID);
+              const logs = await container.logs({ stdout: true, stderr: true, tail: 20 });
+              lastLogs = (typeof logs === 'string' ? logs : logs.toString('utf8')).replace(/^.{8}/gm, '');
+            } catch {}
+            ingestError({ app: appSlug, message: `Container ${name} died with exit code ${exitCode}`, stack: lastLogs || null, severity: 'critical', source: 'docker_event', container: name });
+          }
+        } else if (event.Action === 'health_status: unhealthy') {
+          ingestError({ app: appSlug, message: `Container ${name} health check failed`, severity: 'warning', source: 'docker_event', container: name });
+        }
+      } catch {}
+    });
+
+    eventStream.on('error', () => { setTimeout(startEventWatcher, 30_000); });
+    eventStream.on('close', () => { setTimeout(startEventWatcher, 30_000); });
+    console.log('[ERROR_WATCH] Docker event watcher started');
+  } catch (err) {
+    console.error('[ERROR_WATCH] Failed to start:', err.message);
+    setTimeout(startEventWatcher, 30_000);
+  }
+}
+startEventWatcher();
+
+// --- Performance Accumulator ---
+const perfAccumulator = new Map(); // endpoint -> [responseTimes]
+
+// Extend request logging to capture response times
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    if (!req.path.startsWith('/api/')) return;
+    const duration = Date.now() - start;
+    // Normalize endpoint: strip IDs from paths
+    const endpoint = req.method + ' ' + req.path.replace(/\/\d+/g, '/:id');
+    const times = perfAccumulator.get(endpoint) || [];
+    times.push({ ms: duration, error: res.statusCode >= 500 });
+    if (times.length > 10000) times.splice(0, times.length - 5000); // prevent unbounded growth
+    perfAccumulator.set(endpoint, times);
+  });
+  next();
+});
+
+// Every 15 min: aggregate perf metrics
+cron.schedule('*/15 * * * *', () => {
+  try {
+    const hour = new Date().toISOString().slice(0, 13) + ':00:00';
+    const upsertPerf = db.prepare(`INSERT INTO perf_metrics (app_slug, endpoint, hour, request_count, p50_ms, p95_ms, p99_ms, error_count)
+      VALUES ('dockfolio', ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(app_slug, endpoint, hour) DO UPDATE SET
+        request_count = request_count + excluded.request_count,
+        p50_ms = excluded.p50_ms, p95_ms = excluded.p95_ms, p99_ms = excluded.p99_ms,
+        error_count = error_count + excluded.error_count`);
+
+    for (const [endpoint, times] of perfAccumulator.entries()) {
+      if (times.length === 0) continue;
+      const sorted = times.map(t => t.ms).sort((a, b) => a - b);
+      const p50 = sorted[Math.floor(sorted.length * 0.5)] || 0;
+      const p95 = sorted[Math.floor(sorted.length * 0.95)] || 0;
+      const p99 = sorted[Math.floor(sorted.length * 0.99)] || 0;
+      const errors = times.filter(t => t.error).length;
+      upsertPerf.run(endpoint, hour, times.length, p50, p95, p99, errors);
+    }
+    perfAccumulator.clear();
+  } catch (err) { console.error('[PERF] Aggregation error:', err.message); }
+});
+
+// Daily 3:15 AM: Retention cleanup for error events (30d) and perf metrics (14d)
+cron.schedule('15 3 * * *', () => {
+  try {
+    const deletedEvents = db.prepare("DELETE FROM error_events WHERE timestamp < datetime('now', '-30 days')").run();
+    const deletedPerf = db.prepare("DELETE FROM perf_metrics WHERE hour < datetime('now', '-14 days')").run();
+    console.log(`[CLEANUP] Pruned ${deletedEvents.changes} error events, ${deletedPerf.changes} perf metrics`);
+  } catch (err) { console.error('[CLEANUP] Retention error:', err.message); }
+});
+
+// --- Error Tracking API ---
+
+// Public: Accept error reports from apps
+app.post('/api/errors/ingest', (req, res) => {
+  const { app: appSlug, message, stack, severity, url, method, breadcrumbs, extra } = req.body;
+  const result = ingestError({ app: appSlug, message, stack, severity, source: 'sdk', url, method, breadcrumbs, extra });
+  res.status(result.ok ? 200 : 400).json(result);
+});
+
+// Public: Sentry SDK envelope compatibility
+app.post('/api/errors/envelope', express.text({ type: '*/*', limit: '64kb' }), (req, res) => {
+  try {
+    const lines = (typeof req.body === 'string' ? req.body : '').split('\n').filter(Boolean);
+    if (lines.length < 2) return res.status(400).json({ error: 'invalid envelope' });
+
+    const header = JSON.parse(lines[0]);
+    // Extract app slug from DSN path: http://key@host/APP_SLUG
+    let appSlug = 'unknown';
+    if (header.dsn) {
+      const dsnPath = new URL(header.dsn).pathname.replace(/^\//, '');
+      if (dsnPath) appSlug = dsnPath;
+    }
+
+    // Parse event items
+    for (let i = 1; i < lines.length - 1; i += 2) {
+      const itemHeader = JSON.parse(lines[i]);
+      if (itemHeader.type !== 'event' && itemHeader.type !== 'error') continue;
+      const payload = JSON.parse(lines[i + 1]);
+
+      const exc = payload.exception?.values?.[0];
+      const message = exc ? `${exc.type || 'Error'}: ${exc.value || ''}` : payload.message || 'Unknown error';
+      const stack = exc?.stacktrace?.frames
+        ? exc.stacktrace.frames.reverse().map(f => `  at ${f.function || '?'} (${f.filename || '?'}:${f.lineno || 0}:${f.colno || 0})`).join('\n')
+        : null;
+
+      ingestError({
+        app: appSlug, message, stack, severity: payload.level || 'error',
+        source: 'sentry_sdk', url: payload.request?.url, method: payload.request?.method,
+        breadcrumbs: payload.breadcrumbs?.values, extra: payload.extra
+      });
+    }
+    res.json({ id: randomUUID() });
+  } catch (err) {
+    res.status(400).json({ error: 'failed to parse envelope' });
+  }
+});
+
+// Public: Lightweight browser error SDK
+app.get('/api/errors/sdk.js', (_req, res) => {
+  res.type('application/javascript').send(`(function(){
+  var s=document.currentScript,app=s&&s.getAttribute('data-app')||'unknown',
+      url=(s&&s.getAttribute('data-url'))||s.src.replace(/\\/api\\/errors\\/sdk\\.js.*/,'/api/errors/ingest');
+  function send(d){try{navigator.sendBeacon(url,JSON.stringify(d))}catch(e){}}
+  window.addEventListener('error',function(e){
+    send({app:app,message:e.message,stack:e.error&&e.error.stack||'',severity:'error',url:location.href});
+  });
+  window.addEventListener('unhandledrejection',function(e){
+    var msg=e.reason&&e.reason.message||String(e.reason||'Unhandled rejection');
+    send({app:app,message:msg,stack:e.reason&&e.reason.stack||'',severity:'error',url:location.href});
+  });
+  window.dockfolio={reportError:function(err,extra){
+    send({app:app,message:err.message||String(err),stack:err.stack||'',severity:'error',url:location.href,extra:extra});
+  }};
+})();`);
+});
+
+// Authenticated: List error issues
+app.get('/api/errors/issues', asyncRoute((_req, res) => {
+  const { app: appFilter, status, severity, limit = '50' } = _req.query;
+  let sql = 'SELECT * FROM error_issues WHERE 1=1';
+  const params = [];
+  if (appFilter) { sql += ' AND app_slug = ?'; params.push(appFilter); }
+  if (status) { sql += ' AND status = ?'; params.push(status); }
+  if (severity) { sql += ' AND severity = ?'; params.push(severity); }
+  sql += ' ORDER BY last_seen DESC LIMIT ?';
+  params.push(Math.min(parseInt(limit) || 50, 200));
+  const issues = db.prepare(sql).all(...params);
+  issues.forEach(i => { i.metadata = safeJSON(i.metadata); });
+  res.json({ issues });
+}));
+
+// Authenticated: Single issue with recent events
+app.get('/api/errors/issues/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const issue = db.prepare('SELECT * FROM error_issues WHERE id = ?').get(id);
+  if (!issue) return res.status(404).json({ error: 'not found' });
+  issue.metadata = safeJSON(issue.metadata);
+  const events = db.prepare('SELECT * FROM error_events WHERE issue_id = ? ORDER BY timestamp DESC LIMIT 50').all(id);
+  events.forEach(e => { e.breadcrumbs = safeJSON(e.breadcrumbs, []); e.extra = safeJSON(e.extra); });
+  res.json({ issue, events });
+}));
+
+// Authenticated: Resolve/ignore/reopen
+app.patch('/api/errors/issues/:id', asyncRoute((req, res) => {
+  const id = parseId(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'invalid id' });
+  const { status } = req.body;
+  if (!['open', 'resolved', 'ignored'].includes(status)) return res.status(400).json({ error: 'status must be open/resolved/ignored' });
+  const resolvedAt = status === 'resolved' ? new Date().toISOString() : null;
+  db.prepare('UPDATE error_issues SET status = ?, resolved_at = ? WHERE id = ?').run(status, resolvedAt, id);
+  res.json({ ok: true });
+}));
+
+// Authenticated: Recent events
+app.get('/api/errors/events', asyncRoute((req, res) => {
+  const { app: appFilter, issue_id, limit = '50', offset = '0' } = req.query;
+  let sql = 'SELECT e.*, i.title as issue_title, i.severity FROM error_events e JOIN error_issues i ON e.issue_id = i.id WHERE 1=1';
+  const params = [];
+  if (appFilter) { sql += ' AND e.app_slug = ?'; params.push(appFilter); }
+  if (issue_id) { sql += ' AND e.issue_id = ?'; params.push(parseInt(issue_id)); }
+  sql += ' ORDER BY e.timestamp DESC LIMIT ? OFFSET ?';
+  params.push(Math.min(parseInt(limit) || 50, 200), parseInt(offset) || 0);
+  const events = db.prepare(sql).all(...params);
+  events.forEach(e => { e.breadcrumbs = safeJSON(e.breadcrumbs, []); e.extra = safeJSON(e.extra); });
+  res.json({ events });
+}));
+
+// Authenticated: Error stats
+app.get('/api/errors/stats', asyncRoute((_req, res) => {
+  const byApp = db.prepare("SELECT app_slug, COUNT(*) as count, SUM(CASE WHEN severity='critical' THEN 1 ELSE 0 END) as critical, SUM(CASE WHEN severity='error' THEN 1 ELSE 0 END) as errors, SUM(CASE WHEN severity='warning' THEN 1 ELSE 0 END) as warnings FROM error_issues WHERE status = 'open' GROUP BY app_slug").all();
+  const bySeverity = db.prepare("SELECT severity, COUNT(*) as count FROM error_issues WHERE status = 'open' GROUP BY severity").all();
+  const totalOpen = db.prepare("SELECT COUNT(*) as count FROM error_issues WHERE status = 'open'").get();
+  const last24h = db.prepare("SELECT COUNT(*) as count FROM error_events WHERE timestamp >= datetime('now', '-24 hours')").get();
+  const last7d = db.prepare("SELECT date(timestamp) as day, COUNT(*) as count FROM error_events WHERE timestamp >= datetime('now', '-7 days') GROUP BY day ORDER BY day").all();
+  const noisiest = db.prepare("SELECT id, app_slug, title, severity, occurrence_count, last_seen FROM error_issues WHERE status = 'open' ORDER BY occurrence_count DESC LIMIT 5").all();
+  res.json({ byApp, bySeverity, totalOpen: totalOpen?.count || 0, last24h: last24h?.count || 0, last7d, noisiest });
+}));
+
+// Authenticated: Full-text search
+app.get('/api/errors/search', asyncRoute((req, res) => {
+  const q = req.query.q;
+  if (!q || q.length < 2) return res.status(400).json({ error: 'query too short' });
+  const pattern = `%${q}%`;
+  const issues = db.prepare('SELECT * FROM error_issues WHERE title LIKE ? OR app_slug LIKE ? ORDER BY last_seen DESC LIMIT 50').all(pattern, pattern);
+  issues.forEach(i => { i.metadata = safeJSON(i.metadata); });
+  res.json({ issues });
+}));
+
+// Authenticated: Performance metrics
+app.get('/api/errors/perf', asyncRoute((req, res) => {
+  const hours = Math.min(parseInt(req.query.hours) || 24, 168);
+  const metrics = db.prepare(`SELECT endpoint, SUM(request_count) as requests,
+    CAST(AVG(p50_ms) AS INTEGER) as avg_p50, CAST(AVG(p95_ms) AS INTEGER) as avg_p95,
+    CAST(AVG(p99_ms) AS INTEGER) as avg_p99, SUM(error_count) as errors
+    FROM perf_metrics WHERE hour >= datetime('now', '-' || ? || ' hours')
+    GROUP BY endpoint ORDER BY requests DESC`).all(hours);
+  res.json({ metrics, hours });
+}));
 
 // Health check endpoint
 app.get('/health', (_req, res) => res.send('ok'));

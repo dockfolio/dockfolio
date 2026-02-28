@@ -6,7 +6,7 @@ import {
   slugify, containerName, hashValue, todayString, percent, safeJSON,
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
   getMarketableApps, diskScore, securityScore, seoScore,
-  parseId, asyncRoute
+  parseId, asyncRoute, errorFingerprint, errorScore
 } from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -288,6 +288,85 @@ test('catches errors and sends 500', async () => {
   await handler({method: 'GET', path: '/test'}, res, () => {});
   assert.equal(statusCode, 500);
   assert.equal(errorMsg, 'boom');
+});
+
+// --- errorFingerprint ---
+console.log('\nerrorFingerprint()');
+
+test('returns 32-char hex string', () => {
+  const fp = errorFingerprint('TypeError: x is not a function', 'at foo.js:10:5', 'promoforge');
+  assert.equal(fp.length, 32);
+  assert.match(fp, /^[0-9a-f]{32}$/);
+});
+
+test('same error produces same fingerprint', () => {
+  const fp1 = errorFingerprint('TypeError: x is not a function', 'at foo.js:10:5', 'promoforge');
+  const fp2 = errorFingerprint('TypeError: x is not a function', 'at foo.js:10:5', 'promoforge');
+  assert.equal(fp1, fp2);
+});
+
+test('same error with different line numbers produces same fingerprint', () => {
+  const fp1 = errorFingerprint('TypeError: x is not a function', '  at handler (foo.js:10:5)', 'promoforge');
+  const fp2 = errorFingerprint('TypeError: x is not a function', '  at handler (foo.js:99:12)', 'promoforge');
+  assert.equal(fp1, fp2);
+});
+
+test('strips UUIDs from message for grouping', () => {
+  const fp1 = errorFingerprint('User a1b2c3d4-e5f6-7890-abcd-ef1234567890 not found', null, 'app');
+  const fp2 = errorFingerprint('User ffffffff-ffff-ffff-ffff-ffffffffffff not found', null, 'app');
+  assert.equal(fp1, fp2);
+});
+
+test('different apps produce different fingerprints', () => {
+  const fp1 = errorFingerprint('Error', null, 'promoforge');
+  const fp2 = errorFingerprint('Error', null, 'bannerforge');
+  assert.notEqual(fp1, fp2);
+});
+
+test('handles null message and stack gracefully', () => {
+  const fp = errorFingerprint(null, null, null);
+  assert.equal(fp.length, 32);
+});
+
+test('extracts only top 3 stack frames', () => {
+  const stack = `Error: fail
+  at a (/app/a.js:1:1)
+  at b (/app/b.js:2:2)
+  at c (/app/c.js:3:3)
+  at d (/app/d.js:4:4)
+  at e (/app/e.js:5:5)`;
+  const fp1 = errorFingerprint('Error: fail', stack, 'app');
+  // Same top 3, different 4th+5th — should be identical
+  const stack2 = `Error: fail
+  at a (/app/a.js:1:1)
+  at b (/app/b.js:2:2)
+  at c (/app/c.js:3:3)
+  at x (/app/x.js:9:9)`;
+  const fp2 = errorFingerprint('Error: fail', stack2, 'app');
+  assert.equal(fp1, fp2);
+});
+
+// --- errorScore ---
+console.log('\nerrorScore()');
+
+test('returns 0 when no errors', () => {
+  assert.equal(errorScore(0, 0), 0);
+});
+
+test('critical errors: 5 points each, max 10', () => {
+  assert.equal(errorScore(1, 0), 5);
+  assert.equal(errorScore(2, 0), 10);
+  assert.equal(errorScore(5, 0), 10);
+});
+
+test('regular errors: 1 point per 10, max 5', () => {
+  assert.equal(errorScore(0, 10), 1);
+  assert.equal(errorScore(0, 50), 5);
+  assert.equal(errorScore(0, 100), 5);
+});
+
+test('total capped at 10', () => {
+  assert.equal(errorScore(3, 100), 10);
 });
 
 // --- Summary ---
