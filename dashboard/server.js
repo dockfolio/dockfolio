@@ -141,7 +141,7 @@ function isSetupComplete() {
 }
 
 // --- Auth Middleware ---
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners'];
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js'];
 
 function authMiddleware(req, res, next) {
   // Normalize path to prevent traversal bypass (e.g. /api/crosspromo/../marketing/crosspromo)
