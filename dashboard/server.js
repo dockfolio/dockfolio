@@ -53,7 +53,7 @@ app.use(helmet({
     }
   }
 }));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody = buf; } }));
 app.use(cookieParser());
 
 // --- Request logging & tracing ---
@@ -147,7 +147,7 @@ function isSetupComplete() {
 }
 
 // --- Auth Middleware ---
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status', '/api/analytics/pixel.gif', '/api/analytics/track.js', '/api/analytics/event'];
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status', '/api/analytics/pixel.gif', '/api/analytics/track.js', '/api/analytics/event', '/api/webhooks'];
 
 function authMiddleware(req, res, next) {
   // Normalize path to prevent traversal bypass (e.g. /api/crosspromo/../marketing/crosspromo)
@@ -6177,15 +6177,15 @@ cron.schedule('30 1 * * *', () => {
 
 // ========== GITHUB WEBHOOK (auto-deploy) ==========
 
-app.post('/api/webhooks/github', express.raw({ type: 'application/json' }), (req, res) => {
+app.post('/api/webhooks/github', (req, res) => {
   const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
   if (!WEBHOOK_SECRET) return res.status(500).json({ error: 'Webhook secret not configured' });
   const sig = req.headers['x-hub-signature-256'];
-  const expected = 'sha256=' + createHmac('sha256', WEBHOOK_SECRET).update(req.body).digest('hex');
+  if (!sig || !req.rawBody) return res.status(401).json({ error: 'Invalid signature' });
+  const expected = 'sha256=' + createHmac('sha256', WEBHOOK_SECRET).update(req.rawBody).digest('hex');
   if (sig !== expected) return res.status(401).json({ error: 'Invalid signature' });
   const event = req.headers['x-github-event'];
-  let payload;
-  try { payload = JSON.parse(req.body); } catch { return res.status(400).json({ error: 'Bad JSON' }); }
+  const payload = req.body;
   if (event === 'push' && (payload.ref === 'refs/heads/main' || payload.ref === 'refs/heads/master')) {
     const appSlug = matchRepoToApp(payload.repository?.full_name);
     if (!appSlug) return res.json({ ok: true, skipped: 'no matching app' });
