@@ -5,28 +5,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dockfolio</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230a0a0f'/><circle cx='30' cy='35' r='8' fill='%2322c55e'/><circle cx='70' cy='35' r='8' fill='%2322c55e'/><circle cx='50' cy='65' r='8' fill='%233b82f6'/><line x1='30' y1='43' x2='50' y2='57' stroke='%232a2a3a' stroke-width='3'/><line x1='70' y1='43' x2='50' y2='57' stroke='%232a2a3a' stroke-width='3'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #0a0a0f;
-      --surface: #12121a;
-      --surface2: #1a1a25;
-      --surface3: #22222f;
-      --border: #2a2a3a;
-      --border-hover: #3a3a50;
-      --text: #e4e4ed;
-      --text-dim: #8888a0;
-      --text-muted: #555568;
+      --bg: #09090b;
+      --surface: #0f0f14;
+      --surface2: #16161e;
+      --surface3: #1e1e28;
+      --border: #27272a;
+      --border-hover: #3f3f46;
+      --text: #fafafa;
+      --text-dim: #a1a1aa;
+      --text-muted: #52525b;
       --green: #22c55e;
       --green-dim: #16a34a;
-      --yellow: #eab308;
+      --yellow: #f59e0b;
       --red: #ef4444;
       --blue: #3b82f6;
-      --purple: #a855f7;
+      --purple: #8b5cf6;
       --cyan: #06b6d4;
       --orange: #f97316;
+      --font-sans: 'Inter', -apple-system, system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+      --tracking-tight: -0.025em;
+      --tracking-normal: -0.011em;
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+      --duration-fast: 150ms;
+      --duration-normal: 250ms;
+      --duration-slow: 400ms;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    body { font-family: var(--font-sans); background: var(--bg); color: var(--text); min-height: 100vh; letter-spacing: var(--tracking-normal); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
     /* Animated gradient background */
     @keyframes gradientShift { 0%,100%{background-position:0% 50%} 50%{background-position:100% 50%} }
@@ -35,7 +47,7 @@
     /* Header */
     .header { padding: 20px 32px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position:relative; z-index:1; backdrop-filter:blur(12px); background:rgba(10,10,15,0.85); }
     .header-left { display: flex; align-items: center; gap: 16px; }
-    .header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; background:linear-gradient(135deg, var(--text), var(--cyan)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    .header h1 { font-size: 18px; font-weight: 700; letter-spacing: var(--tracking-tight); background:linear-gradient(135deg, var(--text), var(--cyan)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
     .health-summary { display: flex; gap: 12px; font-size: 12px; }
     .health-summary .hs-item { display: flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; background: var(--surface2); }
     .health-summary .hs-count { font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -45,10 +57,10 @@
     .search-input::placeholder { color: var(--text-muted); }
     .refresh-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); display: inline-block; animation: pulse 2s ease infinite; margin-right: 2px; }
     .last-updated { font-size: 11px; color: var(--text-muted); }
-    .header-btn { font-size: 12px; color: var(--text-dim); text-decoration: none; padding: 5px 12px; border: 1px solid var(--border); border-radius: 6px; background: none; cursor: pointer; transition: all 0.15s; display: inline-flex; align-items: center; gap: 4px; }
+    .header-btn { font-size: 12px; color: var(--text-dim); text-decoration: none; padding: 7px 14px; border: 1px solid var(--border); border-radius: 8px; background: none; cursor: pointer; transition: all var(--duration-fast) var(--ease-out); display: inline-flex; align-items: center; gap: 5px; }
     .header-btn:hover { background: var(--surface2); color: var(--text); border-color: var(--border-hover); }
-    .header-btn.primary { border-color: rgba(34, 197, 94, 0.3); color: var(--green); }
-    .header-btn.primary:hover { background: rgba(34, 197, 94, 0.1); }
+    .header-btn.primary { border-color: rgba(34, 197, 94, 0.3); color: var(--green); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+    .header-btn.primary:hover { background: rgba(34, 197, 94, 0.1); box-shadow: 0 2px 8px rgba(34,197,94,0.15); }
 
     /* System metrics bar */
     .system-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); position:relative; z-index:1; }
@@ -56,9 +68,9 @@
     .metric:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.08); }
     .metric-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
     .metric-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
-    .metric-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .metric-bar { height: 3px; background: var(--surface3); border-radius: 2px; overflow: hidden; }
-    .metric-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
+    .metric-value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-tight); }
+    .metric-bar { height: 4px; background: var(--surface3); border-radius: 2px; overflow: hidden; }
+    .metric-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s var(--ease-out); }
     .metric-detail { font-size: 10px; color: var(--text-muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
 
     /* Sections */
@@ -68,8 +80,8 @@
     .section-count { font-size: 11px; color: var(--text-muted); background: var(--surface2); padding: 2px 8px; border-radius: 10px; }
 
     /* App cards */
-    .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 10px; margin-bottom: 12px; }
-    .app-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; cursor: pointer; transition: all 0.25s cubic-bezier(.4,0,.2,1); position: relative; overflow: hidden; }
+    .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-bottom: 16px; }
+    .app-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; cursor: pointer; transition: all var(--duration-normal) var(--ease-out); position: relative; overflow: hidden; }
     .app-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg, transparent, var(--green), transparent); opacity:0; transition:opacity 0.3s; }
     .app-card:hover { border-color: var(--border-hover); background: var(--surface2); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3), 0 0 0 1px rgba(59,130,246,0.1); }
     .app-card:hover::before { opacity:1; }
@@ -144,7 +156,7 @@
     /* Modal */
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.75); display: none; z-index: 100; justify-content: center; align-items: flex-start; padding-top: 48px; backdrop-filter: blur(4px); }
     .modal-overlay.active { display: flex; }
-    .modal { background: var(--bg); border: 1px solid var(--border); border-radius: 16px; width: 720px; max-height: 85vh; overflow-y: auto; box-shadow: 0 24px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05); animation: modalIn 0.25s cubic-bezier(.4,0,.2,1); }
+    .modal { background: var(--bg); border: 1px solid var(--border); border-radius: 16px; width: 800px; max-height: 85vh; overflow-y: auto; box-shadow: 0 24px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05); animation: modalIn var(--duration-normal) var(--ease-out); }
     @keyframes modalIn { from{opacity:0;transform:scale(0.96) translateY(8px)} to{opacity:1;transform:scale(1) translateY(0)} }
     .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: var(--bg); z-index: 1; border-radius: 14px 14px 0 0; }
     .modal-header h2 { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
@@ -159,17 +171,17 @@
 
     .container-detail { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
     .container-detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .container-detail-name { font-size: 13px; font-weight: 500; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; display: flex; align-items: center; gap: 6px; }
+    .container-detail-name { font-size: 13px; font-weight: 500; font-family: var(--font-mono); display: flex; align-items: center; gap: 6px; }
     .container-detail-uptime { font-size: 11px; color: var(--text-muted); }
     .container-detail-stats { display: flex; gap: 16px; font-size: 12px; color: var(--text-dim); }
     .stat-label { color: var(--text-muted); margin-right: 3px; }
 
-    .btn { font-size: 11px; padding: 5px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); cursor: pointer; transition: all 0.2s cubic-bezier(.4,0,.2,1); }
-    .btn:hover { background: var(--surface3); color: var(--text); border-color: var(--border-hover); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+    .btn { font-size: 12px; padding: 7px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text-dim); cursor: pointer; transition: all var(--duration-fast) var(--ease-out); font-family: var(--font-sans); }
+    .btn:hover { background: var(--surface3); color: var(--text); border-color: var(--border-hover); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
     .btn:active { transform: translateY(0); }
     .btn-row { display: flex; gap: 6px; margin-top: 8px; }
 
-    .log-viewer { background: #08080d; border: 1px solid var(--border); border-radius: 8px; padding: 14px; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 11px; line-height: 1.7; max-height: 420px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; color: var(--text-dim); margin-top: 16px; }
+    .log-viewer { background: #08080d; border: 1px solid var(--border); border-radius: 8px; padding: 14px; font-family: var(--font-mono); font-size: 11px; line-height: 1.7; max-height: 420px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; color: var(--text-dim); margin-top: 16px; }
     .log-viewer-header { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; margin-bottom: 8px; }
     .log-viewer-header h3 { font-size: 13px; font-weight: 500; }
 
@@ -193,8 +205,8 @@
     .env-row { border-bottom: 1px solid var(--border); }
     .env-row:last-child { border-bottom: none; }
     .env-row td { padding: 8px 0; vertical-align: middle; }
-    .env-key { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 11px; font-weight: 500; color: var(--text); min-width: 180px; white-space: nowrap; }
-    .env-value { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 11px; color: var(--text-dim); word-break: break-all; max-width: 360px; }
+    .env-key { font-family: var(--font-mono); font-size: 11px; font-weight: 500; color: var(--text); min-width: 180px; white-space: nowrap; }
+    .env-value { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); word-break: break-all; max-width: 360px; }
     .env-value.empty { color: var(--yellow); font-style: italic; }
     .env-actions { white-space: nowrap; text-align: right; }
     .env-toggle { background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 12px; padding: 2px 6px; border-radius: 3px; }
@@ -204,7 +216,7 @@
     .env-status-dot.expired { background: var(--red); }
     .env-status-dot.empty { background: var(--yellow); }
     .env-status-dot.present { background: var(--green); opacity: 0.5; }
-    .env-edit-input { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 11px; padding: 4px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); width: 100%; outline: none; }
+    .env-edit-input { font-family: var(--font-mono); font-size: 11px; padding: 4px 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); width: 100%; outline: none; }
     .env-edit-input:focus { border-color: var(--blue); }
     .env-add-row { padding: 8px 0; }
     .env-add-row input { width: 160px; margin-right: 8px; }
@@ -241,18 +253,18 @@
     @keyframes tabFadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
     @keyframes fadeIn { from{opacity:0} to{opacity:1} }
     .marketing-summary { display: flex; gap: 16px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
-    .marketing-avg-score { font-size: 36px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+    .marketing-avg-score { font-size: 36px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: var(--tracking-tight); }
     .marketing-avg-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
     .marketing-stat { text-align: center; padding: 6px 14px; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid rgba(255,255,255,0.04); }
-    .marketing-stat-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .marketing-stat-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-tight); }
     .marketing-stat-label { font-size: 10px; color: var(--text-muted); }
-    .marketing-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+    .marketing-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
 
     /* Revenue cards */
-    .rev-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+    .rev-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
     .rev-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
     .rev-card-name { font-size: 13px; font-weight: 600; }
-    .rev-amount { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--green); }
+    .rev-amount { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--green); letter-spacing: var(--tracking-tight); }
     .rev-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
     .rev-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
     .rev-stat { text-align: center; }
@@ -263,7 +275,7 @@
     .rev-shared { font-size: 10px; color: var(--text-muted); font-style: italic; margin-top: 4px; }
 
     /* Analytics cards */
-    .ana-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+    .ana-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
     .ana-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
     .ana-card-name { font-size: 13px; font-weight: 600; }
     .ana-realtime { font-size: 12px; font-weight: 600; color: var(--green); }
@@ -279,7 +291,7 @@
     .ana-list-bar-fill { height: 100%; background: var(--blue); border-radius: 2px; }
 
     /* SEO cards */
-    .seo-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+    .seo-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
     .seo-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     .seo-card-name { font-size: 13px; font-weight: 600; }
     .seo-card-domain { font-size: 11px; color: var(--cyan); }
@@ -305,11 +317,11 @@
     .marketing-info span { display: inline-block; margin-right: 12px; }
 
     /* Overview health cards */
-    .health-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; }
+    .health-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; justify-content: space-between; align-items: center; }
     .health-card-left { flex: 1; }
     .health-card-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
     .health-card-factors { font-size: 10px; color: var(--text-muted); }
-    .health-card-score { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .health-card-score { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: var(--tracking-tight); }
 
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
@@ -328,11 +340,11 @@
     .cohort-cell { background: var(--surface3); border-radius: 6px; padding: 8px 10px; text-align: center; }
     .cohort-cell-count { font-size: 20px; font-weight: 700; color: var(--purple); font-variant-numeric: tabular-nums; }
     .cohort-cell-label { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
-    .crosssell-card { background: var(--surface2); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 10px; padding: 14px 16px; }
+    .crosssell-card { background: var(--surface2); border: 1px solid rgba(139, 92, 246, 0.2); border-radius: 12px; padding: 16px 18px; }
     .crosssell-pairing { font-size: 13px; font-weight: 600; color: var(--purple); margin-bottom: 4px; }
 
     /* Sequence cards */
-    .seq-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+    .seq-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
     .seq-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
     .seq-card-name { font-size: 13px; font-weight: 600; }
     .seq-status { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
@@ -346,7 +358,7 @@
     .daily-cap-fill { height: 100%; border-radius: 2px; }
 
     /* Content cards */
-    .content-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+    .content-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
     .content-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
     .content-type-badge { font-size: 9px; font-weight: 600; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.04em; }
     .content-type-badge.meta_description { background: rgba(6,182,212,0.15); color: var(--cyan); }
@@ -410,13 +422,13 @@
     .sec-tab.active { color: var(--text); border-bottom-color: var(--cyan); }
     .sec-tab-content { display: none; }
     .sec-tab-content.active { display: block; }
-    .sec-score-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; }
-    .sec-score-big { font-size: 42px; font-weight: 700; line-height: 1; }
+    .sec-score-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 20px; text-align: center; }
+    .sec-score-big { font-size: 42px; font-weight: 700; line-height: 1; letter-spacing: var(--tracking-tight); }
     .sec-grade { font-size: 18px; font-weight: 700; display: inline-block; padding: 2px 10px; border-radius: 6px; margin-top: 4px; }
     .sec-category-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 12px; }
     .sec-cat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
     .sec-cat-card h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 6px; }
-    .sec-cat-score { font-size: 24px; font-weight: 700; }
+    .sec-cat-score { font-size: 24px; font-weight: 700; letter-spacing: var(--tracking-tight); }
     .sec-findings-summary { display: flex; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
     .sec-count { font-size: 12px; padding: 4px 10px; border-radius: 6px; font-weight: 600; }
     .sec-count.critical { background: rgba(239,68,68,0.15); color: var(--red); }
@@ -462,8 +474,8 @@
     .proj-tab-content { display: none; }
     .proj-tab-content.active { display: block; }
     .proj-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
-    .proj-kpi { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
-    .proj-kpi-value { font-size: 28px; font-weight: 700; line-height: 1.2; }
+    .proj-kpi { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; text-align: center; }
+    .proj-kpi-value { font-size: 28px; font-weight: 700; line-height: 1.2; letter-spacing: var(--tracking-tight); }
     .proj-kpi-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
     .proj-lifecycle-strip { display: flex; gap: 8px; margin-bottom: 14px; overflow-x: auto; }
     .proj-lane { flex: 0 0 auto; min-width: 120px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
@@ -533,7 +545,7 @@
     .ops-tab-content { display: none; }
     .ops-tab-content.active { display: block; }
     .worry-score-display { text-align: center; padding: 20px; }
-    .worry-score-number { font-size: 64px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+    .worry-score-number { font-size: 64px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -0.04em; }
     .worry-score-number.green { color: var(--green); }
     .worry-score-number.yellow { color: #eab308; }
     .worry-score-number.orange { color: #f97316; }
@@ -700,6 +712,43 @@
       .docker-bar { grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 0 16px; }
       .modal { width: calc(100vw - 24px); margin: 0 12px; }
     }
+
+    /* === Secondary Navigation Bar === */
+    .nav-bar { display: flex; gap: 0; padding: 0 32px; border-bottom: 1px solid var(--border); background: var(--surface); position: relative; z-index: 1; overflow-x: auto; scrollbar-width: none; }
+    .nav-bar::-webkit-scrollbar { display: none; }
+    .nav-tab { padding: 10px 18px; font-size: 12px; font-weight: 500; color: var(--text-muted); cursor: pointer; border: none; background: none; border-bottom: 2px solid transparent; transition: all var(--duration-fast) var(--ease-out); white-space: nowrap; font-family: var(--font-sans); letter-spacing: var(--tracking-normal); }
+    .nav-tab:hover { color: var(--text-dim); background: rgba(255,255,255,0.02); }
+    .nav-tab.active { color: var(--text); border-bottom-color: var(--cyan); }
+    .nav-tab .nav-badge { font-size: 9px; padding: 1px 6px; border-radius: 10px; margin-left: 6px; font-weight: 600; }
+    body.focus-mode .nav-bar { display: none; }
+    @media (max-width: 768px) {
+      .nav-bar { padding: 0 16px; }
+      .nav-tab { padding: 8px 12px; font-size: 11px; }
+    }
+
+    /* === KPI Hero Row === */
+    .kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); position: relative; z-index: 1; }
+    .kpi-card { padding: 14px 16px; border-radius: 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); transition: all var(--duration-fast) var(--ease-out); }
+    .kpi-card:hover { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.08); }
+    .kpi-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 6px; font-weight: 500; }
+    .kpi-value { font-size: 24px; font-weight: 700; letter-spacing: var(--tracking-tight); line-height: 1; }
+    .kpi-trend { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11px; }
+    .kpi-trend.up { color: var(--green); }
+    .kpi-trend.down { color: var(--red); }
+    .kpi-trend.neutral { color: var(--text-muted); }
+    .kpi-sparkline { display: inline-flex; gap: 1px; align-items: flex-end; height: 16px; }
+    .kpi-sparkline-bar { width: 3px; border-radius: 1px; min-height: 2px; background: var(--blue); opacity: 0.6; }
+    .kpi-compare { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+    .system-bar-toggle { padding: 4px 32px; text-align: center; cursor: pointer; font-size: 10px; color: var(--text-muted); border-bottom: 1px solid var(--border); background: var(--surface); transition: all var(--duration-fast); user-select: none; }
+    .system-bar-toggle:hover { color: var(--text-dim); background: var(--surface2); }
+    .system-bar.collapsed { display: none; }
+    @media (max-width: 768px) {
+      .kpi-row { grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 12px 16px; }
+      .kpi-value { font-size: 20px; }
+    }
+    body.adhd-mode .kpi-value { font-size: 28px; }
+    body.focus-mode .kpi-row { display: none; }
+    body.focus-mode .system-bar-toggle { display: none; }
 
     /* === Enhanced UI: Premium touches === */
 
@@ -899,7 +948,7 @@
     .status-panel .status-dot.degraded { background: var(--yellow); }
     /* Savings card */
     .savings-card { background: linear-gradient(135deg, var(--surface2), var(--surface)); border: 1px solid var(--green); border-radius: 12px; padding: 16px; margin: 12px 0; text-align: center; }
-    .savings-amount { font-size: 28px; font-weight: 700; color: var(--green); }
+    .savings-amount { font-size: 28px; font-weight: 700; color: var(--green); letter-spacing: var(--tracking-tight); }
     .savings-label { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
     /* Export button */
     .export-btn { font-size: 10px; padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text-dim); cursor: pointer; }
@@ -996,7 +1045,50 @@
     </div>
   </div>
 
-  <div class="system-bar" id="systemBar">
+  <nav class="nav-bar" id="navBar">
+    <button class="nav-tab active" onclick="switchView('home', this)">Home</button>
+    <button class="nav-tab" onclick="switchView('revenue', this)">Revenue</button>
+    <button class="nav-tab" onclick="switchView('analytics', this)">Analytics</button>
+    <button class="nav-tab" onclick="switchView('infra', this)">Infrastructure</button>
+    <button class="nav-tab" onclick="switchView('security', this)">Security</button>
+    <button class="nav-tab" onclick="switchView('settings', this)">Settings</button>
+  </nav>
+
+  <div class="kpi-row" id="kpiRow">
+    <div class="kpi-card">
+      <div class="kpi-label">MRR</div>
+      <div class="kpi-value" id="kpiMrr">--</div>
+      <div class="kpi-trend neutral" id="kpiMrrTrend"><span>--</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Monthly Visitors</div>
+      <div class="kpi-value" id="kpiVisitors">--</div>
+      <div class="kpi-trend neutral" id="kpiVisitorsTrend"><span>--</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Worry Score</div>
+      <div class="kpi-value" id="kpiWorry">--</div>
+      <div class="kpi-trend neutral" id="kpiWorryTrend"><span>--</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Uptime</div>
+      <div class="kpi-value" id="kpiUptime">--</div>
+      <div class="kpi-trend neutral" id="kpiUptimeTrend"><span>--</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Open Errors</div>
+      <div class="kpi-value" id="kpiErrors">--</div>
+      <div class="kpi-trend neutral" id="kpiErrorsTrend"><span>--</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Security</div>
+      <div class="kpi-value" id="kpiSecurity">--</div>
+      <div class="kpi-trend neutral" id="kpiSecurityTrend"><span>--</span></div>
+    </div>
+  </div>
+
+  <div class="system-bar-toggle" id="systemBarToggle" onclick="toggleSystemBar()">&#9660; System Metrics</div>
+  <div class="system-bar collapsed" id="systemBar">
     <div class="metric">
       <div class="metric-top">
         <span class="metric-label">Memory</span>
@@ -1255,6 +1347,13 @@
       </div>
       <div id="rev-sub-overview" class="mkt-subtab-content active">
         <div id="mktRevenueSummary" class="marketing-summary"></div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <span style="font-size:12px;font-weight:600;color:var(--text-dim)">MRR Trend (30d)</span>
+            <span style="font-size:10px;color:var(--text-muted)" id="revChartLabel">Loading...</span>
+          </div>
+          <div style="height:220px;position:relative"><canvas id="revenueChart"></canvas></div>
+        </div>
         <div id="mktRevenueGrid" class="marketing-grid"></div>
       </div>
       <div id="rev-sub-cohorts" class="mkt-subtab-content">
@@ -1264,6 +1363,19 @@
     </div>
     <div id="mkt-traffic" class="mkt-tab-content">
       <div id="mktTrafficSummary" class="marketing-summary"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <span style="font-size:12px;font-weight:600;color:var(--text-dim)">Visitors (30d)</span>
+            <span style="font-size:10px;color:var(--text-muted)" id="trafficChartLabel">Loading...</span>
+          </div>
+          <div style="height:200px;position:relative"><canvas id="trafficChart"></canvas></div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">
+          <div style="font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:12px">Top Pages</div>
+          <div style="height:200px;position:relative"><canvas id="topPagesChart"></canvas></div>
+        </div>
+      </div>
       <div id="mktTrafficGrid" class="marketing-grid"></div>
     </div>
     <div id="mkt-seo" class="mkt-tab-content">
@@ -1546,7 +1658,68 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script>
+    // === Chart.js Premium Defaults ===
+    if (typeof Chart !== 'undefined') {
+      Chart.defaults.color = '#52525b';
+      Chart.defaults.borderColor = '#27272a';
+      Chart.defaults.font.family = "'Inter', -apple-system, system-ui, sans-serif";
+      Chart.defaults.font.size = 11;
+      Chart.defaults.elements.point.radius = 0;
+      Chart.defaults.elements.point.hoverRadius = 4;
+      Chart.defaults.elements.line.borderWidth = 2;
+      Chart.defaults.elements.line.tension = 0.35;
+      Chart.defaults.plugins.legend.display = false;
+      Chart.defaults.plugins.tooltip.backgroundColor = '#16161e';
+      Chart.defaults.plugins.tooltip.titleColor = '#fafafa';
+      Chart.defaults.plugins.tooltip.bodyColor = '#a1a1aa';
+      Chart.defaults.plugins.tooltip.borderColor = '#27272a';
+      Chart.defaults.plugins.tooltip.borderWidth = 1;
+      Chart.defaults.plugins.tooltip.cornerRadius = 8;
+      Chart.defaults.plugins.tooltip.padding = 10;
+      Chart.defaults.plugins.tooltip.displayColors = false;
+      Chart.defaults.animation = document.body.classList.contains('adhd-mode') ? false : { duration: 600, easing: 'easeOutQuart' };
+    }
+
+    // Reusable chart factory with premium styling
+    const _chartInstances = {};
+    function createChart(canvasId, type, data, opts = {}) {
+      if (_chartInstances[canvasId]) { _chartInstances[canvasId].destroy(); }
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return null;
+      const ctx = canvas.getContext('2d');
+      const isAdhd = document.body.classList.contains('adhd-mode');
+      const baseOpts = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: isAdhd ? false : { duration: 600, easing: 'easeOutQuart' },
+        scales: {
+          x: { grid: { display: false }, ticks: { maxTicksLimit: 8, font: { size: 10 } } },
+          y: { grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false }, ticks: { padding: 8, font: { size: 10 } }, beginAtZero: true }
+        },
+        plugins: { legend: { display: false } },
+        ...opts
+      };
+      if (type === 'doughnut' || type === 'radar' || type === 'pie') {
+        delete baseOpts.scales;
+      }
+      const chart = new Chart(ctx, { type, data, options: baseOpts });
+      _chartInstances[canvasId] = chart;
+      return chart;
+    }
+
+    // Gradient fill helper for area charts
+    function chartGradient(ctx, color, height = 200) {
+      const gradient = ctx.createLinearGradient(0, 0, 0, height);
+      gradient.addColorStop(0, color.replace(')', ', 0.3)').replace('rgb', 'rgba'));
+      gradient.addColorStop(1, color.replace(')', ', 0.0)').replace('rgb', 'rgba'));
+      return gradient;
+    }
+
+    // Chart color palette
+    const CHART_COLORS = ['#3b82f6', '#22c55e', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#f97316', '#ec4899', '#14b8a6', '#6366f1', '#84cc16', '#f43f5e', '#0ea5e9'];
+
     // CSRF helper — reads token from cookie and injects into state-changing requests
     function getCsrfToken() {
       const match = document.cookie.match(/(?:^|; )_csrf=([^;]*)/);
@@ -1625,6 +1798,7 @@
         renderHealthSummary(appData);
         renderErrors(appData, systemData);
         if (adhdMode) updateStreakBar();
+        updateKpiRow();
         document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       } catch (err) {
         console.error('Fetch error:', err);
@@ -1708,6 +1882,169 @@
       bar.style.width = loadPct + '%';
       bar.style.background = barColor(loadPct);
       document.getElementById('loadDetail').textContent = `${s.load.cpuCount} cores | up ${uptimeFmt(s.uptime)}`;
+      // Mark metrics as normal for ADHD dimming
+      document.querySelectorAll('.system-bar .metric').forEach(m => {
+        const val = parseInt(m.querySelector('.metric-value')?.textContent);
+        m.classList.toggle('normal', !isNaN(val) && val < 70);
+      });
+    }
+
+    // System bar toggle
+    let systemBarExpanded = false;
+    function toggleSystemBar() {
+      systemBarExpanded = !systemBarExpanded;
+      document.getElementById('systemBar').classList.toggle('collapsed', !systemBarExpanded);
+      document.getElementById('systemBarToggle').innerHTML = systemBarExpanded ? '&#9650; Hide System Metrics' : '&#9660; System Metrics';
+    }
+
+    // --- Navigation View Switching ---
+    let currentView = 'home';
+    function switchView(view, btn) {
+      if (view === currentView && view === 'home') return;
+      currentView = view;
+      // Update nav tab active state
+      document.querySelectorAll('#navBar .nav-tab').forEach(t => t.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      else { const tabs = document.querySelectorAll('#navBar .nav-tab'); const idx = ['home','revenue','analytics','infra','security','settings'].indexOf(view); if (tabs[idx]) tabs[idx].classList.add('active'); }
+
+      // Hide all toggle panels first
+      const hideActive = id => { const el = document.getElementById(id); if (el) el.classList.remove('active'); };
+      const hideVisible = id => { const el = document.getElementById(id); if (el) el.classList.remove('visible'); };
+      hideVisible('marketingPanel');
+      hideActive('opsPanel');
+      hideActive('errorsPanel');
+      hideActive('securityPanel');
+      hideActive('settingsPanel');
+      hideActive('projectsPanel');
+      hideVisible('activityPanel');
+      hideActive('briefingPanel');
+      hideActive('healingPanel');
+      hideVisible('backupPanel');
+      hideVisible('keyHealthPanel');
+      hideVisible('auditPanel');
+      hideVisible('statusPanel');
+      const sslEl = document.getElementById('sslPanel');
+      if (sslEl) sslEl.style.display = 'none';
+
+      // Show/hide view-specific sections
+      const appGrid = document.querySelector('.app-grid');
+      const kpiRow = document.getElementById('kpiRow');
+      const dockerBar = document.getElementById('dockerBar');
+      const errorBanner = document.getElementById('errorBanner');
+      const systemBarToggle = document.getElementById('systemBarToggle');
+      const systemBar = document.getElementById('systemBar');
+      const streakBar = document.getElementById('streakBar');
+      // Default: show home elements
+      if (appGrid) appGrid.style.display = '';
+      if (kpiRow) kpiRow.style.display = '';
+      if (dockerBar) dockerBar.style.display = '';
+      if (errorBanner) errorBanner.style.display = '';
+      if (systemBarToggle) systemBarToggle.style.display = '';
+      if (systemBar) systemBar.style.display = '';
+      if (streakBar) streakBar.style.display = '';
+
+      switch (view) {
+        case 'home':
+          // Default state — just KPI + app grid + docker bar
+          break;
+        case 'revenue':
+          if (appGrid) appGrid.style.display = 'none';
+          if (dockerBar) dockerBar.style.display = 'none';
+          document.getElementById('marketingPanel').classList.add('visible');
+          if (!mktLoaded) fetchMktAll();
+          setTimeout(() => switchMktTab('revenue', document.querySelector('.mkt-tab:nth-child(1)')), 50);
+          break;
+        case 'analytics':
+          if (appGrid) appGrid.style.display = 'none';
+          if (dockerBar) dockerBar.style.display = 'none';
+          document.getElementById('marketingPanel').classList.add('visible');
+          if (!mktLoaded) fetchMktAll();
+          setTimeout(() => switchMktTab('traffic', document.querySelector('.mkt-tab:nth-child(2)')), 50);
+          break;
+        case 'infra':
+          if (appGrid) appGrid.style.display = 'none';
+          // Expand system bar
+          systemBarExpanded = true;
+          if (systemBar) systemBar.classList.remove('collapsed');
+          if (systemBarToggle) systemBarToggle.innerHTML = '&#9650; Hide System Metrics';
+          // Show infra panels
+          document.getElementById('activityPanel').classList.add('visible');
+          if (sslEl) { sslEl.style.display = 'block'; renderSSLPanel(); }
+          document.getElementById('backupPanel').classList.add('visible');
+          fetchBackups();
+          document.getElementById('healingPanel').classList.add('active');
+          fetchHealingLog();
+          break;
+        case 'security':
+          if (appGrid) appGrid.style.display = 'none';
+          if (dockerBar) dockerBar.style.display = 'none';
+          // Show security-related panels
+          document.getElementById('securityPanel').classList.add('active');
+          if (!securityData) fetchSecurityStatus();
+          document.getElementById('errorsPanel').classList.add('active');
+          if (!errorsData) fetchErrorsOverview();
+          document.getElementById('opsPanel').classList.add('active');
+          if (!opsLoaded) fetchOpsAll();
+          break;
+        case 'settings':
+          if (appGrid) appGrid.style.display = 'none';
+          if (dockerBar) dockerBar.style.display = 'none';
+          // Show settings + projects
+          document.getElementById('settingsPanel').classList.add('active');
+          loadSettings();
+          document.getElementById('projectsPanel').classList.add('active');
+          if (!projOverviewData) fetchProjectsOverview();
+          break;
+      }
+    }
+
+    // KPI Hero Row
+    async function updateKpiRow() {
+      try {
+        const [overviewRes, errRes, secRes] = await Promise.all([
+          apiFetch('/api/marketing/overview'),
+          apiFetch('/api/errors/stats'),
+          apiFetch('/api/security/status'),
+        ]);
+        if (overviewRes.ok) {
+          const data = await overviewRes.json();
+          const mrr = data.summary?.mrr || 0;
+          const visitors = data.summary?.visitors || 0;
+          const worry = data.summary?.worryScore ?? data.summary?.healthScore ?? '--';
+          const uptime = data.summary?.uptimePct ?? '--';
+          document.getElementById('kpiMrr').textContent = mrr > 0 ? '\u20AC' + (mrr / 100).toFixed(0) : '\u20AC0';
+          document.getElementById('kpiVisitors').textContent = visitors >= 1000 ? (visitors / 1000).toFixed(1) + 'k' : visitors.toString();
+          if (worry !== '--') {
+            const wEl = document.getElementById('kpiWorry');
+            wEl.textContent = typeof worry === 'number' ? worry.toString() : worry;
+            wEl.style.color = worry <= 30 ? 'var(--green)' : worry <= 60 ? 'var(--yellow)' : 'var(--red)';
+          }
+          if (uptime !== '--') {
+            document.getElementById('kpiUptime').textContent = uptime + '%';
+            document.getElementById('kpiUptime').style.color = uptime >= 99 ? 'var(--green)' : uptime >= 95 ? 'var(--yellow)' : 'var(--red)';
+          }
+        }
+        if (errRes.ok) {
+          const errData = await errRes.json();
+          const openCount = errData.last24h ?? errData.total ?? 0;
+          const errEl = document.getElementById('kpiErrors');
+          errEl.textContent = openCount.toString();
+          errEl.style.color = openCount === 0 ? 'var(--green)' : openCount <= 5 ? 'var(--yellow)' : 'var(--red)';
+        }
+        if (secRes.ok) {
+          const secData = await secRes.json();
+          const grade = secData.latest?.grade || secData.grade || '--';
+          const score = secData.latest?.overall_score || secData.overall_score || '';
+          const secEl = document.getElementById('kpiSecurity');
+          secEl.textContent = grade !== '--' ? grade : '--';
+          if (grade === 'A') secEl.style.color = 'var(--green)';
+          else if (grade === 'B') secEl.style.color = 'var(--blue)';
+          else if (grade === 'C') secEl.style.color = 'var(--yellow)';
+          else if (grade === 'D' || grade === 'F') secEl.style.color = 'var(--red)';
+        }
+      } catch (e) {
+        // KPI row is non-critical, silently ignore errors
+      }
     }
 
     function renderApps(apps) {
@@ -2399,6 +2736,119 @@
         html += '</div>';
       }
       grid.innerHTML = html;
+      // Load revenue chart
+      loadRevenueChart();
+    }
+
+    async function loadRevenueChart() {
+      if (typeof Chart === 'undefined') return;
+      try {
+        const res = await apiFetch('/api/charts/revenue?days=30');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.labels?.length) {
+          document.getElementById('revChartLabel').textContent = 'No data';
+          return;
+        }
+        const shortLabels = data.labels.map(d => d.slice(5)); // MM-DD
+        const datasets = data.datasets.map((ds, i) => ({
+          label: ds.label,
+          data: ds.data,
+          borderColor: CHART_COLORS[i % CHART_COLORS.length],
+          backgroundColor: CHART_COLORS[i % CHART_COLORS.length] + '15',
+          fill: true,
+          borderWidth: 1.5,
+        }));
+        // Add total line
+        datasets.unshift({
+          label: 'Total',
+          data: data.total,
+          borderColor: '#22c55e',
+          backgroundColor: 'rgba(34,197,94,0.1)',
+          fill: true,
+          borderWidth: 2.5,
+        });
+        const latest = data.total[data.total.length - 1] || 0;
+        document.getElementById('revChartLabel').textContent = '\u20AC' + latest.toFixed(0) + ' MRR';
+        createChart('revenueChart', 'line', {
+          labels: shortLabels,
+          datasets
+        }, {
+          scales: {
+            x: { grid: { display: false }, ticks: { maxTicksLimit: 8, font: { size: 10 } } },
+            y: {
+              grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+              ticks: { padding: 8, font: { size: 10 }, callback: v => '\u20AC' + v },
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            tooltip: {
+              callbacks: { label: ctx => ctx.dataset.label + ': \u20AC' + ctx.parsed.y.toFixed(2) }
+            }
+          }
+        });
+      } catch (e) { /* chart is non-critical */ }
+    }
+
+    async function loadTrafficCharts() {
+      if (typeof Chart === 'undefined') return;
+      try {
+        const res = await apiFetch('/api/charts/traffic?days=30');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.labels?.length) {
+          document.getElementById('trafficChartLabel').textContent = 'No data';
+          return;
+        }
+        const shortLabels = data.labels.map(d => d.slice(5));
+        const datasets = data.visitors.map((ds, i) => ({
+          label: ds.label,
+          data: ds.data,
+          borderColor: CHART_COLORS[i % CHART_COLORS.length],
+          backgroundColor: CHART_COLORS[i % CHART_COLORS.length] + '15',
+          fill: true,
+          borderWidth: 1.5,
+        }));
+        const totalToday = data.totalVisitors[data.totalVisitors.length - 1] || 0;
+        document.getElementById('trafficChartLabel').textContent = totalToday.toLocaleString() + ' today';
+        createChart('trafficChart', 'line', {
+          labels: shortLabels,
+          datasets
+        });
+
+        // Top pages chart (aggregated from analytics data)
+        if (mktAnalyticsData?.apps) {
+          const pageCounts = {};
+          for (const app of Object.values(mktAnalyticsData.apps)) {
+            if (app.topPages) {
+              for (const p of app.topPages) {
+                const key = p.page || p.name || p.path;
+                if (key) pageCounts[key] = (pageCounts[key] || 0) + (p.visitors || p.count || 0);
+              }
+            }
+          }
+          const sorted = Object.entries(pageCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+          if (sorted.length > 0) {
+            createChart('topPagesChart', 'bar', {
+              labels: sorted.map(([p]) => p.length > 25 ? p.slice(0, 25) + '...' : p),
+              datasets: [{
+                data: sorted.map(([, v]) => v),
+                backgroundColor: CHART_COLORS.slice(0, sorted.length).map(c => c + '40'),
+                borderColor: CHART_COLORS.slice(0, sorted.length),
+                borderWidth: 1,
+                borderRadius: 4,
+              }]
+            }, {
+              indexAxis: 'y',
+              scales: {
+                x: { grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false }, ticks: { font: { size: 10 } }, beginAtZero: true },
+                y: { grid: { display: false }, ticks: { font: { size: 10 } } }
+              }
+            });
+          }
+        }
+      } catch (e) { /* chart is non-critical */ }
     }
 
     function renderMktTraffic() {
@@ -2462,6 +2912,8 @@
         html += '</div>';
       }
       grid.innerHTML = html;
+      // Load traffic charts
+      loadTrafficCharts();
     }
 
     async function fetchSEO(force = false) {
@@ -3969,7 +4421,74 @@
         html += topFindings.map(f => renderFinding(f)).join('');
       }
       html += `</div></div>`;
+      // Charts row: Radar + Donut
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">';
+      html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">';
+      html += '<div style="font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:12px">Category Scores</div>';
+      html += '<div style="height:200px;position:relative"><canvas id="secRadarChart"></canvas></div></div>';
+      html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px">';
+      html += '<div style="font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:12px">Findings by Severity</div>';
+      html += '<div style="height:200px;position:relative"><canvas id="secDonutChart"></canvas></div></div>';
+      html += '</div>';
       document.getElementById('secDashboardContent').innerHTML = html;
+      // Render security charts
+      loadSecurityCharts(cats, d);
+    }
+
+    function loadSecurityCharts(cats, data) {
+      if (typeof Chart === 'undefined') return;
+      // Radar chart
+      const catLabels = Object.keys(cats).map(c => c.charAt(0).toUpperCase() + c.slice(1));
+      const catValues = Object.values(cats);
+      if (catLabels.length > 0) {
+        createChart('secRadarChart', 'radar', {
+          labels: catLabels,
+          datasets: [{
+            data: catValues,
+            borderColor: '#06b6d4',
+            backgroundColor: 'rgba(6,182,212,0.15)',
+            borderWidth: 2,
+            pointBackgroundColor: '#06b6d4',
+            pointRadius: 3,
+          }]
+        }, {
+          scales: {
+            r: {
+              grid: { color: 'rgba(255,255,255,0.06)' },
+              angleLines: { color: 'rgba(255,255,255,0.06)' },
+              ticks: { display: false },
+              pointLabels: { color: '#a1a1aa', font: { size: 10 } },
+              min: 0, max: 100,
+            }
+          }
+        });
+      }
+      // Donut chart
+      const sevData = [];
+      const sevLabels = [];
+      const sevColors = [];
+      if (data.critical_count) { sevLabels.push('Critical'); sevData.push(data.critical_count); sevColors.push('#ef4444'); }
+      if (data.high_count) { sevLabels.push('High'); sevData.push(data.high_count); sevColors.push('#f97316'); }
+      if (data.medium_count) { sevLabels.push('Medium'); sevData.push(data.medium_count); sevColors.push('#f59e0b'); }
+      if (data.low_count) { sevLabels.push('Low'); sevData.push(data.low_count); sevColors.push('#22c55e'); }
+      if (sevData.length > 0) {
+        createChart('secDonutChart', 'doughnut', {
+          labels: sevLabels,
+          datasets: [{
+            data: sevData,
+            backgroundColor: sevColors.map(c => c + '40'),
+            borderColor: sevColors,
+            borderWidth: 2,
+          }]
+        }, {
+          cutout: '60%',
+          plugins: {
+            tooltip: {
+              callbacks: { label: ctx => ctx.label + ': ' + ctx.parsed + ' findings' }
+            }
+          }
+        });
+      }
     }
 
     function renderFinding(f) {
@@ -4814,20 +5333,13 @@
         html += '</div>';
       }
 
-      // 7-day trend sparkline
+      // 7-day trend chart
       if (d.last7d && d.last7d.length > 0) {
-        const maxDay = Math.max(...d.last7d.map(d => d.count));
-        html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px">';
-        html += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase">7-Day Trend</div>';
-        html += '<div style="display:flex;align-items:flex-end;gap:4px;height:60px">';
-        for (const day of d.last7d) {
-          const h = maxDay > 0 ? Math.max(4, Math.round((day.count / maxDay) * 56)) : 4;
-          html += `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
-            <span style="font-size:9px;color:var(--text-muted)">${day.count}</span>
-            <div style="width:100%;height:${h}px;background:var(--red);border-radius:2px;opacity:0.7"></div>
-            <span style="font-size:8px;color:var(--text-muted)">${day.day.slice(5)}</span></div>`;
-        }
-        html += '</div></div>';
+        html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px">';
+        html += '<div style="font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:12px">Error Trend (7d)</div>';
+        html += '<div style="height:140px;position:relative"><canvas id="errTrendChart"></canvas></div></div>';
+        // Store data for chart rendering after innerHTML
+        window._errTrendData = d.last7d;
       }
 
       // Top 5 noisiest
@@ -4847,6 +5359,21 @@
       }
 
       document.getElementById('errOverviewContent').innerHTML = html;
+      // Render error trend chart after DOM update
+      if (typeof Chart !== 'undefined' && window._errTrendData) {
+        const tData = window._errTrendData;
+        createChart('errTrendChart', 'bar', {
+          labels: tData.map(d => d.day.slice(5)),
+          datasets: [{
+            data: tData.map(d => d.count),
+            backgroundColor: tData.map(d => d.count > 0 ? 'rgba(239,68,68,0.4)' : 'rgba(34,197,94,0.2)'),
+            borderColor: tData.map(d => d.count > 0 ? '#ef4444' : '#22c55e'),
+            borderWidth: 1,
+            borderRadius: 6,
+          }]
+        });
+        delete window._errTrendData;
+      }
     }
 
     async function fetchErrIssues() {
@@ -5177,7 +5704,53 @@
         html += '<div class="heartbeat-name">' + escapeHtml(app.name) + '</div></div>';
       }
       html += '</div></div></div></div>';
+      // Worry Score Trend chart
+      html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px">';
+      html += '<div style="font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:12px">Worry Score (7d)</div>';
+      html += '<div style="height:160px;position:relative"><canvas id="worryTrendChart"></canvas></div>';
+      html += '</div>';
       document.getElementById('opsPulseContent').innerHTML = html;
+      // Load worry trend chart
+      loadWorryTrendChart();
+    }
+
+    async function loadWorryTrendChart() {
+      if (typeof Chart === 'undefined') return;
+      try {
+        const res = await apiFetch('/api/ops/status');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.history?.length) return;
+        const labels = data.history.map(h => {
+          const d = new Date(h.timestamp);
+          return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        });
+        const scores = data.history.map(h => h.worry_score);
+        createChart('worryTrendChart', 'line', {
+          labels,
+          datasets: [{
+            data: scores,
+            borderColor: '#f97316',
+            backgroundColor: 'rgba(249,115,22,0.1)',
+            fill: true,
+            borderWidth: 2,
+          }]
+        }, {
+          scales: {
+            x: { grid: { display: false }, ticks: { maxTicksLimit: 8, font: { size: 9 } } },
+            y: {
+              grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+              ticks: { padding: 8, font: { size: 10 } },
+              min: 0, max: 100,
+            }
+          },
+          plugins: {
+            tooltip: {
+              callbacks: { label: ctx => 'Worry: ' + ctx.parsed.y }
+            }
+          }
+        });
+      } catch (e) { /* non-critical */ }
     }
 
     function renderOpsReportCards(cards) {
@@ -5375,6 +5948,13 @@
       }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
       if (e.key === '/') { e.preventDefault(); document.getElementById('searchInput').focus(); }
+      // Nav view shortcuts (1-6)
+      if (e.key === '1') { switchView('home'); return; }
+      if (e.key === '2') { switchView('revenue'); return; }
+      if (e.key === '3') { switchView('analytics'); return; }
+      if (e.key === '4') { switchView('infra'); return; }
+      if (e.key === '5') { switchView('security'); return; }
+      if (e.key === '6') { switchView('settings'); return; }
       if (e.key === 'r') fetchAll();
       if (e.key === 'a') toggleActivity();
       if (e.key === 's') toggleSSLPanel();

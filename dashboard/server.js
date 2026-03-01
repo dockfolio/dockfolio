@@ -41,12 +41,12 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
       scriptSrcAttr: ["'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", 'data:'],
       connectSrc: ["'self'"],
-      fontSrc: ["'self'"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
       objectSrc: ["'none'"],
       frameAncestors: ["'none'"],
       baseUri: ["'self'"],
@@ -370,6 +370,18 @@ async function sendTelegram(message) {
       signal: AbortSignal.timeout(5000)
     });
   } catch { /* silent — Telegram is best-effort */ }
+}
+
+// Rate-limited cron failure alerter (max 1 alert per cron per hour)
+const cronFailAlerted = new Map(); // cronName -> timestamp
+function cronFail(cronName, err) {
+  console.error(`[CRON] ${cronName} error:`, err.message || err);
+  const now = Date.now();
+  const last = cronFailAlerted.get(cronName) || 0;
+  if (now - last > 3600_000) {
+    cronFailAlerted.set(cronName, now);
+    sendTelegram(`⚠️ Cron failed: ${cronName}\n${(err.message || String(err)).slice(0, 200)}`);
+  }
 }
 
 
@@ -1943,11 +1955,19 @@ function ingestError({ app: appSlug, message, stack, severity = 'error', source 
 
   if (existing) {
     issueId = existing.id;
+    const newCount = existing.occurrence_count + 1;
     // Auto-reopen resolved issues
     if (existing.status === 'resolved') {
       db.prepare("UPDATE error_issues SET status = 'open', last_seen = datetime('now'), occurrence_count = occurrence_count + 1, resolved_at = NULL WHERE id = ?").run(issueId);
+      if (validSeverity === 'critical' || validSeverity === 'error') {
+        sendTelegram(`🔁 Reopened: ${appSlug}\n${title}\nWas resolved, occurred again (#${newCount})`);
+      }
     } else {
       db.prepare("UPDATE error_issues SET last_seen = datetime('now'), occurrence_count = occurrence_count + 1 WHERE id = ?").run(issueId);
+      // Alert at milestones for critical errors
+      if (validSeverity === 'critical' && [10, 50, 100, 500].includes(newCount)) {
+        sendTelegram(`🔥 Recurring critical: ${appSlug}\n${title}\nOccurrences: ${newCount}`);
+      }
     }
   } else {
     isNew = true;
@@ -2250,6 +2270,132 @@ app.get('/api/marketing/trends', asyncRoute((req, res) => {
   res.json({ trends: Object.values(grouped), days });
 }));
 
+// === Chart-optimized API endpoints ===
+
+// GET /api/charts/revenue — MRR series per app, pre-formatted for Chart.js
+app.get('/api/charts/revenue', asyncRoute((req, res) => {
+  const days = parseInt(req.query.days) || 30;
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const rows = db.prepare(`
+    SELECT app_slug, date, value FROM metrics_daily
+    WHERE metric_type = 'mrr' AND date >= ?
+    ORDER BY date ASC
+  `).all(cutoff);
+  const apps = {};
+  const labels = new Set();
+  for (const row of rows) {
+    labels.add(row.date);
+    if (!apps[row.app_slug]) apps[row.app_slug] = {};
+    apps[row.app_slug][row.date] = row.value / 100; // cents to euros
+  }
+  const sortedLabels = [...labels].sort();
+  const datasets = Object.entries(apps).map(([slug, data]) => ({
+    label: slug,
+    data: sortedLabels.map(d => data[d] || 0)
+  }));
+  // Add total line
+  const totalData = sortedLabels.map(d => datasets.reduce((sum, ds) => sum + (ds.data[sortedLabels.indexOf(d)] || 0), 0));
+  res.json({ labels: sortedLabels, datasets, total: totalData });
+}));
+
+// GET /api/charts/traffic — visitors/pageviews per app per day
+app.get('/api/charts/traffic', asyncRoute((req, res) => {
+  const days = parseInt(req.query.days) || 30;
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const rows = db.prepare(`
+    SELECT app_slug, date, visitors, pageviews FROM analytics_daily
+    WHERE date >= ?
+    ORDER BY date ASC
+  `).all(cutoff);
+  const labels = new Set();
+  const visitors = {};
+  const pageviews = {};
+  for (const row of rows) {
+    labels.add(row.date);
+    if (!visitors[row.app_slug]) { visitors[row.app_slug] = {}; pageviews[row.app_slug] = {}; }
+    visitors[row.app_slug][row.date] = row.visitors || 0;
+    pageviews[row.app_slug][row.date] = row.pageviews || 0;
+  }
+  const sortedLabels = [...labels].sort();
+  const visitorDatasets = Object.entries(visitors).map(([slug, data]) => ({
+    label: slug, data: sortedLabels.map(d => data[d] || 0)
+  }));
+  const totalVisitors = sortedLabels.map(d => visitorDatasets.reduce((sum, ds) => sum + (ds.data[sortedLabels.indexOf(d)] || 0), 0));
+  res.json({ labels: sortedLabels, visitors: visitorDatasets, totalVisitors });
+}));
+
+// GET /api/charts/errors — error counts by severity per day
+app.get('/api/charts/errors', asyncRoute((req, res) => {
+  const days = parseInt(req.query.days) || 7;
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const rows = db.prepare(`
+    SELECT date(timestamp) as day, severity, COUNT(*) as count
+    FROM error_events
+    WHERE timestamp >= ?
+    GROUP BY day, severity
+    ORDER BY day ASC
+  `).all(cutoff);
+  const labels = new Set();
+  const bySeverity = {};
+  for (const row of rows) {
+    labels.add(row.day);
+    if (!bySeverity[row.severity]) bySeverity[row.severity] = {};
+    bySeverity[row.severity][row.day] = row.count;
+  }
+  const sortedLabels = [...labels].sort();
+  const datasets = Object.entries(bySeverity).map(([sev, data]) => ({
+    label: sev, data: sortedLabels.map(d => data[d] || 0)
+  }));
+  res.json({ labels: sortedLabels, datasets });
+}));
+
+// GET /api/charts/latency — hourly p50/p95/p99 aggregates
+app.get('/api/charts/latency', asyncRoute((req, res) => {
+  const hours = parseInt(req.query.hours) || 168;
+  const cutoff = new Date(Date.now() - hours * 3600000).toISOString().slice(0, 13);
+  const rows = db.prepare(`
+    SELECT hour, SUM(request_count) as requests,
+           AVG(p50_ms) as p50, AVG(p95_ms) as p95, AVG(p99_ms) as p99
+    FROM perf_metrics
+    WHERE hour >= ?
+    GROUP BY hour
+    ORDER BY hour ASC
+  `).all(cutoff);
+  res.json({
+    labels: rows.map(r => r.hour),
+    p50: rows.map(r => Math.round(r.p50 || 0)),
+    p95: rows.map(r => Math.round(r.p95 || 0)),
+    p99: rows.map(r => Math.round(r.p99 || 0)),
+    requests: rows.map(r => r.requests)
+  });
+}));
+
+// GET /api/charts/uptime — per-app status per hour (heatmap data)
+app.get('/api/charts/uptime', asyncRoute((req, res) => {
+  const days = parseInt(req.query.days) || 7;
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+  const rows = db.prepare(`
+    SELECT app_slug, strftime('%Y-%m-%d %H:00', checked_at) as hour,
+           SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_count,
+           SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) as down_count,
+           AVG(response_ms) as avg_response
+    FROM uptime_history
+    WHERE checked_at >= ?
+    GROUP BY app_slug, hour
+    ORDER BY hour ASC
+  `).all(cutoff);
+  const apps = {};
+  for (const row of rows) {
+    if (!apps[row.app_slug]) apps[row.app_slug] = [];
+    apps[row.app_slug].push({
+      hour: row.hour,
+      status: row.down_count > 0 ? 'down' : 'up',
+      avgMs: Math.round(row.avg_response || 0)
+    });
+  }
+  res.json({ apps, days });
+}));
+
 // GET /api/marketing/health — portfolio health scores
 app.get('/api/marketing/health', asyncRoute(async (req, res) => {
   const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
@@ -2321,7 +2467,7 @@ cron.schedule('0 */6 * * *', async () => {
     }
     console.log('[CRON] Revenue data collected');
   } catch (err) {
-    console.error('[CRON] Revenue error:', err.message);
+    cronFail('Revenue refresh', err);
   }
 });
 
@@ -2338,7 +2484,7 @@ cron.schedule('30 1 * * *', async () => {
     }
     console.log('[CRON] SEO audits stored');
   } catch (err) {
-    console.error('[CRON] SEO audit error:', err.message);
+    cronFail('SEO audit', err);
   }
 });
 
@@ -2540,7 +2686,7 @@ cron.schedule('0 3 * * 0', async () => {
     }
     console.log(`[CRON] Weekly content generation done: ${generated} items created`);
   } catch (err) {
-    console.error('[CRON] Content generation error:', err.message);
+    cronFail('Content generation', err);
   }
 });
 
@@ -2745,7 +2891,7 @@ cron.schedule('30 3 * * *', async () => {
   try {
     await collectCustomerGraph();
   } catch (err) {
-    console.error('[CRON] Customer graph error:', err.message);
+    cronFail('Customer graph', err);
   }
 });
 
@@ -3052,7 +3198,7 @@ cron.schedule('0 * * * *', async () => {
 
     console.log(`[CRON] Email queue processed: ${sent} sent, ${failed} failed`);
   } catch (err) {
-    console.error('[CRON] Email queue error:', err.message);
+    cronFail('Email queue', err);
   }
 });
 
@@ -3385,6 +3531,32 @@ const HEALING_PLAYBOOKS = [
       return `Docker pruned, freed ${Math.round(freed / 1e6)}MB`;
     },
   },
+  {
+    id: 'exited_restart',
+    condition: 'Container exited unexpectedly',
+    check: async () => {
+      const containers = await docker.listContainers({ all: true, filters: { status: ['exited'] } });
+      const tracked = new Set();
+      for (const appDef of config.apps) {
+        for (const cn of (appDef.containers || [])) tracked.add(cn);
+      }
+      return containers
+        .filter(c => {
+          const name = containerName(c);
+          if (!tracked.has(name) || name.includes('dockfolio')) return false;
+          const exitCode = c.Status?.match(/Exited \((\d+)\)/)?.[1];
+          return exitCode && exitCode !== '0';
+        })
+        .map(c => ({ name: containerName(c), id: c.Id, status: c.Status }));
+    },
+    action: 'restart',
+    confidence: 'medium',
+    execute: async (target) => {
+      const container = docker.getContainer(target.id);
+      await container.restart({ t: 10 });
+      return `Restarted exited container ${target.name} (was: ${target.status})`;
+    },
+  },
 ];
 
 const insertHealing = db.prepare(
@@ -3417,12 +3589,14 @@ async function runHealingCheck() {
           } catch (err) {
             insertHealing.run(appSlug, playbook.condition, playbook.action, playbook.confidence, 'failed', 1, err.message);
             console.error(`[HEALING] Failed: ${playbook.condition} on ${appSlug} — ${err.message}`);
+            await sendTelegram(`❌ Healing FAILED: ${playbook.condition}\nApp: ${appSlug}\nError: ${err.message}`);
           }
         } else {
           // Log as pending for manual approval
           const detail = await playbook.execute(target).catch(e => e.message);
           insertHealing.run(appSlug, playbook.condition, playbook.action, playbook.confidence, 'pending', 0, detail);
           console.log(`[HEALING] Pending approval: ${playbook.condition} on ${appSlug}`);
+          await sendTelegram(`🔔 Healing needs approval: ${playbook.condition}\nApp: ${appSlug}\nAction: ${playbook.action}\nDetails: ${detail}`);
         }
       }
     } catch (err) {
@@ -3433,7 +3607,7 @@ async function runHealingCheck() {
 
 // Run healing checks every 2 minutes
 cron.schedule('*/2 * * * *', () => {
-  runHealingCheck().catch(err => console.error('[HEALING] Cron error:', err.message));
+  runHealingCheck().catch(err => cronFail('Healing check', err));
 });
 
 // Healing API endpoints
@@ -3790,7 +3964,7 @@ app.post('/api/security/dismiss/:id', asyncRoute((req, res) => {
 cron.schedule('0 1 * * *', async () => {
   console.log('[CRON] Running daily security scan...');
   try { const r = await runSecurityScan('full'); console.log(`[CRON] Security scan complete: ${r.grade} (${r.overall_score}/100, ${r.total_findings} findings)`); }
-  catch (err) { console.error('[CRON] Security scan error:', err.message); }
+  catch (err) { cronFail('Security scan', err); }
 });
 
 cron.schedule('0 */6 * * *', async () => {
@@ -3800,7 +3974,7 @@ cron.schedule('0 */6 * * *', async () => {
     if (critical.length > 0) {
       await sendTelegram(`Security: SSL Alert - ${critical.map(f => f.title).join(', ')}`);
     }
-  } catch (err) { console.error('[CRON] SSL security check error:', err.message); }
+  } catch (err) { cronFail('SSL security check', err); }
 });
 
 // Cleanup old security scans (90-day retention)
@@ -3813,7 +3987,7 @@ cron.schedule('0 5 * * 0', () => {
       db.prepare('DELETE FROM security_scans WHERE timestamp < ?').run(cutoff);
       console.log(`[CRON] Cleaned up ${old.length} old security scans`);
     }
-  } catch (err) { console.error('[CRON] Security cleanup error:', err.message); }
+  } catch (err) { cronFail('Security cleanup', err); }
 });
 
 // =============================================
@@ -4904,7 +5078,7 @@ cron.schedule('*/15 * * * *', async () => {
       db.prepare('UPDATE project_tasks SET reminder_sent = 1 WHERE id = ?').run(task.id);
     }
     console.log(`[PROJECTS] Sent ${dueTasks.length} reminder(s)`);
-  } catch (err) { console.error('[PROJECTS] Reminder cron error:', err.message); }
+  } catch (err) { cronFail('Task reminders', err); }
 });
 
 // Daily 8 AM: overdue task alert
@@ -4921,7 +5095,7 @@ cron.schedule('0 8 * * *', async () => {
     });
     await sendTelegram(`⚠ Overdue Tasks — ${overdue.length} task${overdue.length > 1 ? 's' : ''} past due:\n${lines.join('\n')}`);
     console.log(`[PROJECTS] Overdue alert sent (${overdue.length} tasks)`);
-  } catch (err) { console.error('[PROJECTS] Overdue cron error:', err.message); }
+  } catch (err) { cronFail('Overdue tasks', err); }
 });
 
 // Weekly Monday 6 AM: snapshot per-app KPIs
@@ -4972,7 +5146,7 @@ cron.schedule('0 6 * * 1', async () => {
       );
     }
     console.log(`[PROJECTS] Weekly snapshot completed for ${config.apps.length} apps`);
-  } catch (err) { console.error('[PROJECTS] Snapshot cron error:', err.message); }
+  } catch (err) { cronFail('Project snapshots', err); }
 });
 
 // Weekly Sunday 4 AM: generate AI weekly summaries
@@ -5002,7 +5176,7 @@ cron.schedule('0 4 * * 0', async () => {
       } catch (appErr) { console.error(`[PROJECTS] AI summary error for ${slug}:`, appErr.message); }
     }
     console.log(`[PROJECTS] Weekly AI summaries generated for ${saasApps.length} apps`);
-  } catch (err) { console.error('[PROJECTS] AI summary cron error:', err.message); }
+  } catch (err) { cronFail('AI project summary', err); }
 });
 
 // ========== OPS INTELLIGENCE ==========
@@ -5389,7 +5563,7 @@ cron.schedule('*/15 * * * *', async () => {
     db.prepare('INSERT INTO ops_scores (worry_score, breakdown, streak_days, streak_broken_at) VALUES (?, ?, ?, ?)').run(
       result.score, JSON.stringify(result.breakdown), streakDays, streakBroken);
     console.log(`[OPS] Worry score: ${result.score}/100, streak: ${streakDays}d`);
-  } catch (err) { console.error('[OPS] Worry score cron error:', err.message); }
+  } catch (err) { cronFail('Worry score', err); }
 });
 
 // Auto baseline + drift detection (daily 2:30 AM)
@@ -5409,7 +5583,7 @@ cron.schedule('30 2 * * *', async () => {
     db.prepare("DELETE FROM ops_scores WHERE timestamp < datetime('now', '-30 days')").run();
     db.prepare("DELETE FROM ops_baselines WHERE timestamp < datetime('now', '-90 days')").run();
     db.prepare("DELETE FROM ops_events WHERE timestamp < datetime('now', '-90 days')").run();
-  } catch (err) { console.error('[OPS] Baseline cron error:', err.message); }
+  } catch (err) { cronFail('Baseline drift', err); }
 });
 
 // Key rotation reminder (weekly Monday 9 AM)
@@ -5434,7 +5608,7 @@ cron.schedule('0 9 * * 1', async () => {
         `${staleKeys.length} key(s) may need rotation`, JSON.stringify(staleKeys));
     }
     console.log(`[OPS] Key rotation check: ${staleKeys.length} stale keys`);
-  } catch (err) { console.error('[OPS] Key rotation cron error:', err.message); }
+  } catch (err) { cronFail('Key rotation', err); }
 });
 
 // --- Docker Log Scanner (every 5 min) ---
@@ -5447,7 +5621,9 @@ const ERROR_PATTERNS = [
 ];
 const NOISE_PATTERNS = [
   /DeprecationWarning/i, /ExperimentalWarning/i, /npm warn/i,
-  /punycode/i, /DEP0040/i, /node --trace-warnings/i
+  /punycode/i, /DEP0040/i, /node --trace-warnings/i,
+  /^\[(?:OPS|CRON|HEALING|ERROR_SCAN|ERROR_WATCH|PERF|CLEANUP|MAINT|BACKUP|SSL|UPTIME|ANALYTICS|PROJECTS|ALERTS|ENV|AUDIT)\]\s/,
+  /Failed to find Server Action/i
 ];
 
 cron.schedule('*/5 * * * *', async () => {
@@ -5496,7 +5672,7 @@ cron.schedule('*/5 * * * *', async () => {
         }
       } catch { /* container may have stopped between list and logs */ }
     }
-  } catch (err) { console.error('[ERROR_SCAN] Docker log scan error:', err.message); }
+  } catch (err) { cronFail('Docker log scan', err); }
 });
 
 // --- Docker Event Watcher (persistent stream) ---
@@ -5590,7 +5766,7 @@ cron.schedule('*/15 * * * *', () => {
       upsertPerf.run(endpoint, hour, times.length, p50, p95, p99, errors);
     }
     perfAccumulator.clear();
-  } catch (err) { console.error('[PERF] Aggregation error:', err.message); }
+  } catch (err) { cronFail('Perf aggregation', err); }
 });
 
 // Daily 3:15 AM: Retention cleanup for error events (30d) and perf metrics (14d)
@@ -5599,7 +5775,7 @@ cron.schedule('15 3 * * *', () => {
     const deletedEvents = db.prepare("DELETE FROM error_events WHERE timestamp < datetime('now', '-30 days')").run();
     const deletedPerf = db.prepare("DELETE FROM perf_metrics WHERE hour < datetime('now', '-14 days')").run();
     console.log(`[CLEANUP] Pruned ${deletedEvents.changes} error events, ${deletedPerf.changes} perf metrics`);
-  } catch (err) { console.error('[CLEANUP] Retention error:', err.message); }
+  } catch (err) { cronFail('Data retention cleanup', err); }
 });
 
 // Daily 4:00 AM: Database maintenance (WAL checkpoint + cleanup)
@@ -5611,7 +5787,7 @@ cron.schedule('0 4 * * *', () => {
     const deletedUptime = db.prepare("DELETE FROM uptime_history WHERE checked_at < datetime('now', '-90 days')").run();
     const deletedAudit = db.prepare("DELETE FROM audit_log WHERE created_at < datetime('now', '-180 days')").run();
     console.log(`[MAINT] WAL checkpoint done. Pruned ${deletedUptime.changes} uptime rows, ${deletedAudit.changes} audit rows`);
-  } catch (err) { console.error('[MAINT] DB maintenance error:', err.message); }
+  } catch (err) { cronFail('DB maintenance', err); }
 });
 
 // Daily 5:00 AM: Backup freshness alerts
@@ -5632,7 +5808,7 @@ cron.schedule('0 5 * * *', () => {
       sendTelegram(`\u26a0\ufe0f Stale backups detected:\n${stale.join('\n')}`);
       console.log(`[BACKUP] ${stale.length} stale backups: ${stale.join(', ')}`);
     }
-  } catch (err) { console.error('[BACKUP] Freshness check error:', err.message); }
+  } catch (err) { cronFail('Backup freshness', err); }
 });
 
 // Daily 7:00 AM: SSL certificate expiry alerts
@@ -5655,10 +5831,11 @@ cron.schedule('0 7 * * *', async () => {
       sendTelegram(`\ud83d\udd12 SSL certificates expiring soon:\n${expiring.join('\n')}`);
       console.log(`[SSL] ${expiring.length} certs expiring: ${expiring.join(', ')}`);
     }
-  } catch (err) { console.error('[SSL] Expiry check error:', err.message); }
+  } catch (err) { cronFail('SSL expiry check', err); }
 });
 
 // Every 5 min: Uptime health checks
+const uptimePrevStatus = new Map(); // slug -> 'up'|'degraded'|'down'
 cron.schedule('*/5 * * * *', async () => {
   try {
     const insert = db.prepare('INSERT INTO uptime_history (app_slug, status, response_ms) VALUES (?, ?, ?)');
@@ -5681,8 +5858,21 @@ cron.schedule('*/5 * * * *', async () => {
         } else continue;
       } catch { status = 'down'; }
       insert.run(slug, status, response_ms);
+
+      // Alert on status transitions
+      const prev = uptimePrevStatus.get(slug);
+      if (prev && prev !== status) {
+        if (status === 'down') {
+          sendTelegram(`🔴 ${a.name} is DOWN\nDomain: ${a.domain}`);
+        } else if (status === 'degraded') {
+          sendTelegram(`🟡 ${a.name} is DEGRADED\nDomain: ${a.domain}${response_ms ? `\nResponse: ${response_ms}ms` : ''}`);
+        } else if (status === 'up' && (prev === 'down' || prev === 'degraded')) {
+          sendTelegram(`🟢 ${a.name} is back UP\nDomain: ${a.domain}${response_ms ? `\nResponse: ${response_ms}ms` : ''}`);
+        }
+      }
+      uptimePrevStatus.set(slug, status);
     }
-  } catch (err) { console.error('[UPTIME] Check error:', err.message); }
+  } catch (err) { cronFail('Uptime check', err); }
 });
 
 // --- Error Tracking API ---
@@ -6147,7 +6337,7 @@ cron.schedule('5 * * * *', () => {
     const upsert = db.prepare('INSERT INTO analytics_hourly (app_slug, hour, visitors, pageviews) VALUES (?, ?, ?, ?) ON CONFLICT(app_slug, hour) DO UPDATE SET visitors = excluded.visitors, pageviews = excluded.pageviews');
     for (const r of rows) upsert.run(r.app_slug, hour, r.visitors, r.pageviews);
     if (rows.length) console.log(`[ANALYTICS] Hourly rollup: ${rows.length} apps for ${hour}`);
-  } catch (err) { console.error('[ANALYTICS] Hourly rollup error:', err.message); }
+  } catch (err) { cronFail('Analytics hourly rollup', err); }
 });
 
 // Daily 1:30 AM — roll up into analytics_daily + prune raw page_views >7 days
@@ -6174,7 +6364,7 @@ cron.schedule('30 1 * * *', () => {
     // Prune raw events older than 7 days
     const pruned = db.prepare("DELETE FROM page_views WHERE created_at < datetime('now', '-7 days')").run();
     console.log(`[ANALYTICS] Daily rollup for ${yesterday}: ${rows.length} apps, pruned ${pruned.changes} old events`);
-  } catch (err) { console.error('[ANALYTICS] Daily rollup error:', err.message); }
+  } catch (err) { cronFail('Analytics daily rollup', err); }
 });
 
 // ========== GITHUB WEBHOOK (auto-deploy) ==========
@@ -6244,7 +6434,7 @@ cron.schedule('*/2 * * * *', async () => {
         console.log(`[ALERTS] Fired rule ${rule.id}: ${message}`);
       } catch (err) { console.error(`[ALERTS] Rule ${rule.id}:`, err.message); }
     }
-  } catch (err) { console.error('[ALERTS] Cron error:', err.message); }
+  } catch (err) { cronFail('Alert rules', err); }
 });
 
 function evaluateAlertMetric(metric, appSlug, windowMin) {
@@ -6291,7 +6481,7 @@ cron.schedule('0 3 * * *', async () => {
         console.log(`[BACKUP] Pruned old backup: ${f}`);
       }
     }
-  } catch (err) { console.error('[BACKUP] SQLite backup error:', err.message); }
+  } catch (err) { cronFail('SQLite backup', err); }
 });
 
 // ========== ENV FILE CHANGE MONITOR ==========
@@ -6314,7 +6504,7 @@ cron.schedule('*/15 * * * *', () => {
       }
       envFileHashes.set(slug, hash);
     }
-  } catch (err) { console.error('[ENV] Monitor error:', err.message); }
+  } catch (err) { cronFail('Env monitor', err); }
 });
 
 // ========== SMART CROSS-PROMO AUTO-PLACEMENT ==========
