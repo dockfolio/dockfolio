@@ -11,7 +11,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - dockfolio-data:/data
-      - ./config.yml:/app/config.yml
+      - ./config.yml:/app/config.yml:ro
     environment:
       - NODE_ENV=production
       - AUTH_DB_PATH=/data/auth.db
@@ -20,6 +20,15 @@ services:
       - PLAUSIBLE_API_KEY=${PLAUSIBLE_API_KEY:-}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+      - /app/node_modules/.cache:size=32m
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 200
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
       interval: 30s

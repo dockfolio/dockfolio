@@ -16,4 +16,3 @@ scripts/deploy-banner-injection.*
 docker-compose.yml
 deploy.sh
 CLAUDE.md
-PRINCIPLES.md
