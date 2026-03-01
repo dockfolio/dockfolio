@@ -113,6 +113,10 @@
 
     /* Container mini-bars in cards */
     .container-bars { display: flex; gap: 3px; margin-top: 8px; }
+    .app-sparklines { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
+    .app-sparkline { display: flex; align-items: center; gap: 4px; }
+    .app-sparkline svg { display: block; }
+    .app-sparkline .spark-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
     .container-bar { flex: 1; height: 3px; border-radius: 2px; }
     .container-bar.healthy { background: var(--green); }
     .container-bar.running { background: var(--green); opacity: 0.6; }
@@ -1767,6 +1771,8 @@
     let dockerData = {};
     let keyHealthData = {};
     let envCache = {}; // slug -> env data
+    let sparklineData = {};
+    let lastSparklineUpdate = 0;
 
     async function logout() {
       await apiFetch('/api/auth/logout', { method: 'POST' });
@@ -1799,6 +1805,10 @@
         renderErrors(appData, systemData);
         if (adhdMode) updateStreakBar();
         updateKpiRow();
+        // Fetch sparklines (hourly data, refresh every 5 min)
+        if (Date.now() - lastSparklineUpdate > 300000) {
+          apiFetch('/api/charts/sparklines').then(r => r.ok ? r.json() : {}).then(d => { sparklineData = d; lastSparklineUpdate = Date.now(); renderApps(appData); }).catch(() => {});
+        }
         document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       } catch (err) {
         console.error('Fetch error:', err);
@@ -2047,6 +2057,14 @@
       }
     }
 
+    function svgSparkline(data, w, h, color) {
+      if (!data || data.length < 2) return '';
+      const max = Math.max(...data, 1);
+      const step = w / (data.length - 1);
+      const pts = data.map((v, i) => `${(i * step).toFixed(1)},${(h - (v / max) * h * 0.85).toFixed(1)}`).join(' ');
+      return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" fill="none"><polyline points="${pts}" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`;
+    }
+
     function renderApps(apps) {
       const filtered = searchTerm
         ? apps.filter(a => a.name.toLowerCase().includes(searchTerm) || a.domain?.toLowerCase().includes(searchTerm) || a.tech?.toLowerCase().includes(searchTerm))
@@ -2146,6 +2164,23 @@
               html += `<div class="container-bar ${c.health}" title="${c.name}: ${c.health}"></div>`;
             }
             html += `</div>`;
+          }
+          // 24h CPU/memory sparklines
+          if (app.containerStatuses && Object.keys(sparklineData).length > 0) {
+            let cpuAll = [], memAll = [];
+            for (const c of app.containerStatuses) {
+              const sd = sparklineData[c.name];
+              if (sd) {
+                if (sd.cpu?.length > cpuAll.length) cpuAll = sd.cpu;
+                if (sd.memory?.length > memAll.length) memAll = sd.memory.map(m => m / (1024 * 1024)); // MB
+              }
+            }
+            if (cpuAll.length >= 2) {
+              html += `<div class="app-sparklines">`;
+              html += `<div class="app-sparkline"><span class="spark-label">CPU</span>${svgSparkline(cpuAll, 50, 16, '#3b82f6')}</div>`;
+              if (memAll.length >= 2) html += `<div class="app-sparkline"><span class="spark-label">MEM</span>${svgSparkline(memAll, 50, 16, '#8b5cf6')}</div>`;
+              html += `</div>`;
+            }
           }
           html += `</div>`;
         }

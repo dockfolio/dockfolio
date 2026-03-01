@@ -1505,6 +1505,17 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_seo_audits_app ON seo_audits(app_slug);
 
+  CREATE TABLE IF NOT EXISTS container_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    container_name TEXT NOT NULL,
+    app_slug TEXT,
+    ts TEXT NOT NULL DEFAULT (datetime('now')),
+    cpu REAL NOT NULL DEFAULT 0,
+    memory REAL NOT NULL DEFAULT 0,
+    UNIQUE(container_name, ts)
+  );
+  CREATE INDEX IF NOT EXISTS idx_container_metrics_lookup ON container_metrics(container_name, ts);
+
   CREATE TABLE IF NOT EXISTS customer_graph (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email_hash TEXT NOT NULL,
@@ -2396,6 +2407,24 @@ app.get('/api/charts/uptime', asyncRoute((req, res) => {
   res.json({ apps, days });
 }));
 
+// GET /api/charts/sparklines — 24h CPU/memory sparklines per container (for app cards)
+app.get('/api/charts/sparklines', asyncRoute((req, res) => {
+  const cutoff = new Date(Date.now() - 24 * 3600000).toISOString();
+  const rows = db.prepare(`
+    SELECT container_name, app_slug, ts, cpu, memory
+    FROM container_metrics
+    WHERE ts >= ?
+    ORDER BY ts ASC
+  `).all(cutoff);
+  const containers = {};
+  for (const row of rows) {
+    if (!containers[row.container_name]) containers[row.container_name] = { app_slug: row.app_slug, cpu: [], memory: [] };
+    containers[row.container_name].cpu.push(row.cpu);
+    containers[row.container_name].memory.push(row.memory);
+  }
+  res.json(containers);
+}));
+
 // GET /api/marketing/health — portfolio health scores
 app.get('/api/marketing/health', asyncRoute(async (req, res) => {
   const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
@@ -3200,6 +3229,37 @@ cron.schedule('0 * * * *', async () => {
   } catch (err) {
     cronFail('Email queue', err);
   }
+});
+
+// Snapshot container CPU/memory metrics every hour (for sparklines)
+cron.schedule('5 * * * *', async () => {
+  try {
+    const containers = await docker.listContainers();
+    const insertMetric = db.prepare('INSERT OR REPLACE INTO container_metrics (container_name, app_slug, ts, cpu, memory) VALUES (?, ?, datetime(\'now\'), ?, ?)');
+    const appMap = {};
+    for (const appDef of config.apps) {
+      if (appDef.containers) {
+        for (const cn of appDef.containers) { appMap[cn] = appDef.slug; }
+      }
+    }
+    let count = 0;
+    for (const c of containers) {
+      const name = c.Names?.[0]?.replace(/^\//, '') || c.Id.slice(0, 12);
+      try {
+        const s = await docker.getContainer(c.Id).stats({ stream: false });
+        const cpuDelta = s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage;
+        const systemDelta = s.cpu_stats.system_cpu_usage - s.precpu_stats.system_cpu_usage;
+        const cpuCount = s.cpu_stats.online_cpus || 1;
+        const cpu = systemDelta > 0 ? Math.round((cpuDelta / systemDelta) * cpuCount * 10000) / 100 : 0;
+        const memory = s.memory_stats.usage || 0;
+        insertMetric.run(name, appMap[name] || null, cpu, memory);
+        count++;
+      } catch { /* skip unavailable containers */ }
+    }
+    // Prune entries older than 48h
+    db.prepare("DELETE FROM container_metrics WHERE ts < datetime('now', '-48 hours')").run();
+    if (LOG) console.log(`[CRON] Container metrics snapshot: ${count} containers`);
+  } catch (err) { cronFail('Container metrics snapshot', err); }
 });
 
 // === Feature: Morning Briefing ===
