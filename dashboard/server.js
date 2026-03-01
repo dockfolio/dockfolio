@@ -343,6 +343,8 @@ function findAppBySlug(slug) {
 }
 
 function getBannerForgeUrl() {
+  const dbVal = getSetting('BANNERFORGE_URL');
+  if (dbVal) return dbVal;
   if (process.env.BANNERFORGE_URL) return process.env.BANNERFORGE_URL;
   const bf = config.apps.find(a => slugify(a.name) === 'bannerforge');
   if (bf?.port) return `http://localhost:${bf.port}/api/render`;
@@ -359,8 +361,8 @@ function setCORS(res) {
 }
 
 async function sendTelegram(message) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const token = getSetting('TELEGRAM_BOT_TOKEN') || process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = getSetting('TELEGRAM_CHAT_ID') || process.env.TELEGRAM_CHAT_ID;
   if (!token || !chatId) return;
   try {
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -1382,6 +1384,101 @@ app.get('/api/env/shared', asyncRoute((_req, res) => {
   res.json({ shared });
 }));
 
+// --- Integration Keys (Settings DB) ---
+
+// GET /api/settings/keys — list all integration keys with status
+app.get('/api/settings/keys', asyncRoute(async (req, res) => {
+  const skipValidation = req.query.skip_validation === 'true';
+  const results = [];
+
+  for (const entry of INTEGRATION_KEYS) {
+    const dbVal = getSetting(entry.key);
+    const envVal = process.env[entry.key] || null;
+    const appVal = (() => {
+      for (const appDef of config.apps) {
+        if (!appDef.envFile || !existsSync(appDef.envFile)) continue;
+        const vars = parseEnvFile(appDef.envFile);
+        const found = vars.find(v => v.key === entry.key && v.value);
+        if (found) return found.value;
+      }
+      return null;
+    })();
+
+    const value = dbVal || envVal || appVal;
+    const source = dbVal ? 'database' : envVal ? 'environment' : appVal ? 'app-env' : null;
+    let status = value ? 'configured' : 'missing';
+
+    // Validate keys that support it (unless skipped)
+    if (value && entry.validatable && !skipValidation) {
+      try {
+        if (entry.key === 'STRIPE_SECRET_KEY') {
+          const r = await fetch('https://api.stripe.com/v1/balance', {
+            headers: { Authorization: 'Basic ' + Buffer.from(value + ':').toString('base64') },
+            signal: AbortSignal.timeout(5000)
+          });
+          status = r.ok ? 'valid' : 'error';
+        } else if (entry.key === 'ANTHROPIC_API_KEY') {
+          const r = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'x-api-key': value, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
+            signal: AbortSignal.timeout(5000)
+          });
+          status = (r.ok || r.status === 429) ? 'valid' : 'error';
+        } else if (entry.key === 'REPLICATE_API_TOKEN') {
+          const r = await fetch('https://api.replicate.com/v1/account', {
+            headers: { Authorization: `Bearer ${value}` },
+            signal: AbortSignal.timeout(5000)
+          });
+          status = r.ok ? 'valid' : 'error';
+        } else if (entry.key === 'RESEND_API_KEY') {
+          const r = await fetch('https://api.resend.com/api-keys', {
+            headers: { Authorization: `Bearer ${value}` },
+            signal: AbortSignal.timeout(5000)
+          });
+          status = r.ok ? 'valid' : 'error';
+        }
+      } catch {
+        status = 'error';
+      }
+    }
+
+    results.push({
+      key: entry.key,
+      label: entry.label,
+      category: entry.category,
+      validatable: entry.validatable,
+      hasValue: !!value,
+      source,
+      maskedValue: value ? maskValue(value) : null,
+      status,
+    });
+  }
+
+  res.json({ keys: results });
+}));
+
+// PUT /api/settings/keys — save integration keys
+app.put('/api/settings/keys', (req, res) => {
+  const { keys } = req.body;
+  if (!Array.isArray(keys)) return res.status(400).json({ error: 'keys must be an array' });
+
+  let saved = 0;
+  let deleted = 0;
+  for (const { key, value } of keys) {
+    if (!INTEGRATION_KEY_SET.has(key)) continue;
+    if (!value || !value.trim()) {
+      deleteSettingStmt.run(key);
+      deleted++;
+    } else {
+      upsertSettingStmt.run(key, value.trim());
+      saved++;
+    }
+  }
+
+  res.json({ success: true, saved, deleted });
+});
+
 // --- App Configuration Management ---
 
 function reloadConfig() {
@@ -1888,6 +1985,12 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 // In-house analytics tables (replace Plausible dependency)
@@ -2038,6 +2141,14 @@ function getStripeKeys() {
       keys.get(sk.value).push(appDef.name);
     }
   }
+  // Fallback: check settings DB for a global Stripe key
+  if (keys.size === 0) {
+    const dbKey = getSetting('STRIPE_SECRET_KEY');
+    if (dbKey) {
+      keys.set(dbKey, ['(global)']);
+      appKeys.set('(global)', dbKey);
+    }
+  }
   return { keys, appKeys };
 }
 
@@ -2177,13 +2288,14 @@ app.get('/api/marketing/revenue', asyncRoute(async (req, res) => {
 
 // --- Plausible Analytics ---
 
-const PLAUSIBLE_URL = process.env.PLAUSIBLE_URL || 'http://plausible-plausible-1:8000';
-const PLAUSIBLE_API_KEY = process.env.PLAUSIBLE_API_KEY || '';
+function getPlausibleUrl() { return getSetting('PLAUSIBLE_URL') || process.env.PLAUSIBLE_URL || 'http://plausible-plausible-1:8000'; }
+function getPlausibleApiKey() { return getSetting('PLAUSIBLE_API_KEY') || process.env.PLAUSIBLE_API_KEY || ''; }
 
 async function fetchPlausibleStats(domain, period = '30d') {
   try {
-    const baseUrl = `${PLAUSIBLE_URL}/api/v1/stats`;
-    const headers = PLAUSIBLE_API_KEY ? { 'Authorization': `Bearer ${PLAUSIBLE_API_KEY}` } : {};
+    const baseUrl = `${getPlausibleUrl()}/api/v1/stats`;
+    const apiKey = getPlausibleApiKey();
+    const headers = apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {};
     const opts = { signal: AbortSignal.timeout(10000), headers };
 
     const [realtimeRes, aggregateRes, topPagesRes, topSourcesRes] = await Promise.all([
@@ -2519,7 +2631,35 @@ cron.schedule('30 1 * * *', async () => {
 
 // === Feature: AI SEO Content Pipeline ===
 
+// --- Settings DB helpers ---
+const getSettingStmt = db.prepare('SELECT value FROM settings WHERE key = ?');
+const upsertSettingStmt = db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime(\'now\')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime(\'now\')');
+const deleteSettingStmt = db.prepare('DELETE FROM settings WHERE key = ?');
+const allSettingsStmt = db.prepare('SELECT key, value FROM settings');
+
+function getSetting(key) {
+  const row = getSettingStmt.get(key);
+  return row ? row.value : null;
+}
+
+const INTEGRATION_KEYS = [
+  { key: 'STRIPE_SECRET_KEY', label: 'Stripe Secret Key', category: 'Payments', validatable: true },
+  { key: 'ANTHROPIC_API_KEY', label: 'Anthropic API Key', category: 'AI', validatable: true },
+  { key: 'REPLICATE_API_TOKEN', label: 'Replicate API Token', category: 'AI', validatable: true },
+  { key: 'RESEND_API_KEY', label: 'Resend API Key', category: 'Email', validatable: true },
+  { key: 'PLAUSIBLE_API_KEY', label: 'Plausible API Key', category: 'Analytics', validatable: false },
+  { key: 'PLAUSIBLE_URL', label: 'Plausible URL', category: 'Analytics', validatable: false },
+  { key: 'TELEGRAM_BOT_TOKEN', label: 'Telegram Bot Token', category: 'Notifications', validatable: false },
+  { key: 'TELEGRAM_CHAT_ID', label: 'Telegram Chat ID', category: 'Notifications', validatable: false },
+  { key: 'BANNERFORGE_URL', label: 'BannerForge URL', category: 'Integrations', validatable: false },
+  { key: 'GITHUB_WEBHOOK_SECRET', label: 'GitHub Webhook Secret', category: 'Integrations', validatable: false },
+];
+const INTEGRATION_KEY_SET = new Set(INTEGRATION_KEYS.map(k => k.key));
+
 function getEnvKeyFromApps(envKeyName) {
+  // Check settings DB first
+  const dbVal = getSetting(envKeyName);
+  if (dbVal) return dbVal;
   for (const appDef of config.apps) {
     if (!appDef.envFile || !existsSync(appDef.envFile)) continue;
     const vars = parseEnvFile(appDef.envFile);
@@ -5173,11 +5313,12 @@ cron.schedule('0 6 * * 1', async () => {
 
       // Plausible traffic (30d visitors)
       let traffic30d = null;
-      if (appDef.domain && PLAUSIBLE_API_KEY) {
+      const plausibleKey = getPlausibleApiKey();
+      if (appDef.domain && plausibleKey) {
         try {
           const tRes = await fetch(
-            `${PLAUSIBLE_URL}/api/v1/stats/aggregate?site_id=${appDef.domain}&period=30d&metrics=visitors`,
-            { headers: { Authorization: `Bearer ${PLAUSIBLE_API_KEY}` }, signal: AbortSignal.timeout(5000) }
+            `${getPlausibleUrl()}/api/v1/stats/aggregate?site_id=${appDef.domain}&period=30d&metrics=visitors`,
+            { headers: { Authorization: `Bearer ${plausibleKey}` }, signal: AbortSignal.timeout(5000) }
           );
           if (tRes.ok) {
             const tData = await tRes.json();
@@ -6430,7 +6571,7 @@ cron.schedule('30 1 * * *', () => {
 // ========== GITHUB WEBHOOK (auto-deploy) ==========
 
 app.post('/api/webhooks/github', (req, res) => {
-  const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET;
+  const WEBHOOK_SECRET = getSetting('GITHUB_WEBHOOK_SECRET') || process.env.GITHUB_WEBHOOK_SECRET;
   if (!WEBHOOK_SECRET) return res.status(500).json({ error: 'Webhook secret not configured' });
   const sig = req.headers['x-hub-signature-256'];
   if (!sig || !req.rawBody) return res.status(401).json({ error: 'Invalid signature' });

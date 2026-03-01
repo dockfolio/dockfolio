@@ -695,6 +695,23 @@
     .app-config-item .app-config-actions button:hover { background: var(--surface3); color: var(--text); }
     .app-config-item .app-config-actions button.danger:hover { background: rgba(239,68,68,0.1); color: var(--red); border-color: var(--red); }
     .discover-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border: 1px solid rgba(34,197,94,0.2); border-radius: 6px; margin-bottom: 6px; font-size: 13px; background: rgba(34,197,94,0.03); }
+    .integrations-section { margin-top: 16px; }
+    .integrations-section h3 { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+    .int-category { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600; margin: 12px 0 6px; }
+    .int-category:first-child { margin-top: 0; }
+    .integration-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 4px; font-size: 12px; }
+    .integration-item .int-label { font-weight: 500; }
+    .integration-item .int-right { display: flex; align-items: center; gap: 8px; }
+    .int-status { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+    .int-status.valid { background: var(--green); }
+    .int-status.configured { background: var(--blue); }
+    .int-status.error { background: var(--red); }
+    .int-status.missing { background: var(--text-muted); opacity: 0.4; }
+    .int-masked { font-size: 11px; color: var(--text-dim); font-family: var(--font-mono); }
+    .int-source { font-size: 10px; color: var(--text-muted); background: var(--surface3); padding: 1px 6px; border-radius: 8px; }
+    .integration-edit { display: flex; align-items: center; gap: 6px; flex: 1; }
+    .integration-edit input { flex: 1; padding: 5px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; font-family: var(--font-mono); }
+    .integration-edit input:focus { outline: none; border-color: var(--blue); }
     .add-app-form { display: none; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-top: 12px; }
     .add-app-form.active { display: block; }
     .add-app-form .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
@@ -1659,6 +1676,13 @@
           <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Docker containers not yet tracked by Dockfolio</p>
           <div id="discoverList"></div>
         </div>
+      </div>
+      <div class="integrations-section">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h3>Integrations</h3>
+          <span style="font-size:10px;color:var(--text-muted)">API keys &amp; service connections</span>
+        </div>
+        <div id="integrationsPanel"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div>
       </div>
       <div id="addAppForm" class="add-app-form">
         <h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text)">Add New App</h3>
@@ -4704,6 +4728,67 @@
         }
       } catch (err) {
         console.error('Failed to load settings:', err);
+      }
+      loadIntegrations();
+    }
+
+    async function loadIntegrations() {
+      const panel = document.getElementById('integrationsPanel');
+      try {
+        const res = await apiFetch('/api/settings/keys?skip_validation=true');
+        if (!res.ok) { panel.innerHTML = '<span style="color:var(--red);font-size:12px">Failed to load</span>'; return; }
+        const { keys } = await res.json();
+        const grouped = {};
+        for (const k of keys) {
+          if (!grouped[k.category]) grouped[k.category] = [];
+          grouped[k.category].push(k);
+        }
+        let html = '';
+        for (const [cat, items] of Object.entries(grouped)) {
+          html += `<div class="int-category">${escapeHtml(cat)}</div>`;
+          for (const k of items) {
+            html += `<div class="integration-item" id="int-${k.key}">
+              <div class="int-label">${escapeHtml(k.label)}</div>
+              <div class="int-right">
+                ${k.hasValue ? `<span class="int-masked">${escapeHtml(k.maskedValue)}</span>` : ''}
+                ${k.source ? `<span class="int-source">${k.source}</span>` : ''}
+                <span class="int-status ${k.status}" title="${k.status}"></span>
+                <button class="btn" onclick="editIntegrationKey('${k.key}','${escapeHtml(k.label)}')" style="font-size:11px;padding:2px 8px">${k.hasValue ? 'Edit' : 'Set'}</button>
+              </div>
+            </div>`;
+          }
+        }
+        panel.innerHTML = html;
+      } catch (err) {
+        panel.innerHTML = '<span style="color:var(--red);font-size:12px">Error loading integrations</span>';
+      }
+    }
+
+    function editIntegrationKey(key, label) {
+      const row = document.getElementById('int-' + key);
+      if (!row) return;
+      row.innerHTML = `<div class="integration-edit">
+        <span class="int-label">${escapeHtml(label)}</span>
+        <input type="password" id="int-input-${key}" placeholder="Enter value (empty to clear)" autocomplete="off">
+        <button class="btn" onclick="saveIntegrationKey('${key}')" style="font-size:11px;padding:2px 8px;background:var(--green);color:#000;font-weight:600">Save</button>
+        <button class="btn" onclick="loadIntegrations()" style="font-size:11px;padding:2px 8px">Cancel</button>
+      </div>`;
+      document.getElementById('int-input-' + key).focus();
+    }
+
+    async function saveIntegrationKey(key) {
+      const input = document.getElementById('int-input-' + key);
+      if (!input) return;
+      try {
+        const res = await apiFetch('/api/settings/keys', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keys: [{ key, value: input.value }] })
+        });
+        if (!res.ok) throw new Error('Failed to save');
+        loadIntegrations();
+      } catch (err) {
+        alert('Failed to save key: ' + err.message);
       }
     }
 
