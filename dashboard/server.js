@@ -3258,7 +3258,7 @@ cron.schedule('5 * * * *', async () => {
     }
     // Prune entries older than 48h
     db.prepare("DELETE FROM container_metrics WHERE ts < datetime('now', '-48 hours')").run();
-    if (LOG) console.log(`[CRON] Container metrics snapshot: ${count} containers`);
+    console.log(`[CRON] Container metrics snapshot: ${count} containers`);
   } catch (err) { cronFail('Container metrics snapshot', err); }
 });
 
