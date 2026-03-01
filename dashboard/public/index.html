@@ -733,6 +733,13 @@
       .nav-tab { padding: 8px 12px; font-size: 11px; }
     }
 
+    /* === View Containers === */
+    .view { display: none; }
+    .view.active { display: block; }
+    /* Panels inside views are always visible — no toggle needed */
+    .view .view-panel { display: block; }
+    .view .view-panel.marketing-panel { display: block; animation: none; }
+
     /* === KPI Hero Row === */
     .kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); position: relative; z-index: 1; }
     .kpi-card { padding: 14px 16px; border-radius: 12px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); transition: all var(--duration-fast) var(--ease-out); }
@@ -1094,241 +1101,103 @@
     </div>
   </div>
 
-  <div class="system-bar-toggle" id="systemBarToggle" onclick="toggleSystemBar()">&#9660; System Metrics</div>
-  <div class="system-bar collapsed" id="systemBar">
-    <div class="metric">
-      <div class="metric-top">
-        <span class="metric-label">Memory</span>
-        <span class="metric-value" id="memValue">--</span>
+  <!-- === VIEW: HOME === -->
+  <div class="view active" id="view-home">
+    <div class="system-bar-toggle" id="systemBarToggle" onclick="toggleSystemBar()">&#9660; System Metrics</div>
+    <div class="system-bar collapsed" id="systemBar">
+      <div class="metric">
+        <div class="metric-top">
+          <span class="metric-label">Memory</span>
+          <span class="metric-value" id="memValue">--</span>
+        </div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="memBar"></div></div>
+        <div class="metric-detail" id="memDetail"></div>
       </div>
-      <div class="metric-bar"><div class="metric-bar-fill" id="memBar"></div></div>
-      <div class="metric-detail" id="memDetail"></div>
-    </div>
-    <div class="metric">
-      <div class="metric-top">
-        <span class="metric-label">Swap</span>
-        <span class="metric-value" id="swapValue">--</span>
+      <div class="metric">
+        <div class="metric-top">
+          <span class="metric-label">Swap</span>
+          <span class="metric-value" id="swapValue">--</span>
+        </div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="swapBar"></div></div>
+        <div class="metric-detail" id="swapDetail"></div>
       </div>
-      <div class="metric-bar"><div class="metric-bar-fill" id="swapBar"></div></div>
-      <div class="metric-detail" id="swapDetail"></div>
-    </div>
-    <div class="metric">
-      <div class="metric-top">
-        <span class="metric-label">Disk</span>
-        <span class="metric-value" id="diskValue">--</span>
+      <div class="metric">
+        <div class="metric-top">
+          <span class="metric-label">Disk</span>
+          <span class="metric-value" id="diskValue">--</span>
+        </div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="diskBar"></div></div>
+        <div class="metric-detail" id="diskDetail"></div>
       </div>
-      <div class="metric-bar"><div class="metric-bar-fill" id="diskBar"></div></div>
-      <div class="metric-detail" id="diskDetail"></div>
-    </div>
-    <div class="metric">
-      <div class="metric-top">
-        <span class="metric-label">Load</span>
-        <span class="metric-value" id="loadValue">--</span>
+      <div class="metric">
+        <div class="metric-top">
+          <span class="metric-label">Load</span>
+          <span class="metric-value" id="loadValue">--</span>
+        </div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="loadBar"></div></div>
+        <div class="metric-detail" id="loadDetail"></div>
       </div>
-      <div class="metric-bar"><div class="metric-bar-fill" id="loadBar"></div></div>
-      <div class="metric-detail" id="loadDetail"></div>
     </div>
-  </div>
 
-  <div class="streak-bar" id="streakBar">
-    <div class="streak-item">
-      <span class="streak-icon">&#x1F525;</span>
-      <span class="streak-count" id="uptimeStreak">0</span>
-      <span class="streak-label">day uptime streak</span>
-    </div>
-    <div class="streak-item">
-      <span class="streak-icon">&#x2705;</span>
-      <div class="streak-progress-bar"><div class="streak-progress-fill" id="healthProgressFill"></div></div>
-      <span class="streak-label"><span id="healthPct">0</span>% healthy</span>
-    </div>
-    <div class="streak-item">
-      <span class="streak-icon">&#x1F6E1;</span>
-      <span class="streak-label">Security: <span id="streakSecGrade" style="font-weight:700">--</span></span>
-    </div>
-  </div>
-
-  <div id="activityPanel" class="activity-panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Recent Activity (6h)</span>
-      <span id="activityCount" style="font-size:11px;color:var(--text-muted);background:var(--surface2);padding:2px 8px;border-radius:10px"></span>
-    </div>
-    <div class="activity-list" id="activityList"></div>
-  </div>
-
-  <div id="sslPanel" style="display:none;padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
-    <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:8px;font-weight:600">SSL Certificates</div>
-    <div id="sslList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px"></div>
-  </div>
-
-  <div id="keyHealthPanel" class="key-health-panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">API Key Health</span>
-      <button class="btn" onclick="fetchKeyHealth(true)">Recheck</button>
-    </div>
-    <div class="key-health-grid" id="keyHealthGrid"></div>
-  </div>
-
-  <div id="backupPanel" class="key-health-panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Database Backups</span>
-    </div>
-    <div class="key-health-grid" id="backupGrid"></div>
-  </div>
-
-  <div id="briefingPanel" class="briefing-panel">
-    <div class="briefing-header">
-      <span class="briefing-title">Morning Briefing</span>
-      <div class="briefing-actions">
-        <button class="btn" onclick="fetchBriefing(true)">Refresh</button>
-        <button class="btn" onclick="dismissBriefing()">Dismiss</button>
+    <div class="streak-bar" id="streakBar">
+      <div class="streak-item">
+        <span class="streak-icon">&#x1F525;</span>
+        <span class="streak-count" id="uptimeStreak">0</span>
+        <span class="streak-label">day uptime streak</span>
+      </div>
+      <div class="streak-item">
+        <span class="streak-icon">&#x2705;</span>
+        <div class="streak-progress-bar"><div class="streak-progress-fill" id="healthProgressFill"></div></div>
+        <span class="streak-label"><span id="healthPct">0</span>% healthy</span>
+      </div>
+      <div class="streak-item">
+        <span class="streak-icon">&#x1F6E1;</span>
+        <span class="streak-label">Security: <span id="streakSecGrade" style="font-weight:700">--</span></span>
       </div>
     </div>
-    <div class="briefing-body" id="briefingBody"><span style="color:var(--text-muted)">Loading briefing...</span></div>
-    <div class="briefing-meta" id="briefingMeta"></div>
-  </div>
 
-  <div id="healingPanel" class="healing-panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Auto-Healing Log</span>
-      <button class="btn" onclick="fetchHealingLog()">Refresh</button>
+    <div id="briefingPanel" class="briefing-panel">
+      <div class="briefing-header">
+        <span class="briefing-title">Morning Briefing</span>
+        <div class="briefing-actions">
+          <button class="btn" onclick="fetchBriefing(true)">Refresh</button>
+          <button class="btn" onclick="dismissBriefing()">Dismiss</button>
+        </div>
+      </div>
+      <div class="briefing-body" id="briefingBody"><span style="color:var(--text-muted)">Loading briefing...</span></div>
+      <div class="briefing-meta" id="briefingMeta"></div>
     </div>
-    <div id="healingList"></div>
-  </div>
 
-  <div id="securityPanel" class="security-panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-      <span style="font-size:14px;font-weight:600">Security Manager</span>
-      <div class="sec-header-actions">
-        <span class="sec-timestamp" id="secLastScan"></span>
-        <button class="sec-scan-btn" id="secScanBtn" onclick="runSecurityScan()">Run Scan</button>
+    <div class="docker-bar" id="dockerBar" style="margin-top:12px">
+      <div class="docker-stat">
+        <div><div class="docker-stat-label">Containers</div><div class="docker-stat-sub" id="dockerContainerSub"></div></div>
+        <span class="docker-stat-value" id="dockerContainers">--</span>
+      </div>
+      <div class="docker-stat">
+        <div><div class="docker-stat-label">Images</div><div class="docker-stat-sub" id="dockerImageSub"></div></div>
+        <span class="docker-stat-value" id="dockerImages">--</span>
+      </div>
+      <div class="docker-stat">
+        <div><div class="docker-stat-label">Volumes</div></div>
+        <span class="docker-stat-value" id="dockerVolumes">--</span>
       </div>
     </div>
-    <div class="sec-tabs">
-      <button class="sec-tab active" onclick="switchSecTab('dashboard',this)">Dashboard</button>
-      <button class="sec-tab" onclick="switchSecTab('containers',this)">Containers</button>
-      <button class="sec-tab" onclick="switchSecTab('certificates',this)">Certificates</button>
-      <button class="sec-tab" onclick="switchSecTab('headers',this)">Headers</button>
-      <button class="sec-tab" onclick="switchSecTab('network',this)">Network</button>
-    </div>
-    <div id="sec-dashboard" class="sec-tab-content active"><div id="secDashboardContent"><span style="color:var(--text-muted);font-size:12px">Press "Run Scan" to audit your infrastructure security.</span></div></div>
-    <div id="sec-containers" class="sec-tab-content"><div id="secContainersContent"></div></div>
-    <div id="sec-certificates" class="sec-tab-content"><div id="secCertificatesContent"></div></div>
-    <div id="sec-headers" class="sec-tab-content"><div id="secHeadersContent"></div></div>
-    <div id="sec-network" class="sec-tab-content"><div id="secNetworkContent"></div></div>
-  </div>
 
-  <div id="projectsPanel" class="projects-panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-      <span style="font-size:14px;font-weight:600">Projects Manager</span>
-      <button class="btn" onclick="fetchProjectsOverview(true)" style="font-size:11px;color:var(--purple)">Refresh</button>
+    <div id="errorBanner" class="error-banner">
+      <span class="error-banner-icon">!</span>
+      <div class="error-banner-text">
+        <div class="error-banner-title" id="errorTitle"></div>
+        <div id="errorDetail"></div>
+      </div>
     </div>
-    <div class="proj-tabs">
-      <button class="proj-tab active" onclick="switchProjTab('overview',this)">Overview</button>
-      <button class="proj-tab" onclick="switchProjTab('tasks',this)">Tasks</button>
-      <button class="proj-tab" onclick="switchProjTab('roadmap',this)">Roadmap</button>
-      <button class="proj-tab" onclick="switchProjTab('insights',this)">Insights</button>
-    </div>
-    <div id="proj-overview" class="proj-tab-content active"><div id="projOverviewContent"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div></div>
-    <div id="proj-tasks" class="proj-tab-content"><div id="projTasksContent"></div></div>
-    <div id="proj-roadmap" class="proj-tab-content"><div id="projRoadmapContent"></div></div>
-    <div id="proj-insights" class="proj-tab-content"><div id="projInsightsContent"></div></div>
-  </div>
 
-  <div id="opsPanel" class="ops-panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-      <span style="font-size:14px;font-weight:600">Ops Intelligence</span>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn" onclick="toggleADHDMode()" title="ADHD Mode: show only issues" id="adhdModeBtn">ADHD</button>
-        <button class="btn" onclick="createBaseline()">Snapshot Baseline</button>
-        <button class="btn" onclick="fetchOpsAll(true)">Refresh</button>
-      </div>
-    </div>
-    <div class="ops-tabs">
-      <button class="ops-tab active" onclick="switchOpsTab('pulse',this)">Pulse</button>
-      <button class="ops-tab" onclick="switchOpsTab('keys',this)">Keys &amp; Deps</button>
-      <button class="ops-tab" onclick="switchOpsTab('reportcards',this)">Report Cards</button>
-      <button class="ops-tab" onclick="switchOpsTab('timeline',this)">Timeline</button>
-    </div>
-    <div id="ops-pulse" class="ops-tab-content active"><div id="opsPulseContent"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div></div>
-    <div id="ops-keys" class="ops-tab-content"><div id="opsKeysContent"></div></div>
-    <div id="ops-reportcards" class="ops-tab-content"><div id="opsReportCardsContent"></div></div>
-    <div id="ops-timeline" class="ops-tab-content"><div id="opsTimelineContent"></div></div>
-  </div>
+    <div class="savings-card" id="savingsCard" style="display:none"></div>
+    <div id="appSections"></div>
+  </div><!-- /view-home -->
 
-  <div id="errorsPanel" class="errors-panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-      <span style="font-size:14px;font-weight:600">Error Tracker</span>
-      <div style="display:flex;gap:6px;align-items:center">
-        <span style="font-size:10px;color:var(--text-muted)" id="errLastUpdate"></span>
-        <button class="btn" onclick="fetchErrorsOverview()">Refresh</button>
-      </div>
-    </div>
-    <div class="err-tabs">
-      <button class="err-tab active" onclick="switchErrTab('overview',this)">Overview</button>
-      <button class="err-tab" onclick="switchErrTab('issues',this)">Issues</button>
-      <button class="err-tab" onclick="switchErrTab('events',this)">Events</button>
-      <button class="err-tab" onclick="switchErrTab('perf',this)">Performance</button>
-    </div>
-    <div id="err-overview" class="err-tab-content active"><div id="errOverviewContent"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div></div>
-    <div id="err-issues" class="err-tab-content"><div id="errIssuesContent"></div></div>
-    <div id="err-events" class="err-tab-content"><div id="errEventsContent"></div></div>
-    <div id="err-perf" class="err-tab-content"><div id="errPerfContent"></div></div>
-  </div>
-
-  <div id="settingsPanel" class="settings-panel">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-      <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Settings</span>
-      <div style="display:flex;gap:6px">
-        <button class="btn" onclick="loadSettings()">Refresh</button>
-        <button class="btn" onclick="toggleSettings()">Close</button>
-      </div>
-    </div>
-    <div class="settings-grid">
-      <div class="settings-section">
-        <h3>Configured Apps (<span id="configAppCount">0</span>)</h3>
-        <div id="configAppList"></div>
-      </div>
-      <div class="settings-section">
-        <h3>Discovered Containers</h3>
-        <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Docker containers not yet tracked by Dockfolio</p>
-        <div id="discoverList"></div>
-      </div>
-    </div>
-    <div id="addAppForm" class="add-app-form">
-      <h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text)">Add New App</h3>
-      <div class="form-row">
-        <div><label>Name *</label><input type="text" id="addAppName" placeholder="My App"></div>
-        <div><label>Type</label><select id="addAppType"><option value="app">App</option><option value="saas">SaaS</option><option value="tool">Tool</option><option value="static">Static</option><option value="infra">Infra</option></select></div>
-      </div>
-      <div class="form-row">
-        <div><label>Domain</label><input type="text" id="addAppDomain" placeholder="myapp.example.com"></div>
-        <div><label>Port</label><input type="number" id="addAppPort" placeholder="3000"></div>
-      </div>
-      <div class="form-row">
-        <div><label>Health Endpoint</label><input type="text" id="addAppHealth" placeholder="/" value="/"></div>
-        <div><label>Description</label><input type="text" id="addAppDesc" placeholder="What does this app do?"></div>
-      </div>
-      <div class="form-row">
-        <div><label>Containers (comma-separated)</label><input type="text" id="addAppContainers" placeholder="myapp-web-1, myapp-db-1"></div>
-        <div><label>Tech Stack</label><input type="text" id="addAppTech" placeholder="Node.js + PostgreSQL"></div>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button class="btn" onclick="submitAddApp()" style="background:var(--green);color:#000;font-weight:600">Add App</button>
-        <button class="btn" onclick="cancelAddApp()">Cancel</button>
-      </div>
-      <div id="addAppError" style="color:var(--red);font-size:12px;margin-top:6px;display:none"></div>
-    </div>
-  </div>
-
-  <div class="cmd-overlay" id="cmdOverlay">
-    <div class="cmd-box">
-      <input class="cmd-input" id="cmdInput" type="text" placeholder="Type a command or app name..." autocomplete="off">
-      <div class="cmd-results" id="cmdResults"></div>
-      <div class="cmd-hint">Type to search &middot; &uarr;&darr; to navigate &middot; Enter to execute &middot; Esc to close</div>
-    </div>
-  </div>
-
-  <div id="marketingPanel" class="marketing-panel">
+  <!-- === VIEW: MARKETING (Revenue + Analytics) === -->
+  <div class="view" id="view-marketing">
+    <div id="marketingPanel" class="marketing-panel view-panel">
     <div class="mkt-header">
       <span class="mkt-header-title">Marketing Manager</span>
       <span id="mktLastUpdated" style="font-size:10px;color:var(--text-muted)"></span>
@@ -1628,32 +1497,220 @@
       <div id="mktPlaybookGrid" class="marketing-grid"></div>
     </div>
   </div>
+  </div><!-- /view-marketing -->
 
-  <div class="docker-bar" id="dockerBar" style="margin-top:12px">
-    <div class="docker-stat">
-      <div><div class="docker-stat-label">Containers</div><div class="docker-stat-sub" id="dockerContainerSub"></div></div>
-      <span class="docker-stat-value" id="dockerContainers">--</span>
+  <!-- === VIEW: INFRASTRUCTURE === -->
+  <div class="view" id="view-infra">
+    <div class="system-bar-toggle" id="infraSystemBarToggle">&#9660; System Metrics</div>
+    <div class="system-bar" id="infraSystemBar">
+      <div class="metric">
+        <div class="metric-top">
+          <span class="metric-label">Memory</span>
+          <span class="metric-value" id="infraMemValue">--</span>
+        </div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="infraMemBar"></div></div>
+        <div class="metric-detail" id="infraMemDetail"></div>
+      </div>
+      <div class="metric">
+        <div class="metric-top">
+          <span class="metric-label">Swap</span>
+          <span class="metric-value" id="infraSwapValue">--</span>
+        </div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="infraSwapBar"></div></div>
+        <div class="metric-detail" id="infraSwapDetail"></div>
+      </div>
+      <div class="metric">
+        <div class="metric-top">
+          <span class="metric-label">Disk</span>
+          <span class="metric-value" id="infraDiskValue">--</span>
+        </div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="infraDiskBar"></div></div>
+        <div class="metric-detail" id="infraDiskDetail"></div>
+      </div>
+      <div class="metric">
+        <div class="metric-top">
+          <span class="metric-label">Load</span>
+          <span class="metric-value" id="infraLoadValue">--</span>
+        </div>
+        <div class="metric-bar"><div class="metric-bar-fill" id="infraLoadBar"></div></div>
+        <div class="metric-detail" id="infraLoadDetail"></div>
+      </div>
     </div>
-    <div class="docker-stat">
-      <div><div class="docker-stat-label">Images</div><div class="docker-stat-sub" id="dockerImageSub"></div></div>
-      <span class="docker-stat-value" id="dockerImages">--</span>
+
+    <div id="activityPanel" class="activity-panel view-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Recent Activity (6h)</span>
+        <span id="activityCount" style="font-size:11px;color:var(--text-muted);background:var(--surface2);padding:2px 8px;border-radius:10px"></span>
+      </div>
+      <div class="activity-list" id="activityList"></div>
     </div>
-    <div class="docker-stat">
-      <div><div class="docker-stat-label">Volumes</div></div>
-      <span class="docker-stat-value" id="dockerVolumes">--</span>
+
+    <div id="sslPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:8px;font-weight:600">SSL Certificates</div>
+      <div id="sslList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px"></div>
+    </div>
+
+    <div id="keyHealthPanel" class="key-health-panel view-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">API Key Health</span>
+        <button class="btn" onclick="fetchKeyHealth(true)">Recheck</button>
+      </div>
+      <div class="key-health-grid" id="keyHealthGrid"></div>
+    </div>
+
+    <div id="backupPanel" class="key-health-panel view-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Database Backups</span>
+      </div>
+      <div class="key-health-grid" id="backupGrid"></div>
+    </div>
+
+    <div id="healingPanel" class="healing-panel view-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Auto-Healing Log</span>
+        <button class="btn" onclick="fetchHealingLog()">Refresh</button>
+      </div>
+      <div id="healingList"></div>
+    </div>
+  </div><!-- /view-infra -->
+
+  <!-- === VIEW: SECURITY === -->
+  <div class="view" id="view-security">
+    <div id="securityPanel" class="security-panel view-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:14px;font-weight:600">Security Manager</span>
+        <div class="sec-header-actions">
+          <span class="sec-timestamp" id="secLastScan"></span>
+          <button class="sec-scan-btn" id="secScanBtn" onclick="runSecurityScan()">Run Scan</button>
+        </div>
+      </div>
+      <div class="sec-tabs">
+        <button class="sec-tab active" onclick="switchSecTab('dashboard',this)">Dashboard</button>
+        <button class="sec-tab" onclick="switchSecTab('containers',this)">Containers</button>
+        <button class="sec-tab" onclick="switchSecTab('certificates',this)">Certificates</button>
+        <button class="sec-tab" onclick="switchSecTab('headers',this)">Headers</button>
+        <button class="sec-tab" onclick="switchSecTab('network',this)">Network</button>
+      </div>
+      <div id="sec-dashboard" class="sec-tab-content active"><div id="secDashboardContent"><span style="color:var(--text-muted);font-size:12px">Press "Run Scan" to audit your infrastructure security.</span></div></div>
+      <div id="sec-containers" class="sec-tab-content"><div id="secContainersContent"></div></div>
+      <div id="sec-certificates" class="sec-tab-content"><div id="secCertificatesContent"></div></div>
+      <div id="sec-headers" class="sec-tab-content"><div id="secHeadersContent"></div></div>
+      <div id="sec-network" class="sec-tab-content"><div id="secNetworkContent"></div></div>
+    </div>
+
+    <div id="errorsPanel" class="errors-panel view-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:14px;font-weight:600">Error Tracker</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:10px;color:var(--text-muted)" id="errLastUpdate"></span>
+          <button class="btn" onclick="fetchErrorsOverview()">Refresh</button>
+        </div>
+      </div>
+      <div class="err-tabs">
+        <button class="err-tab active" onclick="switchErrTab('overview',this)">Overview</button>
+        <button class="err-tab" onclick="switchErrTab('issues',this)">Issues</button>
+        <button class="err-tab" onclick="switchErrTab('events',this)">Events</button>
+        <button class="err-tab" onclick="switchErrTab('perf',this)">Performance</button>
+      </div>
+      <div id="err-overview" class="err-tab-content active"><div id="errOverviewContent"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div></div>
+      <div id="err-issues" class="err-tab-content"><div id="errIssuesContent"></div></div>
+      <div id="err-events" class="err-tab-content"><div id="errEventsContent"></div></div>
+      <div id="err-perf" class="err-tab-content"><div id="errPerfContent"></div></div>
+    </div>
+
+    <div id="opsPanel" class="ops-panel view-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:14px;font-weight:600">Ops Intelligence</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn" onclick="toggleADHDMode()" title="ADHD Mode: show only issues" id="adhdModeBtn">ADHD</button>
+          <button class="btn" onclick="createBaseline()">Snapshot Baseline</button>
+          <button class="btn" onclick="fetchOpsAll(true)">Refresh</button>
+        </div>
+      </div>
+      <div class="ops-tabs">
+        <button class="ops-tab active" onclick="switchOpsTab('pulse',this)">Pulse</button>
+        <button class="ops-tab" onclick="switchOpsTab('keys',this)">Keys &amp; Deps</button>
+        <button class="ops-tab" onclick="switchOpsTab('reportcards',this)">Report Cards</button>
+        <button class="ops-tab" onclick="switchOpsTab('timeline',this)">Timeline</button>
+      </div>
+      <div id="ops-pulse" class="ops-tab-content active"><div id="opsPulseContent"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div></div>
+      <div id="ops-keys" class="ops-tab-content"><div id="opsKeysContent"></div></div>
+      <div id="ops-reportcards" class="ops-tab-content"><div id="opsReportCardsContent"></div></div>
+      <div id="ops-timeline" class="ops-tab-content"><div id="opsTimelineContent"></div></div>
+    </div>
+  </div><!-- /view-security -->
+
+  <!-- === VIEW: SETTINGS === -->
+  <div class="view" id="view-settings">
+    <div id="settingsPanel" class="settings-panel view-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Settings</span>
+        <div style="display:flex;gap:6px">
+          <button class="btn" onclick="loadSettings()">Refresh</button>
+        </div>
+      </div>
+      <div class="settings-grid">
+        <div class="settings-section">
+          <h3>Configured Apps (<span id="configAppCount">0</span>)</h3>
+          <div id="configAppList"></div>
+        </div>
+        <div class="settings-section">
+          <h3>Discovered Containers</h3>
+          <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Docker containers not yet tracked by Dockfolio</p>
+          <div id="discoverList"></div>
+        </div>
+      </div>
+      <div id="addAppForm" class="add-app-form">
+        <h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text)">Add New App</h3>
+        <div class="form-row">
+          <div><label>Name *</label><input type="text" id="addAppName" placeholder="My App"></div>
+          <div><label>Type</label><select id="addAppType"><option value="app">App</option><option value="saas">SaaS</option><option value="tool">Tool</option><option value="static">Static</option><option value="infra">Infra</option></select></div>
+        </div>
+        <div class="form-row">
+          <div><label>Domain</label><input type="text" id="addAppDomain" placeholder="myapp.example.com"></div>
+          <div><label>Port</label><input type="number" id="addAppPort" placeholder="3000"></div>
+        </div>
+        <div class="form-row">
+          <div><label>Health Endpoint</label><input type="text" id="addAppHealth" placeholder="/" value="/"></div>
+          <div><label>Description</label><input type="text" id="addAppDesc" placeholder="What does this app do?"></div>
+        </div>
+        <div class="form-row">
+          <div><label>Containers (comma-separated)</label><input type="text" id="addAppContainers" placeholder="myapp-web-1, myapp-db-1"></div>
+          <div><label>Tech Stack</label><input type="text" id="addAppTech" placeholder="Node.js + PostgreSQL"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn" onclick="submitAddApp()" style="background:var(--green);color:#000;font-weight:600">Add App</button>
+          <button class="btn" onclick="cancelAddApp()">Cancel</button>
+        </div>
+        <div id="addAppError" style="color:var(--red);font-size:12px;margin-top:6px;display:none"></div>
+      </div>
+    </div>
+
+    <div id="projectsPanel" class="projects-panel view-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:14px;font-weight:600">Projects Manager</span>
+        <button class="btn" onclick="fetchProjectsOverview(true)" style="font-size:11px;color:var(--purple)">Refresh</button>
+      </div>
+      <div class="proj-tabs">
+        <button class="proj-tab active" onclick="switchProjTab('overview',this)">Overview</button>
+        <button class="proj-tab" onclick="switchProjTab('tasks',this)">Tasks</button>
+        <button class="proj-tab" onclick="switchProjTab('roadmap',this)">Roadmap</button>
+        <button class="proj-tab" onclick="switchProjTab('insights',this)">Insights</button>
+      </div>
+      <div id="proj-overview" class="proj-tab-content active"><div id="projOverviewContent"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div></div>
+      <div id="proj-tasks" class="proj-tab-content"><div id="projTasksContent"></div></div>
+      <div id="proj-roadmap" class="proj-tab-content"><div id="projRoadmapContent"></div></div>
+      <div id="proj-insights" class="proj-tab-content"><div id="projInsightsContent"></div></div>
+    </div>
+  </div><!-- /view-settings -->
+
+  <div class="cmd-overlay" id="cmdOverlay">
+    <div class="cmd-box">
+      <input class="cmd-input" id="cmdInput" type="text" placeholder="Type a command or app name..." autocomplete="off">
+      <div class="cmd-results" id="cmdResults"></div>
+      <div class="cmd-hint">Type to search &middot; &uarr;&darr; to navigate &middot; Enter to execute &middot; Esc to close</div>
     </div>
   </div>
-
-  <div id="errorBanner" class="error-banner">
-    <span class="error-banner-icon">!</span>
-    <div class="error-banner-text">
-      <div class="error-banner-title" id="errorTitle"></div>
-      <div id="errorDetail"></div>
-    </div>
-  </div>
-
-  <div class="savings-card" id="savingsCard" style="display:none"></div>
-  <div id="appSections"></div>
 
   <div class="modal-overlay" id="modal">
     <div class="modal">
@@ -1912,102 +1969,70 @@
 
     // --- Navigation View Switching ---
     let currentView = 'home';
+    // View name mapping: revenue/analytics both map to view-marketing
+    const VIEW_MAP = { home: 'view-home', revenue: 'view-marketing', analytics: 'view-marketing', infra: 'view-infra', security: 'view-security', settings: 'view-settings' };
+
     function switchView(view, btn) {
       if (view === currentView && view === 'home') return;
       currentView = view;
+
       // Update nav tab active state
       document.querySelectorAll('#navBar .nav-tab').forEach(t => t.classList.remove('active'));
       if (btn) btn.classList.add('active');
       else { const tabs = document.querySelectorAll('#navBar .nav-tab'); const idx = ['home','revenue','analytics','infra','security','settings'].indexOf(view); if (tabs[idx]) tabs[idx].classList.add('active'); }
 
-      // Hide all toggle panels first
-      const hideActive = id => { const el = document.getElementById(id); if (el) el.classList.remove('active'); };
-      const hideVisible = id => { const el = document.getElementById(id); if (el) el.classList.remove('visible'); };
-      hideVisible('marketingPanel');
-      hideActive('opsPanel');
-      hideActive('errorsPanel');
-      hideActive('securityPanel');
-      hideActive('settingsPanel');
-      hideActive('projectsPanel');
-      hideVisible('activityPanel');
-      hideActive('briefingPanel');
-      hideActive('healingPanel');
-      hideVisible('backupPanel');
-      hideVisible('keyHealthPanel');
-      hideVisible('auditPanel');
-      hideVisible('statusPanel');
-      const sslEl = document.getElementById('sslPanel');
-      if (sslEl) sslEl.style.display = 'none';
+      // Swap active view container
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      const viewId = VIEW_MAP[view] || 'view-home';
+      const viewEl = document.getElementById(viewId);
+      if (viewEl) viewEl.classList.add('active');
 
-      // Show/hide view-specific sections
-      const appGrid = document.querySelector('.app-grid');
-      const kpiRow = document.getElementById('kpiRow');
-      const dockerBar = document.getElementById('dockerBar');
-      const errorBanner = document.getElementById('errorBanner');
-      const systemBarToggle = document.getElementById('systemBarToggle');
-      const systemBar = document.getElementById('systemBar');
-      const streakBar = document.getElementById('streakBar');
-      // Default: show home elements
-      if (appGrid) appGrid.style.display = '';
-      if (kpiRow) kpiRow.style.display = '';
-      if (dockerBar) dockerBar.style.display = '';
-      if (errorBanner) errorBanner.style.display = '';
-      if (systemBarToggle) systemBarToggle.style.display = '';
-      if (systemBar) systemBar.style.display = '';
-      if (streakBar) streakBar.style.display = '';
-
+      // View-specific data loading
       switch (view) {
-        case 'home':
-          // Default state — just KPI + app grid + docker bar
-          break;
         case 'revenue':
-          if (appGrid) appGrid.style.display = 'none';
-          if (dockerBar) dockerBar.style.display = 'none';
-          document.getElementById('marketingPanel').classList.add('visible');
           if (!mktLoaded) fetchMktAll();
-          setTimeout(() => switchMktTab('revenue', document.querySelector('.mkt-tab:nth-child(1)')), 50);
+          setTimeout(() => switchMktTab('revenue', document.querySelector('.mkt-tab:nth-child(2)')), 50);
           break;
         case 'analytics':
-          if (appGrid) appGrid.style.display = 'none';
-          if (dockerBar) dockerBar.style.display = 'none';
-          document.getElementById('marketingPanel').classList.add('visible');
           if (!mktLoaded) fetchMktAll();
-          setTimeout(() => switchMktTab('traffic', document.querySelector('.mkt-tab:nth-child(2)')), 50);
+          setTimeout(() => switchMktTab('traffic', document.querySelector('.mkt-tab:nth-child(3)')), 50);
           break;
         case 'infra':
-          if (appGrid) appGrid.style.display = 'none';
-          // Expand system bar
-          systemBarExpanded = true;
-          if (systemBar) systemBar.classList.remove('collapsed');
-          if (systemBarToggle) systemBarToggle.innerHTML = '&#9650; Hide System Metrics';
-          // Show infra panels
-          document.getElementById('activityPanel').classList.add('visible');
-          if (sslEl) { sslEl.style.display = 'block'; renderSSLPanel(); }
-          document.getElementById('backupPanel').classList.add('visible');
+          syncInfraMetrics();
+          renderSSLPanel();
+          fetchKeyHealth();
           fetchBackups();
-          document.getElementById('healingPanel').classList.add('active');
           fetchHealingLog();
+          fetchActivity();
           break;
         case 'security':
-          if (appGrid) appGrid.style.display = 'none';
-          if (dockerBar) dockerBar.style.display = 'none';
-          // Show security-related panels
-          document.getElementById('securityPanel').classList.add('active');
           if (!securityData) fetchSecurityStatus();
-          document.getElementById('errorsPanel').classList.add('active');
           if (!errorsData) fetchErrorsOverview();
-          document.getElementById('opsPanel').classList.add('active');
           if (!opsLoaded) fetchOpsAll();
           break;
         case 'settings':
-          if (appGrid) appGrid.style.display = 'none';
-          if (dockerBar) dockerBar.style.display = 'none';
-          // Show settings + projects
-          document.getElementById('settingsPanel').classList.add('active');
           loadSettings();
-          document.getElementById('projectsPanel').classList.add('active');
           if (!projOverviewData) fetchProjectsOverview();
           break;
+      }
+    }
+
+    // Sync system metrics to infra view's duplicate elements
+    function syncInfraMetrics() {
+      const pairs = [
+        ['memValue', 'infraMemValue'], ['memBar', 'infraMemBar'], ['memDetail', 'infraMemDetail'],
+        ['swapValue', 'infraSwapValue'], ['swapBar', 'infraSwapBar'], ['swapDetail', 'infraSwapDetail'],
+        ['diskValue', 'infraDiskValue'], ['diskBar', 'infraDiskBar'], ['diskDetail', 'infraDiskDetail'],
+        ['loadValue', 'infraLoadValue'], ['loadBar', 'infraLoadBar'], ['loadDetail', 'infraLoadDetail'],
+      ];
+      for (const [src, dst] of pairs) {
+        const s = document.getElementById(src);
+        const d = document.getElementById(dst);
+        if (s && d) {
+          d.innerHTML = s.innerHTML;
+          d.style.cssText = s.style.cssText;
+          d.className = s.className;
+        }
       }
     }
 
@@ -2519,15 +2544,7 @@
       grid.innerHTML = html;
     }
 
-    function toggleKeyHealth() {
-      const panel = document.getElementById('keyHealthPanel');
-      if (panel.classList.contains('visible')) {
-        panel.classList.remove('visible');
-        return;
-      }
-      panel.classList.add('visible');
-      fetchKeyHealth();
-    }
+    function toggleKeyHealth() { switchView('infra'); }
 
     // --- Database Backups ---
     async function fetchBackups() {
@@ -2588,15 +2605,7 @@
       grid.innerHTML = html;
     }
 
-    function toggleBackups() {
-      const panel = document.getElementById('backupPanel');
-      if (panel.classList.contains('visible')) {
-        panel.classList.remove('visible');
-        return;
-      }
-      panel.classList.add('visible');
-      fetchBackups();
-    }
+    function toggleBackups() { switchView('infra'); }
 
     // --- Marketing Manager (tabbed) ---
     let mktRevenueData = null;
@@ -3883,15 +3892,7 @@
       finally { btn.disabled = false; btn.textContent = 'Generate with AI'; }
     }
 
-    function toggleMarketing() {
-      const panel = document.getElementById('marketingPanel');
-      if (panel.classList.contains('visible')) {
-        panel.classList.remove('visible');
-        return;
-      }
-      panel.classList.add('visible');
-      if (!mktLoaded) fetchMktAll();
-    }
+    function toggleMarketing() { switchView('revenue'); }
 
     async function viewLogs(containerName, lines = 80) {
       const area = document.getElementById('logArea');
@@ -3982,13 +3983,7 @@
 
     let eventsData = [];
 
-    async function toggleActivity() {
-      const panel = document.getElementById('activityPanel');
-      if (panel.classList.contains('visible')) {
-        panel.classList.remove('visible');
-        return;
-      }
-      panel.classList.add('visible');
+    async function fetchActivity() {
       document.getElementById('activityList').innerHTML = '<span style="color:var(--text-muted);font-size:12px">Loading...</span>';
       try {
         const res = await apiFetch('/api/events');
@@ -3998,6 +3993,10 @@
       } catch (err) {
         document.getElementById('activityList').innerHTML = '<span style="color:var(--red);font-size:12px">Error loading events</span>';
       }
+    }
+
+    function toggleActivity() {
+      switchView('infra');
     }
 
     function renderActivity() {
@@ -4020,15 +4019,7 @@
       }).join('');
     }
 
-    function toggleSSLPanel() {
-      const panel = document.getElementById('sslPanel');
-      if (panel.style.display === 'none') {
-        panel.style.display = 'block';
-        renderSSLPanel();
-      } else {
-        panel.style.display = 'none';
-      }
-    }
+    function toggleSSLPanel() { switchView('infra'); }
 
     function renderSSLPanel() {
       const list = document.getElementById('sslList');
@@ -4131,6 +4122,8 @@
     }
 
     function toggleBriefing() {
+      // Briefing lives in home view — show it and toggle visibility
+      switchView('home');
       const panel = document.getElementById('briefingPanel');
       panel.classList.toggle('active');
       if (panel.classList.contains('active') && !briefingData) fetchBriefing();
@@ -4234,8 +4227,8 @@
       } else if (r.type === 'command') {
         const cmdMap = {
           briefing: () => toggleBriefing(),
-          revenue: () => { if (!document.getElementById('marketingPanel').classList.contains('active')) toggleMarketing(); setTimeout(() => switchMktTab('revenue', document.querySelector('.mkt-tab:nth-child(2)')), 100); },
-          seo: () => { if (!document.getElementById('marketingPanel').classList.contains('active')) toggleMarketing(); setTimeout(() => switchMktTab('seo', document.querySelector('.mkt-tab:nth-child(4)')), 100); },
+          revenue: () => { switchView('revenue'); setTimeout(() => switchMktTab('revenue', document.querySelector('.mkt-tab:nth-child(2)')), 100); },
+          seo: () => { switchView('analytics'); setTimeout(() => switchMktTab('seo', document.querySelector('.mkt-tab:nth-child(4)')), 100); },
           backups: () => toggleBackups(),
           prune: () => dockerPrune(document.querySelector('.header-btn[onclick*="dockerPrune"]')),
           healing: () => toggleHealing(),
@@ -4249,14 +4242,14 @@
           worry: () => { toggleOps(); setTimeout(() => switchOpsTab('pulse', document.querySelector('.ops-tab:first-child')), 100); },
           drift: () => { toggleOps(); setTimeout(() => switchOpsTab('timeline', document.querySelector('.ops-tab:nth-child(4)')), 100); },
           reportcards: () => { toggleOps(); setTimeout(() => switchOpsTab('reportcards', document.querySelector('.ops-tab:nth-child(3)')), 100); },
-          emails: () => { if (!document.getElementById('marketingPanel').classList.contains('active')) toggleMarketing(); setTimeout(() => switchMktTab('emails', document.querySelector('.mkt-tab:nth-child(5)')), 100); },
-          content: () => { if (!document.getElementById('marketingPanel').classList.contains('active')) toggleMarketing(); setTimeout(() => switchMktTab('content', document.querySelector('.mkt-tab:nth-child(6)')), 100); },
-          cohorts: () => { if (!document.getElementById('marketingPanel').classList.contains('active')) toggleMarketing(); setTimeout(() => { switchMktTab('revenue', document.querySelector('.mkt-tab:nth-child(2)')); setTimeout(() => switchRevenueSubtab('cohorts', document.querySelector('.mkt-subtab:nth-child(2)')), 100); }, 100); },
+          emails: () => { switchView('analytics'); setTimeout(() => switchMktTab('emails', document.querySelector('.mkt-tab:nth-child(5)')), 100); },
+          content: () => { switchView('analytics'); setTimeout(() => switchMktTab('content', document.querySelector('.mkt-tab:nth-child(6)')), 100); },
+          cohorts: () => { switchView('revenue'); setTimeout(() => { switchMktTab('revenue', document.querySelector('.mkt-tab:nth-child(2)')); setTimeout(() => switchRevenueSubtab('cohorts', document.querySelector('.mkt-subtab:nth-child(2)')), 100); }, 100); },
           keys: () => toggleKeyHealth(),
           ssl: () => toggleSSLPanel(),
-          crosspromo: () => { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('crosspromo', document.querySelector('.mkt-tab:nth-child(7)')), 100); },
-          banners: () => { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('banners', document.querySelector('.mkt-tab:nth-child(8)')), 100); },
-          playbook: () => { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('playbook', document.querySelector('.mkt-tab:nth-child(9)')), 100); },
+          crosspromo: () => { switchView('revenue'); setTimeout(() => switchMktTab('crosspromo', document.querySelector('.mkt-tab:nth-child(7)')), 100); },
+          banners: () => { switchView('revenue'); setTimeout(() => switchMktTab('banners', document.querySelector('.mkt-tab:nth-child(8)')), 100); },
+          playbook: () => { switchView('revenue'); setTimeout(() => switchMktTab('playbook', document.querySelector('.mkt-tab:nth-child(9)')), 100); },
           status: () => toggleStatusPage(),
           audit: () => toggleAudit(),
           shortcuts: () => toggleShortcutsHelp(),
@@ -4330,11 +4323,7 @@
       }
     }
 
-    function toggleHealing() {
-      const panel = document.getElementById('healingPanel');
-      panel.classList.toggle('active');
-      if (panel.classList.contains('active')) fetchHealingLog();
-    }
+    function toggleHealing() { switchView('infra'); }
 
     async function approveHealing(id) {
       try {
@@ -4353,11 +4342,7 @@
     // --- Security Manager ---
     let securityData = null;
 
-    function toggleSecurity() {
-      const panel = document.getElementById('securityPanel');
-      panel.classList.toggle('active');
-      if (panel.classList.contains('active') && !securityData) fetchSecurityStatus();
-    }
+    function toggleSecurity() { switchView('security'); }
 
     function switchSecTab(tabName, btn) {
       document.querySelectorAll('.sec-tab-content').forEach(t => t.classList.remove('active'));
@@ -4674,11 +4659,7 @@
     }
 
     // --- Settings Panel ---
-    function toggleSettings() {
-      const panel = document.getElementById('settingsPanel');
-      panel.classList.toggle('active');
-      if (panel.classList.contains('active')) loadSettings();
-    }
+    function toggleSettings() { switchView('settings'); }
 
     async function loadSettings() {
       try {
@@ -4798,11 +4779,7 @@
     let projRoadmapData = null;
     let projTaskFilter = { app: '', status: '', priority: '' };
 
-    function toggleProjects() {
-      const panel = document.getElementById('projectsPanel');
-      panel.classList.toggle('active');
-      if (panel.classList.contains('active') && !projOverviewData) fetchProjectsOverview();
-    }
+    function toggleProjects() { switchView('settings'); }
 
     function switchProjTab(tabName, btn) {
       document.querySelectorAll('.proj-tab-content').forEach(t => t.classList.remove('active'));
@@ -5275,11 +5252,7 @@
     let adhdMode = localStorage.getItem('adhdMode') === '1';
     if (adhdMode) document.body.classList.add('adhd-mode');
 
-    function toggleOps() {
-      const panel = document.getElementById('opsPanel');
-      panel.classList.toggle('active');
-      if (panel.classList.contains('active') && !opsLoaded) fetchOpsAll();
-    }
+    function toggleOps() { switchView('security'); }
 
     function switchOpsTab(tab, btn) {
       document.querySelectorAll('.ops-tab-content').forEach(t => t.classList.remove('active'));
@@ -5295,11 +5268,7 @@
     let errIssuesPage = { status: '', app: '', offset: 0 };
     let errEventsPage = { offset: 0 };
 
-    function toggleErrors() {
-      const panel = document.getElementById('errorsPanel');
-      panel.classList.toggle('active');
-      if (panel.classList.contains('active') && !errorsData) fetchErrorsOverview();
-    }
+    function toggleErrors() { switchView('security'); }
 
     function switchErrTab(tabName, btn) {
       document.querySelectorAll('.err-tab-content').forEach(t => t.classList.remove('active'));
@@ -5617,6 +5586,7 @@
     function toggleFocusMode(slug) {
       focusMode = !focusMode;
       if (focusMode && slug) {
+        switchView('home');
         focusedAppSlug = slug;
         document.body.classList.add('focus-mode');
         document.querySelectorAll('.app-card').forEach(c => {
@@ -6006,9 +5976,9 @@
       if (e.key === 'o') toggleOps();
       if (e.key === 'e') toggleErrors();
       if (e.key === 'A') toggleADHDMode();
-      if (e.key === 'x') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('crosspromo', document.querySelector('.mkt-tab:nth-child(7)')), 100); }
-      if (e.key === 'B') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('banners', document.querySelector('.mkt-tab:nth-child(8)')), 100); }
-      if (e.key === 'p') { if (!document.getElementById('marketingPanel').classList.contains('visible')) toggleMarketing(); setTimeout(() => switchMktTab('playbook', document.querySelector('.mkt-tab:nth-child(9)')), 100); }
+      if (e.key === 'x') { switchView('revenue'); setTimeout(() => switchMktTab('crosspromo', document.querySelector('.mkt-tab:nth-child(7)')), 100); }
+      if (e.key === 'B') { switchView('revenue'); setTimeout(() => switchMktTab('banners', document.querySelector('.mkt-tab:nth-child(8)')), 100); }
+      if (e.key === 'p') { switchView('revenue'); setTimeout(() => switchMktTab('playbook', document.querySelector('.mkt-tab:nth-child(9)')), 100); }
       if (e.key === '?' && !e.shiftKey) openCommandPalette();
       if (e.key === 'P') toggleStatusPage();
       if (e.key === 'L') toggleAudit();
