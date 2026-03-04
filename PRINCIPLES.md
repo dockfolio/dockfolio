@@ -166,7 +166,8 @@ for (const item of data) {
 ### Current State
 
 - 94 unit tests in `dashboard/utils.test.js` covering all utility functions
-- No integration or E2E tests yet (acknowledged limitation)
+- ~30 integration tests in `dashboard/server.test.js` (auth, endpoints, CSRF, headers)
+- Integration tests run in CI via GitHub Actions
 - Manual testing for UI changes
 
 ### Test Quality
@@ -195,7 +196,7 @@ for (const item of data) {
 
 - `CLAUDE.md` — AI-facing quick reference with full API docs
 - `PRINCIPLES.md` — This file
-- `HANDOVER.md` — Session handover state
+- `handover.md` — Session handover state
 - `config.yml` — Single source of truth for app configuration
 - Keep docs minimal, focused, and up-to-date
 - Consolidate rather than create new docs
@@ -223,5 +224,5 @@ for (const item of data) {
 
 ---
 
-**Last Updated:** 2026-03-01
+**Last Updated:** 2026-03-04
 **Maintainer:** Konrad Reyhe

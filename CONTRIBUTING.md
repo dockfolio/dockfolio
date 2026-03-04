@@ -64,7 +64,7 @@ This is a monolith by design. Do not introduce frontend frameworks, TypeScript, 
 
 ```
 dashboard/
-  server.js        Express API (77 endpoints), cron jobs, auth, all backend logic
+  server.js        Express API (~144 endpoints), cron jobs, auth, all backend logic
   public/
     index.html     Self-contained SPA (~140KB), vanilla JS, CSS-in-HTML
   config.yml       App registry (names, domains, containers, env paths)
@@ -78,19 +78,30 @@ install.sh         One-command install script
 **Key concepts:**
 - `config.yml` defines which apps Dockfolio tracks (containers, domains, health endpoints, env file paths)
 - SQLite stores auth, metrics, SEO audits, cohorts, emails, content, healing logs, banners, and playbooks
-- `node-cron` runs 6 scheduled jobs (revenue sync, SEO audits, content generation, cohort analysis, email queue, auto-healing)
+- `node-cron` runs ~28 scheduled jobs (revenue sync, SEO audits, content generation, cohort analysis, email queue, auto-healing, container metrics, security scans, error watching, and more)
 - The frontend is a single HTML file with inline JS/CSS -- no bundler, no components
 
 ## Testing
 
-There are no automated tests. All testing is manual.
+**Unit tests:** 94 tests in `dashboard/utils.test.js` covering all utility functions.
 
-Before submitting a PR, verify your changes work by:
+```bash
+cd dashboard
+npm test          # Run unit tests
+```
 
-1. Starting the dev server with `npm run dev`
-2. Confirming Docker containers are detected and displayed
-3. Testing any UI changes across the relevant panels (marketing, healing, settings, etc.)
-4. Checking the browser console and server logs for errors
+**Integration tests:** ~30 tests in `dashboard/server.test.js` covering auth, public endpoints, CSRF, and security headers. Requires a running server.
+
+```bash
+SERVER_URL=http://localhost:3000 TEST_PASS=yourpass node --test server.test.js
+```
+
+Before submitting a PR, also verify manually:
+
+1. Start the dev server with `npm run dev`
+2. Confirm Docker containers are detected and displayed
+3. Test any UI changes across the relevant views (home, marketing, infra, security, settings)
+4. Check the browser console and server logs for errors
 5. If you changed an API endpoint, test it with `curl`
 
 If your change affects cron jobs or scheduled tasks, describe how you verified the behavior in your PR description.
