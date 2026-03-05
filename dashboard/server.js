@@ -1306,9 +1306,9 @@ async function validateKey(type, value) {
       return null; // Unknown key type
     }
     const response = await fetch(url, opts);
-    // 200/201 = valid, 422 = valid (validation error means auth passed), 401/403 = expired
+    // 200/201 = valid, 422 = valid (validation error means auth passed), 429 = valid (rate-limited but key works), 401/403 = expired
     const s = response.status;
-    return (s === 200 || s === 201 || s === 422) ? 'valid' : 'expired';
+    return (s === 200 || s === 201 || s === 422 || s === 429) ? 'valid' : 'expired';
   } catch {
     return 'error';
   }
@@ -3465,7 +3465,7 @@ Be direct, no fluff. Use markdown formatting. If backups are stale or containers
 
   cachedBriefing = { type: 'ai', briefing: ai.text || 'Unable to generate briefing.', context, tokens: ai.tokens, generated: new Date().toISOString() };
   lastBriefingUpdate = now;
-  console.log(`[BRIEFING] Generated (${tokens} tokens)`);
+  console.log(`[BRIEFING] Generated (${ai.tokens} tokens)`);
   res.json(cachedBriefing);
 }));
 
