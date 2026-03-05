@@ -16,7 +16,7 @@ import {
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
   getMarketableApps, getAppsWithEnv, diskScore, securityScore, seoScore,
   parseId, asyncRoute, errorFingerprint, errorScore, rateLimit, toCsv,
-  isBot, evaluateCondition
+  isBot, callAnthropic
 } from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1302,9 +1302,6 @@ async function validateKey(type, value) {
       opts.headers['Authorization'] = `Bearer ${value}`;
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify({ from: 'test@test.com', to: 'invalid', subject: 'x', text: 'x' });
-    } else if (type === 'REPLICATE_API_TOKEN') {
-      url = 'https://api.replicate.com/v1/account';
-      opts.headers['Authorization'] = `Bearer ${value}`;
     } else {
       return null; // Unknown key type
     }
@@ -1317,7 +1314,7 @@ async function validateKey(type, value) {
   }
 }
 
-const VALIDATABLE_KEYS = ['STRIPE_SECRET_KEY', 'ANTHROPIC_API_KEY', 'RESEND_API_KEY', 'REPLICATE_API_TOKEN'];
+const VALIDATABLE_KEYS = ['STRIPE_SECRET_KEY', 'ANTHROPIC_API_KEY', 'RESEND_API_KEY'];
 
 app.get('/api/env/health', asyncRoute(async (req, res) => {
   const now = Date.now();
@@ -1360,30 +1357,6 @@ app.get('/api/env/health', asyncRoute(async (req, res) => {
   res.json(cachedKeyHealth);
 }));
 
-// GET /api/env/shared — detect shared keys across apps
-app.get('/api/env/shared', asyncRoute((_req, res) => {
-  const appsWithEnv = config.apps.filter(a => a.envFile && existsSync(a.envFile));
-  // Map: hash -> { key, maskedValue, apps[] }
-  const hashMap = new Map();
-
-  for (const appDef of appsWithEnv) {
-    const vars = parseEnvFile(appDef.envFile);
-    for (const v of vars) {
-      if (!SENSITIVE_PATTERN.test(v.key) || !v.value) continue;
-      const hash = hashValue(v.value, 64);
-      const mapKey = `${v.key}::${hash}`;
-      if (!hashMap.has(mapKey)) {
-        hashMap.set(mapKey, { key: v.key, maskedValue: maskValue(v.value), apps: [] });
-      }
-      hashMap.get(mapKey).apps.push(appDef.name);
-    }
-  }
-
-  // Only return entries shared by 2+ apps
-  const shared = Array.from(hashMap.values()).filter(e => e.apps.length > 1);
-  res.json({ shared });
-}));
-
 // --- Integration Keys (Settings DB) ---
 
 // GET /api/settings/keys — list all integration keys with status
@@ -1410,37 +1383,8 @@ app.get('/api/settings/keys', asyncRoute(async (req, res) => {
 
     // Validate keys that support it (unless skipped)
     if (value && entry.validatable && !skipValidation) {
-      try {
-        if (entry.key === 'STRIPE_SECRET_KEY') {
-          const r = await fetch('https://api.stripe.com/v1/balance', {
-            headers: { Authorization: 'Basic ' + Buffer.from(value + ':').toString('base64') },
-            signal: AbortSignal.timeout(5000)
-          });
-          status = r.ok ? 'valid' : 'error';
-        } else if (entry.key === 'ANTHROPIC_API_KEY') {
-          const r = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'x-api-key': value, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
-            signal: AbortSignal.timeout(5000)
-          });
-          status = (r.ok || r.status === 429) ? 'valid' : 'error';
-        } else if (entry.key === 'REPLICATE_API_TOKEN') {
-          const r = await fetch('https://api.replicate.com/v1/account', {
-            headers: { Authorization: `Bearer ${value}` },
-            signal: AbortSignal.timeout(5000)
-          });
-          status = r.ok ? 'valid' : 'error';
-        } else if (entry.key === 'RESEND_API_KEY') {
-          const r = await fetch('https://api.resend.com/api-keys', {
-            headers: { Authorization: `Bearer ${value}` },
-            signal: AbortSignal.timeout(5000)
-          });
-          status = r.ok ? 'valid' : 'error';
-        }
-      } catch {
-        status = 'error';
-      }
+      const result = await validateKey(entry.key, value);
+      status = result === 'valid' ? 'valid' : result === 'expired' ? 'expired' : result === 'error' ? 'error' : 'configured';
     }
 
     results.push({
@@ -2645,7 +2589,7 @@ function getSetting(key) {
 const INTEGRATION_KEYS = [
   { key: 'STRIPE_SECRET_KEY', label: 'Stripe Secret Key', category: 'Payments', validatable: true },
   { key: 'ANTHROPIC_API_KEY', label: 'Anthropic API Key', category: 'AI', validatable: true },
-  { key: 'REPLICATE_API_TOKEN', label: 'Replicate API Token', category: 'AI', validatable: true },
+  { key: 'REPLICATE_API_TOKEN', label: 'Replicate API Token', category: 'AI', validatable: false },
   { key: 'RESEND_API_KEY', label: 'Resend API Key', category: 'Email', validatable: true },
   { key: 'PLAUSIBLE_API_KEY', label: 'Plausible API Key', category: 'Analytics', validatable: false },
   { key: 'PLAUSIBLE_URL', label: 'Plausible URL', category: 'Analytics', validatable: false },
@@ -2732,32 +2676,12 @@ async function generateContent(appSlug, contentType, keyword) {
   const systemPrompt = buildContentSystemPrompt(appDef, seoData);
   const userPrompt = promptFn(keyword, appDef);
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': anthropicKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    }),
-    signal: AbortSignal.timeout(30000),
+  const ai = await callAnthropic(anthropicKey, {
+    model: 'claude-sonnet-4-20250514', maxTokens: 1024, timeout: 30000,
+    system: systemPrompt, messages: [{ role: 'user', content: userPrompt }],
   });
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Anthropic API error ${res.status}`);
-  }
-
-  const data = await res.json();
-  const body = data.content?.[0]?.text || '';
-  const tokenCount = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0);
-
-  return { body, tokenCount };
+  return { body: ai.text, tokenCount: ai.tokens };
 }
 
 // Content Pipeline endpoints
@@ -3069,14 +2993,6 @@ cron.schedule('30 3 * * *', async () => {
 // Simple obfuscation to avoid plaintext emails in SQLite — not cryptographic security
 const EMAIL_OBFUSCATION_KEY = process.env.EMAIL_OBFUSCATION_KEY || 'dockfolio-email-obfuscate-2026';
 
-function obfuscateEmail(text) {
-  const chars = [];
-  for (let i = 0; i < text.length; i++) {
-    chars.push(String.fromCharCode(text.charCodeAt(i) ^ EMAIL_OBFUSCATION_KEY.charCodeAt(i % EMAIL_OBFUSCATION_KEY.length)));
-  }
-  return Buffer.from(chars.join('')).toString('base64');
-}
-
 function deobfuscateEmail(encoded) {
   const decoded = Buffer.from(encoded, 'base64').toString();
   const chars = [];
@@ -3279,26 +3195,6 @@ app.post('/api/marketing/emails/send-test', asyncRoute(async (req, res) => {
   const result = await sendEmail(to_email, template.subject, template.html, app_slug);
   console.log(`[EMAIL] Test email sent, messageId=${result.id}`);
   res.json({ ok: true, messageId: result.id });
-}));
-
-app.post('/api/marketing/emails/pause/:id', asyncRoute((req, res) => {
-  const id = parseId(req.params.id);
-  if (isNaN(id)) return res.status(400).json({ error: 'Invalid sequence ID' });
-
-  db.prepare('UPDATE email_sequences SET active = 0 WHERE id = ?').run(id);
-  db.prepare("UPDATE email_queue SET status = 'paused' WHERE sequence_id = ? AND status = 'pending'").run(id);
-  console.log(`[EMAIL] Sequence ${id} paused`);
-  res.json({ ok: true, paused: true });
-}));
-
-app.post('/api/marketing/emails/resume/:id', asyncRoute((req, res) => {
-  const id = parseId(req.params.id);
-  if (isNaN(id)) return res.status(400).json({ error: 'Invalid sequence ID' });
-
-  db.prepare('UPDATE email_sequences SET active = 1 WHERE id = ?').run(id);
-  db.prepare("UPDATE email_queue SET status = 'pending' WHERE sequence_id = ? AND status = 'paused'").run(id);
-  console.log(`[EMAIL] Sequence ${id} resumed`);
-  res.json({ ok: true, active: true });
 }));
 
 // POST /api/marketing/emails/sequences — Create sequence
@@ -3565,31 +3461,9 @@ Format your response as a brief, scannable report:
 
 Be direct, no fluff. Use markdown formatting. If backups are stale or containers unhealthy, that's priority 1.`;
 
-  const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': anthropicKey,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 512,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-    signal: AbortSignal.timeout(15000),
-  });
+  const ai = await callAnthropic(anthropicKey, { messages: [{ role: 'user', content: prompt }] });
 
-  if (!aiRes.ok) {
-    const err = await aiRes.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Anthropic API error ${aiRes.status}`);
-  }
-
-  const aiData = await aiRes.json();
-  const briefingText = aiData.content?.[0]?.text || 'Unable to generate briefing.';
-  const tokens = (aiData.usage?.input_tokens || 0) + (aiData.usage?.output_tokens || 0);
-
-  cachedBriefing = { type: 'ai', briefing: briefingText, context, tokens, generated: new Date().toISOString() };
+  cachedBriefing = { type: 'ai', briefing: ai.text || 'Unable to generate briefing.', context, tokens: ai.tokens, generated: new Date().toISOString() };
   lastBriefingUpdate = now;
   console.log(`[BRIEFING] Generated (${tokens} tokens)`);
   res.json(cachedBriefing);
@@ -4850,29 +4724,11 @@ Sections needed:
 
 Output ONLY a JSON array of 6 objects, no other text. Each object: {"section":"...", "title":"...", "content":"..."}`;
 
-    const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4096,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-      signal: AbortSignal.timeout(30000),
+    const ai = await callAnthropic(anthropicKey, {
+      maxTokens: 4096, timeout: 30000, messages: [{ role: 'user', content: prompt }],
     });
-
-    if (!aiRes.ok) {
-      const err = await aiRes.json().catch(() => ({}));
-      throw new Error(err.error?.message || `Anthropic API error ${aiRes.status}`);
-    }
-
-    const aiData = await aiRes.json();
-    let text = aiData.content?.[0]?.text || '[]';
-    const tokens = (aiData.usage?.input_tokens || 0) + (aiData.usage?.output_tokens || 0);
+    let text = ai.text || '[]';
+    const tokens = ai.tokens;
 
     // Strip markdown code fences that LLMs often wrap around JSON
     text = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
@@ -5200,19 +5056,11 @@ app.get('/api/projects/insights/:slug', asyncRoute(async (req, res) => {
 
 ${type === 'next_actions' ? 'Output 3-5 specific, immediately actionable next steps. Be direct. No fluff. Each step should be doable in under a day. Format as a markdown bullet list.' : 'Write a concise weekly status summary in 3 short paragraphs: 1) current state, 2) progress this week, 3) recommended focus for next week.'}`;
 
-  const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
-    signal: AbortSignal.timeout(15000),
-  });
-  const aiData = await aiRes.json();
-  const content = aiData.content?.[0]?.text || 'No insight generated';
-  const tokens = aiData.usage?.output_tokens || 0;
+  const ai = await callAnthropic(anthropicKey, { messages: [{ role: 'user', content: prompt }] });
 
-  db.prepare('INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES (?, ?, ?, ?, datetime(\'now\')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at').run(slug, type, content, tokens);
+  db.prepare('INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES (?, ?, ?, ?, datetime(\'now\')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at').run(slug, type, ai.text || 'No insight generated', ai.outputTokens);
 
-  res.json({ content, generated_at: new Date().toISOString(), cached: false });
+  res.json({ content: ai.text || 'No insight generated', generated_at: new Date().toISOString(), cached: false });
 }));
 
 app.get('/api/projects/insights/portfolio/summary', asyncRoute(async (req, res) => {
@@ -5249,19 +5097,11 @@ Portfolio stats: ${totalOverdue} overdue tasks, ${weekDone} tasks completed this
 
 Write a concise 3-paragraph portfolio briefing: 1) overall health assessment, 2) what to focus on this week, 3) one strategic recommendation. Be direct, specific, actionable.`;
 
-  const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: prompt }] }),
-    signal: AbortSignal.timeout(15000),
-  });
-  const aiData = await aiRes.json();
-  const content = aiData.content?.[0]?.text || 'No summary generated';
-  const tokens = aiData.usage?.output_tokens || 0;
+  const ai = await callAnthropic(anthropicKey, { messages: [{ role: 'user', content: prompt }] });
 
-  db.prepare("INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES ('_portfolio', 'summary', ?, ?, datetime('now')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at").run(content, tokens);
+  db.prepare("INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES ('_portfolio', 'summary', ?, ?, datetime('now')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at").run(ai.text || 'No summary generated', ai.outputTokens);
 
-  res.json({ content, generated_at: new Date().toISOString(), cached: false });
+  res.json({ content: ai.text || 'No summary generated', generated_at: new Date().toISOString(), cached: false });
 }));
 
 // --- Projects Cron Jobs ---
@@ -5364,16 +5204,9 @@ cron.schedule('0 4 * * 0', async () => {
         const openTasks = db.prepare("SELECT title FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled') LIMIT 5").all(slug);
         const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
         const prompt = `Write a concise weekly status for ${appDef.name} (${appDef.type}): lifecycle=${meta.lifecycle}, MRR=€${((mrrRow?.value || 0) / 100).toFixed(0)}, ${openTasks.length} open tasks${openTasks.length > 0 ? ': ' + openTasks.map(t => t.title).join(', ') : ''}. 3 short paragraphs: state, progress, next focus.`;
-        const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 400, messages: [{ role: 'user', content: prompt }] }),
-          signal: AbortSignal.timeout(15000),
-        });
-        const aiData = await aiRes.json();
-        const content = aiData.content?.[0]?.text || '';
-        if (content) {
-          db.prepare("INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES (?, 'weekly_summary', ?, ?, datetime('now')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at").run(slug, content, aiData.usage?.output_tokens || 0);
+        const ai = await callAnthropic(anthropicKey, { maxTokens: 400, messages: [{ role: 'user', content: prompt }] });
+        if (ai.text) {
+          db.prepare("INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES (?, 'weekly_summary', ?, ?, datetime('now')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at").run(slug, ai.text, ai.outputTokens);
         }
       } catch (appErr) { console.error(`[PROJECTS] AI summary error for ${slug}:`, appErr.message); }
     }
@@ -6376,45 +6209,6 @@ app.get('/api/uptime/history', asyncRoute((req, res) => {
   res.json({ range, since, uptime, data: rows });
 }));
 
-// --- Alert Rules CRUD ---
-app.get('/api/alerts/rules', asyncRoute((_req, res) => {
-  const rules = db.prepare('SELECT * FROM alert_rules ORDER BY created_at DESC').all();
-  res.json(rules);
-}));
-
-app.post('/api/alerts/rules', asyncRoute((req, res) => {
-  const { app_slug, metric, operator, threshold, window_minutes, action } = req.body;
-  if (!metric || !operator || !threshold) return res.status(400).json({ error: 'metric, operator, and threshold are required' });
-  const validMetrics = ['error_rate', 'restart_count', 'response_time', 'log_pattern', 'cpu_usage', 'memory_usage'];
-  if (!validMetrics.includes(metric)) return res.status(400).json({ error: `Invalid metric. Valid: ${validMetrics.join(', ')}` });
-  const validOps = ['>', '<', '>=', '<=', '==', 'contains'];
-  if (!validOps.includes(operator)) return res.status(400).json({ error: `Invalid operator. Valid: ${validOps.join(', ')}` });
-  const result = db.prepare('INSERT INTO alert_rules (app_slug, metric, operator, threshold, window_minutes, action) VALUES (?, ?, ?, ?, ?, ?)').run(app_slug || null, metric, operator, String(threshold), window_minutes || 5, action || 'telegram');
-  res.json({ ok: true, id: result.lastInsertRowid });
-}));
-
-app.put('/api/alerts/rules/:id', asyncRoute((req, res) => {
-  const id = parseId(req.params.id);
-  if (isNaN(id)) return res.status(400).json({ error: 'Invalid rule ID' });
-  const existing = db.prepare('SELECT * FROM alert_rules WHERE id = ?').get(id);
-  if (!existing) return res.status(404).json({ error: 'Rule not found' });
-  const { app_slug, metric, operator, threshold, window_minutes, action, enabled } = req.body;
-  db.prepare('UPDATE alert_rules SET app_slug = ?, metric = ?, operator = ?, threshold = ?, window_minutes = ?, action = ?, enabled = ? WHERE id = ?').run(
-    app_slug ?? existing.app_slug, metric || existing.metric, operator || existing.operator,
-    threshold !== undefined ? String(threshold) : existing.threshold, window_minutes || existing.window_minutes,
-    action || existing.action, enabled !== undefined ? (enabled ? 1 : 0) : existing.enabled, id
-  );
-  res.json({ ok: true });
-}));
-
-app.delete('/api/alerts/rules/:id', asyncRoute((req, res) => {
-  const id = parseId(req.params.id);
-  if (isNaN(id)) return res.status(400).json({ error: 'Invalid rule ID' });
-  const result = db.prepare('DELETE FROM alert_rules WHERE id = ?').run(id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Rule not found' });
-  res.json({ ok: true });
-}));
-
 // --- Audit Log ---
 app.get('/api/audit', asyncRoute((req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
@@ -6610,56 +6404,6 @@ function matchRepoToApp(repoFullName) {
     }
   }
   return null;
-}
-
-// ========== ALERT RULES PROCESSOR ==========
-
-// Every 2 min: evaluate alert rules
-cron.schedule('*/2 * * * *', async () => {
-  try {
-    const rules = db.prepare("SELECT * FROM alert_rules WHERE enabled = 1").all();
-    if (rules.length === 0) return;
-    for (const rule of rules) {
-      try {
-        const value = evaluateAlertMetric(rule.metric, rule.app_slug, rule.window_minutes || 5);
-        if (value === null) continue;
-        const triggered = evaluateCondition(value, rule.operator, rule.threshold);
-        if (!triggered) continue;
-        // Cooldown check
-        if (rule.last_fired_at) {
-          const cooldown = (rule.window_minutes || 5) * 60000;
-          if (Date.now() - new Date(rule.last_fired_at).getTime() < cooldown) continue;
-        }
-        const message = `Alert: ${rule.metric} ${rule.operator} ${rule.threshold} (actual: ${value})${rule.app_slug ? ' on ' + rule.app_slug : ''}`;
-        if (rule.action === 'telegram') sendTelegram(message);
-        db.prepare("UPDATE alert_rules SET last_fired_at = datetime('now') WHERE id = ?").run(rule.id);
-        console.log(`[ALERTS] Fired rule ${rule.id}: ${message}`);
-      } catch (err) { console.error(`[ALERTS] Rule ${rule.id}:`, err.message); }
-    }
-  } catch (err) { cronFail('Alert rules', err); }
-});
-
-function evaluateAlertMetric(metric, appSlug, windowMin) {
-  const since = new Date(Date.now() - windowMin * 60000).toISOString();
-  switch (metric) {
-    case 'error_rate': {
-      const row = appSlug
-        ? db.prepare('SELECT COUNT(*) as c FROM error_events WHERE app_slug = ? AND created_at >= ?').get(appSlug, since)
-        : db.prepare('SELECT COUNT(*) as c FROM error_events WHERE created_at >= ?').get(since);
-      return row?.c || 0;
-    }
-    case 'response_time': {
-      const row = db.prepare('SELECT AVG(response_ms) as avg FROM uptime_history WHERE app_slug = ? AND checked_at >= ?').get(appSlug || '%', since);
-      return row?.avg ? Math.round(row.avg) : null;
-    }
-    case 'error_count_24h': {
-      const row = appSlug
-        ? db.prepare("SELECT COUNT(*) as c FROM error_events WHERE app_slug = ? AND created_at >= datetime('now', '-24 hours')").get(appSlug)
-        : db.prepare("SELECT COUNT(*) as c FROM error_events WHERE created_at >= datetime('now', '-24 hours')").get();
-      return row?.c || 0;
-    }
-    default: return null;
-  }
 }
 
 // ========== SQLITE BACKUP CRON ==========

@@ -179,6 +179,29 @@ export function isBot(ua) {
   return /bot|crawl|spider|lighthouse|headless|phantomjs|wget|curl|python-requests|go-http|java\/|scrapy/i.test(ua);
 }
 
+// Anthropic API helper — eliminates 7x duplicated fetch pattern
+export async function callAnthropic(apiKey, { model = 'claude-haiku-4-5-20251001', messages, system, maxTokens = 512, timeout = 15000 } = {}) {
+  const body = { model, max_tokens: maxTokens, messages };
+  if (system) body.system = system;
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeout),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Anthropic API error ${res.status}`);
+  }
+  const data = await res.json();
+  return {
+    text: data.content?.[0]?.text || '',
+    inputTokens: data.usage?.input_tokens || 0,
+    outputTokens: data.usage?.output_tokens || 0,
+    tokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
+  };
+}
+
 // Evaluate alert condition (operator + threshold)
 export function evaluateCondition(value, operator, threshold) {
   const t = parseFloat(threshold);

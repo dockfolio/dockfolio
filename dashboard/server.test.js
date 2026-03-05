@@ -248,12 +248,6 @@ describe('Authenticated endpoints', { skip: !AUTH_PASS ? 'No TEST_PASS set — s
     assert.ok(Array.isArray(body));
   });
 
-  it('GET /api/env/shared returns shared keys', async () => {
-    const { status, body } = await json('/api/env/shared');
-    assert.equal(status, 200);
-    assert.ok(typeof body === 'object');
-  });
-
   it('GET /api/command/search?q=apps returns results', async () => {
     const { status, body } = await json('/api/command/search?q=apps');
     assert.equal(status, 200);
