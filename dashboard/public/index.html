@@ -2253,7 +2253,7 @@
       currentModalSlug = slugify(app.name);
 
       const h = app.overallHealth || 'unknown';
-      document.getElementById('modalTitle').innerHTML = `<span class="status-dot ${h}"></span> ${app.name}`;
+      document.getElementById('modalTitle').innerHTML = `<span class="status-dot ${h}"></span> ${escapeHtml(app.name)}`;
 
       // Build tab bar
       const hasTabs = app.hasEnvFile;
@@ -2349,7 +2349,7 @@
         envCache[slug] = data;
         renderEnvTab(slug, data);
       } catch (err) {
-        document.getElementById('tab-env').innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${err.message}</div>`;
+        document.getElementById('tab-env').innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${escapeHtml(err.message)}</div>`;
       }
     }
 
@@ -2538,7 +2538,7 @@
         keyHealthData = data;
         renderKeyHealth();
       } catch (err) {
-        document.getElementById('keyHealthGrid').innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${err.message}</span>`;
+        document.getElementById('keyHealthGrid').innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${escapeHtml(err.message)}</span>`;
       }
     }
 
@@ -2579,7 +2579,7 @@
         const data = await res.json();
         renderBackups(data);
       } catch (err) {
-        document.getElementById('backupGrid').innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${err.message}</span>`;
+        document.getElementById('backupGrid').innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${escapeHtml(err.message)}</span>`;
       }
     }
 
@@ -2777,7 +2777,7 @@
       let html = '';
       for (const [name, app] of Object.entries(mktRevenueData.apps)) {
         if (app.error) {
-          html += `<div class="rev-card"><div class="rev-card-name">${name}</div><span style="color:var(--red);font-size:12px">Error: ${app.error}</span></div>`;
+          html += `<div class="rev-card"><div class="rev-card-name">${escapeHtml(name)}</div><span style="color:var(--red);font-size:12px">Error: ${escapeHtml(app.error)}</span></div>`;
           continue;
         }
         html += `<div class="rev-card">
@@ -2995,7 +2995,7 @@
         mktSEOData = await res.json();
         renderMktSEO();
       } catch (err) {
-        document.getElementById('marketingGrid').innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${err.message}</span>`;
+        document.getElementById('marketingGrid').innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${escapeHtml(err.message)}</span>`;
       }
     }
 
@@ -3080,7 +3080,7 @@
         }
         renderMktCohorts();
       } catch (err) {
-        content.innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${err.message}</span>`;
+        content.innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${escapeHtml(err.message)}</span>`;
       }
     }
 
@@ -3934,7 +3934,7 @@
         const viewer = area.querySelector('.log-viewer');
         viewer.scrollTop = viewer.scrollHeight;
       } catch (err) {
-        area.innerHTML = `<div class="log-viewer" style="color:var(--red)">Error: ${err.message}</div>`;
+        area.innerHTML = `<div class="log-viewer" style="color:var(--red)">Error: ${escapeHtml(err.message)}</div>`;
       }
     }
 

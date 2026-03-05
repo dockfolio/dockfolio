@@ -4183,7 +4183,8 @@ cron.schedule('0 5 * * 0', () => {
     const cutoff = new Date(Date.now() - 90 * 86400000).toISOString();
     const old = db.prepare('SELECT id FROM security_scans WHERE timestamp < ?').all(cutoff);
     if (old.length > 0) {
-      db.prepare(`DELETE FROM security_findings WHERE scan_id IN (${old.map(o => o.id).join(',')})`).run();
+      const placeholders = old.map(() => '?').join(',');
+      db.prepare(`DELETE FROM security_findings WHERE scan_id IN (${placeholders})`).run(...old.map(o => o.id));
       db.prepare('DELETE FROM security_scans WHERE timestamp < ?').run(cutoff);
       console.log(`[CRON] Cleaned up ${old.length} old security scans`);
     }
