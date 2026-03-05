@@ -15,6 +15,7 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY dashboard/package.json ./
 COPY dashboard/server.js ./
+COPY dashboard/utils.js ./
 COPY dashboard/public ./public
 
 # Default empty config (user mounts their own or uses Settings UI)

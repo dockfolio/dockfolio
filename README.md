@@ -27,6 +27,15 @@ Unlike Portainer or Coolify, Dockfolio combines infrastructure management with b
 ![Ops Intelligence](screenshots/05-ops-panel.png)
 *Worry Score, app heartbeat, streak tracking, and component health breakdown*
 
+![Auto-Healing](screenshots/05-healing-panel.png)
+*Auto-healing engine with playbooks and Telegram alerts*
+
+![Settings](screenshots/06-settings.png)
+*App configuration, environment management, and integrations*
+
+![Error Tracking](screenshots/07-error-tracking.png)
+*Built-in error tracking with fingerprinting and grouping*
+
 ![Security Manager](screenshots/08-security-manager.png)
 *Security scanning with 0-100 scoring and A-F grades*
 
@@ -76,7 +85,7 @@ Unlike Portainer or Coolify, Dockfolio combines infrastructure management with b
 - Worry Score: One number (0-100) that tells you if you need to pay attention
 
 **Developer Experience**
-- Keyboard-first UX (21 shortcuts)
+- Keyboard-first UX (23+ shortcuts)
 - Environment variable management with API key health checks
 - Shared key detection across apps
 - Dark theme, glassmorphic UI
@@ -179,19 +188,22 @@ PLAUSIBLE_API_KEY=your-api-key
 | `Shift+S` | Security Manager |
 | `o` | Ops Panel (Worry Score) |
 | `j` | Projects / Kanban |
+| `Shift+P` | Status Page (Uptime Kuma) |
+| `Shift+L` | Audit Log |
+| `1`-`6` | Switch views (Home, Revenue, Analytics, Infra, Security, Settings) |
 | `Escape` | Close panel / modal |
 | `/` | Focus search |
 
 ## Architecture
 
-Single-container Node.js app (~6,400 line backend, ~5,500 line frontend). SQLite for data persistence. No external dependencies required. Connects to your Docker socket and reads your apps' .env files for API keys. 124 tests (94 unit + 30 integration).
+Single-container Node.js app (~6,700 line backend, ~6,100 line frontend). SQLite for data persistence. No external dependencies required. Connects to your Docker socket and reads your apps' .env files for API keys. 129 tests (94 unit + 35 integration).
 
 ```
 Dockfolio
-├── Express API (144 endpoints)
+├── Express API (~150 endpoints)
 ├── Dockerode (container management)
-├── SQLite (33 tables: auth, metrics, SEO, cohorts, emails, content, healing, banners, playbooks, errors, perf, analytics, alerts)
-├── node-cron (28 scheduled jobs)
+├── SQLite (35 tables: auth, metrics, SEO, cohorts, emails, content, healing, banners, playbooks, errors, perf, analytics, alerts)
+├── node-cron (29 scheduled jobs)
 └── Vanilla JS SPA (keyboard-driven UI, 21 shortcuts, ADHD mode)
 ```
 

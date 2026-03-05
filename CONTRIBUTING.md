@@ -64,9 +64,9 @@ This is a monolith by design. Do not introduce frontend frameworks, TypeScript, 
 
 ```
 dashboard/
-  server.js        Express API (~144 endpoints), cron jobs, auth, all backend logic
+  server.js        Express API (~150 endpoints), cron jobs, auth, all backend logic
   public/
-    index.html     Self-contained SPA (~140KB), vanilla JS, CSS-in-HTML
+    index.html     Self-contained SPA (~370KB), vanilla JS, CSS-in-HTML
   config.yml       App registry (names, domains, containers, env paths)
   package.json     8 dependencies total
 
@@ -78,7 +78,7 @@ install.sh         One-command install script
 **Key concepts:**
 - `config.yml` defines which apps Dockfolio tracks (containers, domains, health endpoints, env file paths)
 - SQLite stores auth, metrics, SEO audits, cohorts, emails, content, healing logs, banners, and playbooks
-- `node-cron` runs ~28 scheduled jobs (revenue sync, SEO audits, content generation, cohort analysis, email queue, auto-healing, container metrics, security scans, error watching, and more)
+- `node-cron` runs ~29 scheduled jobs (revenue sync, SEO audits, content generation, cohort analysis, email queue, auto-healing, container metrics, security scans, error watching, and more)
 - The frontend is a single HTML file with inline JS/CSS -- no bundler, no components
 
 ## Testing
