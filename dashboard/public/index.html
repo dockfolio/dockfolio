@@ -2172,7 +2172,7 @@
             }
           }
 
-          html += `<div class="app-card ${cardClass}" data-slug="${app.slug || slugify(app.name)}" onclick="openDetail('${app.name}')">
+          html += `<div class="app-card ${cardClass}" data-slug="${app.slug || slugify(app.name)}" onclick="openDetail('${escapeHtml(app.name)}')">
             <div class="app-card-header">
               <span class="app-name"><span class="status-dot ${h}" data-label="${h}"></span>${app.name}</span>
               <div class="app-badges">
@@ -2314,9 +2314,9 @@
               <span><span class="stat-label">Net</span>${s.netRx ? fmt(s.netRx) + ' in / ' + fmt(s.netTx) + ' out' : '--'}</span>
             </div>
             <div class="btn-row">
-              <button class="btn" onclick="viewLogs('${c.name}')">View Logs</button>
-              <button class="btn" onclick="viewLogs('${c.name}', 200)">Last 200 lines</button>
-              <button class="btn" onclick="restartContainer('${c.name}', this)" style="margin-left:auto;color:var(--yellow)">Restart</button>
+              <button class="btn" onclick="viewLogs('${escapeHtml(c.name)}')">View Logs</button>
+              <button class="btn" onclick="viewLogs('${escapeHtml(c.name)}', 200)">Last 200 lines</button>
+              <button class="btn" onclick="restartContainer('${escapeHtml(c.name)}', this)" style="margin-left:auto;color:var(--yellow)">Restart</button>
             </div>
           </div>`;
         }
@@ -2446,10 +2446,10 @@
         return;
       }
       const actualVal = typeof envRevealed[slug + '::' + key] === 'string' ? envRevealed[slug + '::' + key] : currentVal;
-      valCell.innerHTML = `<input class="env-edit-input" value="${escapeHtml(actualVal)}" onkeydown="if(event.key==='Enter')saveEnvEdit('${slug}','${key}',this.value);if(event.key==='Escape')loadEnvTab('${slug}')">
+      valCell.innerHTML = `<input class="env-edit-input" value="${escapeHtml(actualVal)}" onkeydown="if(event.key==='Enter')saveEnvEdit('${escapeHtml(slug)}','${escapeHtml(key)}',this.value);if(event.key==='Escape')loadEnvTab('${escapeHtml(slug)}')">
         <div class="btn-row" style="margin-top:4px">
-          <button class="btn" onclick="saveEnvEdit('${slug}','${key}',this.parentElement.previousElementSibling.value)" style="color:var(--green)">Save</button>
-          <button class="btn" onclick="loadEnvTab('${slug}')">Cancel</button>
+          <button class="btn" onclick="saveEnvEdit('${escapeHtml(slug)}','${escapeHtml(key)}',this.parentElement.previousElementSibling.value)" style="color:var(--green)">Save</button>
+          <button class="btn" onclick="loadEnvTab('${escapeHtml(slug)}')">Cancel</button>
         </div>`;
       valCell.querySelector('input').focus();
     }
@@ -3990,7 +3990,7 @@
     }
 
     function escapeHtml(str) {
-      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     function showToast(message, type = 'info', persistent = false) {
