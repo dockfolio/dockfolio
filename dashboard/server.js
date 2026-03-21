@@ -28,6 +28,44 @@ const rlBannerServe = rateLimit(120, 60000);   // 120 req/min for banner serving
 const rlBannerTrack = rateLimit(60, 60000);    // 60 req/min for click/view tracking
 const rlPublicRead  = rateLimit(30, 60000);    // 30 req/min for public read endpoints
 
+// --- Circuit Breaker ---
+function createCircuitBreaker(name, { failThreshold = 3, resetMs = 600000 } = {}) {
+  let failures = 0, lastFailure = 0, state = 'closed'; // closed | open | half-open
+  return {
+    get state() { return state; },
+    async call(fn) {
+      if (state === 'open') {
+        if (Date.now() - lastFailure > resetMs) { state = 'half-open'; }
+        else throw new Error(`Circuit breaker '${name}' is open`);
+      }
+      try {
+        const result = await fn();
+        if (state === 'half-open') { state = 'closed'; failures = 0; }
+        return result;
+      } catch (err) {
+        failures++;
+        lastFailure = Date.now();
+        if (failures >= failThreshold) { state = 'open'; console.error(`[CIRCUIT] '${name}' opened after ${failures} failures`); }
+        throw err;
+      }
+    },
+  };
+}
+
+const cbStripe = createCircuitBreaker('stripe');
+const cbPlausible = createCircuitBreaker('plausible');
+const cbAnthropic = createCircuitBreaker('anthropic');
+
+// --- Cron Overlap Guard ---
+const cronRunning = new Map();
+function guardedCron(name, fn) {
+  return async () => {
+    if (cronRunning.get(name)) { console.log(`[CRON] Skipping '${name}' — previous run still active`); return; }
+    cronRunning.set(name, true);
+    try { await fn(); } finally { cronRunning.set(name, false); }
+  };
+}
+
 // Load app config
 const configPath = join(__dirname, 'config.yml');
 const config = yaml.load(readFileSync(configPath, 'utf8'));
@@ -560,11 +598,19 @@ app.get('/api/containers/:name/logs', asyncRoute(async (req, res) => {
 
 // GET /api/docker/overview — Docker disk usage summary
 app.get('/api/docker/overview', asyncRoute(async (_req, res) => {
-  const [images, containers, volumes] = await Promise.all([
+  const [imagesResult, containersResult, volumesResult] = await Promise.allSettled([
     docker.listImages(),
     docker.listContainers({ all: true }),
     docker.listVolumes(),
   ]);
+
+  const images = imagesResult.status === 'fulfilled' ? imagesResult.value : [];
+  const containers = containersResult.status === 'fulfilled' ? containersResult.value : [];
+  const volumes = volumesResult.status === 'fulfilled' ? volumesResult.value : { Volumes: [] };
+
+  if (imagesResult.status === 'rejected') console.error('[DOCKER] listImages failed:', imagesResult.reason?.message);
+  if (containersResult.status === 'rejected') console.error('[DOCKER] listContainers failed:', containersResult.reason?.message);
+  if (volumesResult.status === 'rejected') console.error('[DOCKER] listVolumes failed:', volumesResult.reason?.message);
 
   const imageList = images.map(i => ({
     id: i.Id?.slice(7, 19),
@@ -622,13 +668,17 @@ app.get('/api/uptime', asyncRoute(async (_req, res) => {
   }
 
   const kumaBase = process.env.UPTIME_KUMA_URL || 'http://dockfolio-uptime-kuma:3001';
-  const [statusRes, heartbeatRes] = await Promise.all([
-    fetch(`${kumaBase}/api/status-page/status`),
-    fetch(`${kumaBase}/api/status-page/heartbeat/status`),
+  const kumaOpts = { signal: AbortSignal.timeout(5000) };
+  const [statusResult, heartbeatResult] = await Promise.allSettled([
+    fetch(`${kumaBase}/api/status-page/status`, kumaOpts),
+    fetch(`${kumaBase}/api/status-page/heartbeat/status`, kumaOpts),
   ]);
 
-  const statusData = await statusRes.json();
-  const heartbeatData = await heartbeatRes.json();
+  if (statusResult.status === 'rejected' && heartbeatResult.status === 'rejected') {
+    return res.status(503).json({ error: 'Uptime Kuma unavailable', details: statusResult.reason?.message });
+  }
+  const statusData = statusResult.status === 'fulfilled' ? await statusResult.value.json() : { publicGroupList: [] };
+  const heartbeatData = heartbeatResult.status === 'fulfilled' ? await heartbeatResult.value.json() : { heartbeatList: {} };
 
   // Map monitor data: id -> { name, uptime24h, avgPing, status }
   const monitors = {};
@@ -2182,7 +2232,7 @@ app.get('/api/marketing/revenue', asyncRoute(async (req, res) => {
   // Deduplicate: fetch each unique key once
   const keyResults = new Map();
   for (const [key, appNames] of keys) {
-    const data = await fetchStripeData(key);
+    const data = await cbStripe.call(() => fetchStripeData(key));
     keyResults.set(key, data);
   }
 
@@ -2225,7 +2275,7 @@ app.get('/api/marketing/revenue', asyncRoute(async (req, res) => {
     for (const [appName, data] of Object.entries(results)) {
       if (data.mrr != null) upsertMetric.run(slugify(appName), today, 'mrr', data.mrr / 100, null);
     }
-  } catch {}
+  } catch (err) { console.error('[METRICS] Revenue snapshot failed:', err.message); }
 
   res.json(cachedRevenue);
 }));
@@ -2287,7 +2337,7 @@ app.get('/api/marketing/analytics', asyncRoute(async (req, res) => {
   let totalVisitors = 0, totalPageviews = 0, totalRealtime = 0;
 
   await Promise.all(trackableApps.map(async (appDef) => {
-    const stats = await fetchPlausibleStats(appDef.domain);
+    const stats = await cbPlausible.call(() => fetchPlausibleStats(appDef.domain));
     results[appDef.name] = { domain: appDef.domain, ...stats };
     totalVisitors += stats.visitors || 0;
     totalPageviews += stats.pageviews || 0;
@@ -2309,7 +2359,7 @@ app.get('/api/marketing/analytics', asyncRoute(async (req, res) => {
     for (const [appName, data] of Object.entries(results)) {
       if (data.visitors != null) upsertMetric.run(slugify(appName), today, 'visitors', data.visitors, null);
     }
-  } catch {}
+  } catch (err) { console.error('[METRICS] Analytics snapshot failed:', err.message); }
 
   res.json(cachedAnalytics);
 }));
@@ -2541,7 +2591,7 @@ cron.schedule('0 */6 * * *', async () => {
     let totalMRR = 0;
     const keyResults = new Map();
     for (const [key, appNames] of keys) {
-      const data = await fetchStripeData(key);
+      const data = await cbStripe.call(() => fetchStripeData(key));
       keyResults.set(key, data);
       if (data.mrr) totalMRR += data.mrr;
     }
@@ -2676,10 +2726,10 @@ async function generateContent(appSlug, contentType, keyword) {
   const systemPrompt = buildContentSystemPrompt(appDef, seoData);
   const userPrompt = promptFn(keyword, appDef);
 
-  const ai = await callAnthropic(anthropicKey, {
+  const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
     model: 'claude-sonnet-4-20250514', maxTokens: 1024, timeout: 30000,
     system: systemPrompt, messages: [{ role: 'user', content: userPrompt }],
-  });
+  }));
 
   return { body: ai.text, tokenCount: ai.tokens };
 }
@@ -3373,7 +3423,7 @@ async function collectBriefingContext() {
   try {
     const latestScan = db.prepare('SELECT overall_score, grade, critical_count, high_count, medium_count, low_count FROM security_scans ORDER BY timestamp DESC LIMIT 1').get();
     if (latestScan) context.security = latestScan;
-  } catch {}
+  } catch (err) { console.error('[BRIEFING] Security score lookup failed:', err.message); }
 
   // Recent Docker events (last 24h)
   try {
@@ -3392,14 +3442,14 @@ async function collectBriefingContext() {
       dies: parsed.filter(e => e.Action === 'die').length,
       unhealthyEvents: parsed.filter(e => e.Action === 'health_status: unhealthy').length,
     };
-  } catch { context.events24h = { total: 0 }; }
+  } catch (err) { console.error('[BRIEFING] Docker events query failed:', err.message); context.events24h = { total: 0 }; }
 
   // Healing log (last 24h)
   try {
     const since24h = new Date(Date.now() - 86400000).toISOString();
     const healingActions = db.prepare('SELECT * FROM healing_log WHERE timestamp >= ? ORDER BY timestamp DESC').all(since24h);
     context.healing = healingActions.map(h => ({ condition: h.condition, action: h.action_taken, result: h.result, app: h.app_slug }));
-  } catch { context.healing = []; }
+  } catch (err) { console.error('[BRIEFING] Healing log query failed:', err.message); context.healing = []; }
 
   // Project tasks (overdue + due today)
   try {
@@ -3408,7 +3458,7 @@ async function collectBriefingContext() {
     const dueToday = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE due_date = ? AND status NOT IN ('done','cancelled')").get(today);
     const lastShipped = db.prepare("SELECT title, app_slug, shipped_date FROM project_roadmap WHERE status = 'shipped' ORDER BY shipped_date DESC LIMIT 1").get();
     context.projects = { overdueCount: overdue?.count || 0, dueTodayCount: dueToday?.count || 0, lastShipped: lastShipped || null };
-  } catch { context.projects = {}; }
+  } catch (err) { console.error('[BRIEFING] Project tasks query failed:', err.message); context.projects = {}; }
 
   // Ops Intelligence
   try {
@@ -3416,7 +3466,7 @@ async function collectBriefingContext() {
     const latestScore = db.prepare('SELECT streak_days FROM ops_scores ORDER BY timestamp DESC LIMIT 1').get();
     const recentDrifts = db.prepare("SELECT COUNT(*) as n FROM ops_events WHERE event_type LIKE 'drift_%' AND acknowledged = 0 AND timestamp >= datetime('now', '-24 hours')").get();
     context.ops = { worryScore: worryResult.score, breakdown: worryResult.breakdown, streakDays: latestScore?.streak_days || 0, unacknowledgedDrifts: recentDrifts?.n || 0 };
-  } catch { context.ops = {}; }
+  } catch (err) { console.error('[BRIEFING] Ops intelligence failed:', err.message); context.ops = {}; }
 
   // Error tracking
   try {
@@ -3461,7 +3511,7 @@ Format your response as a brief, scannable report:
 
 Be direct, no fluff. Use markdown formatting. If backups are stale or containers unhealthy, that's priority 1.`;
 
-  const ai = await callAnthropic(anthropicKey, { messages: [{ role: 'user', content: prompt }] });
+  const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, { messages: [{ role: 'user', content: prompt }] }));
 
   cachedBriefing = { type: 'ai', briefing: ai.text || 'Unable to generate briefing.', context, tokens: ai.tokens, generated: new Date().toISOString() };
   lastBriefingUpdate = now;
@@ -3564,6 +3614,8 @@ const HEALING_PLAYBOOKS = [
     confidence: 'high',
     execute: async (target) => {
       const container = docker.getContainer(target.id);
+      const info = await container.inspect();
+      if (info.State?.RemovalInProgress) return `Skipped ${target.name} — container is being removed/rebuilt`;
       await container.restart({ t: 10 });
       return `Restarted ${target.name}`;
     },
@@ -3627,6 +3679,8 @@ const HEALING_PLAYBOOKS = [
     confidence: 'medium',
     execute: async (target) => {
       const container = docker.getContainer(target.id);
+      const info = await container.inspect();
+      if (info.State?.RemovalInProgress) return `Skipped ${target.name} — container is being removed/rebuilt`;
       await container.restart({ t: 10 });
       return `Restarted exited container ${target.name} (was: ${target.status})`;
     },
@@ -3680,9 +3734,9 @@ async function runHealingCheck() {
 }
 
 // Run healing checks every 2 minutes
-cron.schedule('*/2 * * * *', () => {
-  runHealingCheck().catch(err => cronFail('Healing check', err));
-});
+cron.schedule('*/2 * * * *', guardedCron('healing', async () => {
+  await runHealingCheck().catch(err => cronFail('Healing check', err));
+}));
 
 // Healing API endpoints
 app.get('/api/healing/log', asyncRoute((_req, res) => {
@@ -4724,9 +4778,9 @@ Sections needed:
 
 Output ONLY a JSON array of 6 objects, no other text. Each object: {"section":"...", "title":"...", "content":"..."}`;
 
-    const ai = await callAnthropic(anthropicKey, {
+    const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
       maxTokens: 4096, timeout: 30000, messages: [{ role: 'user', content: prompt }],
-    });
+    }));
     let text = ai.text || '[]';
     const tokens = ai.tokens;
 
@@ -5056,7 +5110,7 @@ app.get('/api/projects/insights/:slug', asyncRoute(async (req, res) => {
 
 ${type === 'next_actions' ? 'Output 3-5 specific, immediately actionable next steps. Be direct. No fluff. Each step should be doable in under a day. Format as a markdown bullet list.' : 'Write a concise weekly status summary in 3 short paragraphs: 1) current state, 2) progress this week, 3) recommended focus for next week.'}`;
 
-  const ai = await callAnthropic(anthropicKey, { messages: [{ role: 'user', content: prompt }] });
+  const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, { messages: [{ role: 'user', content: prompt }] }));
 
   db.prepare('INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES (?, ?, ?, ?, datetime(\'now\')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at').run(slug, type, ai.text || 'No insight generated', ai.outputTokens);
 
@@ -5097,7 +5151,7 @@ Portfolio stats: ${totalOverdue} overdue tasks, ${weekDone} tasks completed this
 
 Write a concise 3-paragraph portfolio briefing: 1) overall health assessment, 2) what to focus on this week, 3) one strategic recommendation. Be direct, specific, actionable.`;
 
-  const ai = await callAnthropic(anthropicKey, { messages: [{ role: 'user', content: prompt }] });
+  const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, { messages: [{ role: 'user', content: prompt }] }));
 
   db.prepare("INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES ('_portfolio', 'summary', ?, ?, datetime('now')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at").run(ai.text || 'No summary generated', ai.outputTokens);
 
@@ -5204,7 +5258,7 @@ cron.schedule('0 4 * * 0', async () => {
         const openTasks = db.prepare("SELECT title FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled') LIMIT 5").all(slug);
         const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
         const prompt = `Write a concise weekly status for ${appDef.name} (${appDef.type}): lifecycle=${meta.lifecycle}, MRR=€${((mrrRow?.value || 0) / 100).toFixed(0)}, ${openTasks.length} open tasks${openTasks.length > 0 ? ': ' + openTasks.map(t => t.title).join(', ') : ''}. 3 short paragraphs: state, progress, next focus.`;
-        const ai = await callAnthropic(anthropicKey, { maxTokens: 400, messages: [{ role: 'user', content: prompt }] });
+        const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, { maxTokens: 400, messages: [{ role: 'user', content: prompt }] }));
         if (ai.text) {
           db.prepare("INSERT INTO project_ai_insights (app_slug, insight_type, content, token_count, generated_at) VALUES (?, 'weekly_summary', ?, ?, datetime('now')) ON CONFLICT(app_slug, insight_type) DO UPDATE SET content = excluded.content, token_count = excluded.token_count, generated_at = excluded.generated_at").run(slug, ai.text, ai.outputTokens);
         }
@@ -5270,7 +5324,7 @@ async function calculateWorryScore() {
       }
       breakdown.backups = Math.min(MAX.backups, staleCount * 5);
     }
-  } catch {}
+  } catch (err) { console.error('[WORRY] Backup freshness check failed:', err.message); }
 
   // 5. Security score
   try {
@@ -5280,14 +5334,14 @@ async function calculateWorryScore() {
       else if (scan.overall_score < 60) breakdown.security = 7;
       else if (scan.overall_score < 75) breakdown.security = 4;
     } else { breakdown.security = 5; }
-  } catch {}
+  } catch (err) { console.error('[WORRY] Security score lookup failed:', err.message); }
 
   // 6. Healing activity (last hour)
   try {
     const since1h = new Date(Date.now() - 3600000).toISOString();
     const r = db.prepare("SELECT COUNT(*) as n FROM healing_log WHERE timestamp >= ? AND result IN ('executed','pending')").get(since1h);
     breakdown.healing = Math.min(MAX.healing, (r?.n || 0) * 5);
-  } catch {}
+  } catch (err) { console.error('[WORRY] Healing activity query failed:', err.message); }
 
   // 7. SEO
   try {
@@ -5297,7 +5351,7 @@ async function calculateWorryScore() {
       if (avg < 40) breakdown.seo = 5;
       else if (avg < 60) breakdown.seo = 3;
     }
-  } catch {}
+  } catch (err) { console.error('[WORRY] SEO score query failed:', err.message); }
 
   // 8. Error tracking
   try {
@@ -5305,7 +5359,7 @@ async function calculateWorryScore() {
     const criticals = db.prepare("SELECT COUNT(*) as n FROM error_issues WHERE severity = 'critical' AND status = 'open' AND last_seen >= ?").get(since1h);
     const openErrors = db.prepare("SELECT COUNT(*) as n FROM error_events WHERE timestamp >= datetime('now', '-1 hour')").get();
     breakdown.errors = errorScore(criticals?.n || 0, openErrors?.n || 0);
-  } catch {}
+  } catch (err) { console.error('[WORRY] Error tracking query failed:', err.message); }
 
   const total = Math.min(100, Object.values(breakdown).reduce((a, b) => a + b, 0));
   return { score: total, breakdown, maxScores: MAX, timestamp: new Date().toISOString() };
@@ -5332,13 +5386,13 @@ async function snapshotBaseline(type = 'auto') {
       const name = containerName(c);
       containerStates[name] = { state: c.State, image: c.Image, imageId: (c.ImageID || '').slice(0, 24) };
     }
-  } catch {}
+  } catch (err) { console.error('[BASELINE] Container list failed:', err.message); }
 
   const configHash = hashValue(readFileSync(configPath, 'utf8'));
   let diskPct = 0;
   try {
     diskPct = parseInt(execSync('df -B1 / | tail -1', { timeout: 10000 }).toString().trim().split(/\s+/)[4]);
-  } catch {}
+  } catch (err) { console.error('[BASELINE] Disk usage check failed:', err.message); }
 
   db.prepare(`INSERT INTO ops_baselines (snapshot_type, env_hashes, container_states, disk_usage_pct, total_containers, config_hash)
     VALUES (?, ?, ?, ?, ?, ?)`).run(type, JSON.stringify(envHashes), JSON.stringify(containerStates), diskPct, Object.keys(containerStates).length, configHash);
@@ -5393,7 +5447,7 @@ async function detectDrift() {
         drifts.push({ type: 'drift_container', severity: 'info', title: `${name}: image changed`, details: JSON.stringify({ container: name, wasImage: base.image, nowImage: c.Image }) });
       }
     }
-  } catch {}
+  } catch (err) { console.error('[DRIFT] Container state check failed:', err.message); }
 
   // Config.yml change
   const currentConfigHash = hashValue(readFileSync(configPath, 'utf8'));
@@ -5407,7 +5461,7 @@ async function detectDrift() {
     if (baseline.disk_usage_pct && diskPct > baseline.disk_usage_pct + 10) {
       drifts.push({ type: 'drift_disk', severity: diskPct >= 80 ? 'critical' : 'warning', title: `Disk: ${baseline.disk_usage_pct}% → ${diskPct}%`, details: JSON.stringify({ was: baseline.disk_usage_pct, now: diskPct }) });
     }
-  } catch {}
+  } catch (err) { console.error('[DRIFT] Disk usage check failed:', err.message); }
 
   return { drifts, baseline_timestamp: baseline.timestamp, baseline_id: baseline.id };
 }
@@ -5661,7 +5715,7 @@ const NOISE_PATTERNS = [
   /Failed to find Server Action/i
 ];
 
-cron.schedule('*/5 * * * *', async () => {
+cron.schedule('*/5 * * * *', guardedCron('error-ingest', async () => {
   try {
     const containers = await docker.listContainers();
     // Map containers to app slugs
@@ -5708,15 +5762,17 @@ cron.schedule('*/5 * * * *', async () => {
       } catch { /* container may have stopped between list and logs */ }
     }
   } catch (err) { cronFail('Docker log scan', err); }
-});
+}));
 
-// --- Docker Event Watcher (persistent stream) ---
+// --- Docker Event Watcher (persistent stream with exponential backoff) ---
 let eventStream = null;
+let eventWatcherBackoff = 5000; // start at 5s, max 5min
 
 async function startEventWatcher() {
   try {
-    if (eventStream) try { eventStream.destroy(); } catch {}
+    if (eventStream) try { eventStream.destroy(); } catch (e) { console.error('[ERROR_WATCH] Stream destroy error:', e.message); }
     eventStream = await docker.getEvents({ filters: { type: ['container'], event: ['die', 'oom', 'health_status'] } });
+    eventWatcherBackoff = 5000; // reset on successful connect
 
     eventStream.on('data', async (chunk) => {
       try {
@@ -5742,21 +5798,31 @@ async function startEventWatcher() {
               const container = docker.getContainer(event.Actor.ID);
               const logs = await container.logs({ stdout: true, stderr: true, tail: 20 });
               lastLogs = (typeof logs === 'string' ? logs : logs.toString('utf8')).replace(/^.{8}/gm, '');
-            } catch {}
+            } catch (e) { console.error('[ERROR_WATCH] Failed to fetch dying container logs:', e.message); }
             ingestError({ app: appSlug, message: `Container ${name} died with exit code ${exitCode}`, stack: lastLogs || null, severity: 'critical', source: 'docker_event', container: name });
           }
         } else if (event.Action === 'health_status: unhealthy') {
           ingestError({ app: appSlug, message: `Container ${name} health check failed`, severity: 'warning', source: 'docker_event', container: name });
         }
-      } catch {}
+      } catch (err) { console.error('[ERROR_WATCH] Event processing error:', err.message); }
     });
 
-    eventStream.on('error', () => { setTimeout(startEventWatcher, 30_000); });
-    eventStream.on('close', () => { setTimeout(startEventWatcher, 30_000); });
+    const scheduleReconnect = (reason) => {
+      const jitter = Math.random() * eventWatcherBackoff * 0.3;
+      const delay = eventWatcherBackoff + jitter;
+      console.error(`[ERROR_WATCH] ${reason}, reconnecting in ${Math.round(delay / 1000)}s`);
+      eventWatcherBackoff = Math.min(eventWatcherBackoff * 2, 300000); // cap at 5 min
+      setTimeout(startEventWatcher, delay);
+    };
+    eventStream.on('error', (err) => scheduleReconnect(`Stream error: ${err?.message || 'unknown'}`));
+    eventStream.on('close', () => scheduleReconnect('Stream closed'));
     console.log('[ERROR_WATCH] Docker event watcher started');
   } catch (err) {
-    console.error('[ERROR_WATCH] Failed to start:', err.message);
-    setTimeout(startEventWatcher, 30_000);
+    const jitter = Math.random() * eventWatcherBackoff * 0.3;
+    const delay = eventWatcherBackoff + jitter;
+    console.error(`[ERROR_WATCH] Failed to start: ${err.message}, retrying in ${Math.round(delay / 1000)}s`);
+    eventWatcherBackoff = Math.min(eventWatcherBackoff * 2, 300000);
+    setTimeout(startEventWatcher, delay);
   }
 }
 startEventWatcher();
@@ -5871,7 +5937,7 @@ cron.schedule('0 7 * * *', async () => {
 
 // Every 5 min: Uptime health checks
 const uptimePrevStatus = new Map(); // slug -> 'up'|'degraded'|'down'
-cron.schedule('*/5 * * * *', async () => {
+cron.schedule('*/5 * * * *', guardedCron('uptime', async () => {
   try {
     const insert = db.prepare('INSERT INTO uptime_history (app_slug, status, response_ms) VALUES (?, ?, ?)');
     for (const a of config.apps) {
@@ -5908,7 +5974,7 @@ cron.schedule('*/5 * * * *', async () => {
       uptimePrevStatus.set(slug, status);
     }
   } catch (err) { cronFail('Uptime check', err); }
-});
+}));
 
 // --- Error Tracking API ---
 
@@ -6476,6 +6542,22 @@ app.post('/api/marketing/crosspromo/auto-place', asyncRoute(async (req, res) => 
 app.get('/health', (_req, res) => res.send('ok'));
 
 const port = process.env.PORT || 3000;
-app.listen(port, '0.0.0.0', () => {
+const server = app.listen(port, '0.0.0.0', () => {
   console.log(`Dashboard API running on port ${port}`);
 });
+
+// --- Graceful Shutdown ---
+function gracefulShutdown(signal) {
+  console.log(`[SHUTDOWN] ${signal} received, shutting down gracefully...`);
+  if (eventStream) try { eventStream.destroy(); } catch (e) { console.error('[SHUTDOWN] Event stream destroy error:', e.message); }
+  server.close(() => {
+    console.log('[SHUTDOWN] HTTP server closed');
+    try { db.close(); } catch (e) { console.error('[SHUTDOWN] data.db close error:', e.message); }
+    try { authDb.close(); } catch (e) { console.error('[SHUTDOWN] auth.db close error:', e.message); }
+    console.log('[SHUTDOWN] Databases closed. Exiting.');
+    process.exit(0);
+  });
+  setTimeout(() => { console.error('[SHUTDOWN] Forceful shutdown after 10s timeout'); process.exit(1); }, 10000);
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
