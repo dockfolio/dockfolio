@@ -2512,7 +2512,7 @@
       btn.textContent = 'Recreating...';
       btn.disabled = true;
       try {
-        const res = await fetch(`/api/apps/${slug}/recreate`, { method: 'POST' });
+        const res = await apiFetch(`/api/apps/${slug}/recreate`, { method: 'POST' });
         const data = await res.json();
         if (data.ok) {
           btn.textContent = 'Done!';
@@ -3268,7 +3268,7 @@
       const orig = btn.textContent;
       btn.textContent = '...'; btn.disabled = true;
       try {
-        const res = await fetch(`/api/marketing/emails/${action}/${id}`, { method: 'POST' });
+        const res = await apiFetch(`/api/marketing/emails/${action}/${id}`, { method: 'POST' });
         const data = await res.json();
         if (!data.ok) throw new Error(data.error || 'Failed');
         await fetchMktEmails();
@@ -3960,7 +3960,7 @@
       btn.textContent = 'Restarting...';
       btn.disabled = true;
       try {
-        const res = await fetch(`/api/containers/${name}/restart`, { method: 'POST' });
+        const res = await apiFetch(`/api/containers/${name}/restart`, { method: 'POST' });
         const data = await res.json();
         if (data.ok) {
           btn.textContent = 'Restarted';
