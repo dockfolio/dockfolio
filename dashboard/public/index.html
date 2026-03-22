@@ -2460,11 +2460,7 @@
 
     async function saveEnvEdit(slug, key, newValue) {
       try {
-        const res = await fetch(`/api/apps/${slug}/env`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ changes: { [key]: newValue } })
-        });
+        const res = await apiPost(`/api/apps/${slug}/env`, { changes: { [key]: newValue } }, 'PUT');
         const data = await res.json();
         if (!data.ok) throw new Error(data.error);
         // Clear cache and reload
@@ -2492,11 +2488,7 @@
       const value = document.getElementById('newEnvValue').value;
       if (!key) return showToast('Key is required', 'warning');
       try {
-        const res = await fetch(`/api/apps/${slug}/env`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ changes: { [key]: value } })
-        });
+        const res = await apiPost(`/api/apps/${slug}/env`, { changes: { [key]: value } }, 'PUT');
         const data = await res.json();
         if (!data.ok) throw new Error(data.error);
         await loadEnvTab(slug);
@@ -3369,11 +3361,7 @@
       try {
         const body = { status };
         if (status === 'published') body.published_at = new Date().toISOString();
-        const res = await fetch(`/api/marketing/content/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
+        const res = await apiPost(`/api/marketing/content/${id}`, body, 'PATCH');
         const data = await res.json();
         if (!data.ok) throw new Error(data.error);
         await fetchMktContent();
@@ -3410,11 +3398,7 @@
       const btn = document.getElementById('genSubmitBtn');
       btn.textContent = 'Generating...'; btn.disabled = true;
       try {
-        const res = await apiFetch('/api/marketing/content/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ app_slug: appSlug, content_type: contentType, keyword }),
-        });
+        const res = await apiPost('/api/marketing/content/generate', { app_slug: appSlug, content_type: contentType, keyword });
         const data = await res.json();
         if (!data.ok) throw new Error(data.error);
         hideGenerateForm();
@@ -3491,7 +3475,7 @@
 
     async function setCrosspromoStatus(id, status) {
       try {
-        const res = await apiFetch('/api/marketing/crosspromo/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+        const res = await apiPost('/api/marketing/crosspromo/' + id, { status }, 'PATCH');
         if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Update failed'); }
       } catch (err) {
         showToast(err.message, 'error');
@@ -3753,7 +3737,7 @@
       const appSlug = document.getElementById('plApp').value;
       const weight = parseInt(document.getElementById('plWeight').value) || 100;
       try {
-        const res = await apiFetch('/api/marketing/placements', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ banner_id: currentPlacementBannerId, app_slug: appSlug, weight }) });
+        const res = await apiPost('/api/marketing/placements', { banner_id: currentPlacementBannerId, app_slug: appSlug, weight });
         if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Failed'); }
         showToast('Placement added', 'success');
         bannersData = null; await fetchBanners();
@@ -3764,7 +3748,7 @@
 
     async function updatePlacement(id, status) {
       try {
-        const res = await apiFetch('/api/marketing/placements/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+        const res = await apiPost('/api/marketing/placements/' + id, { status }, 'PATCH');
         if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Failed'); }
         showToast('Placement ' + status, 'success');
         bannersData = null; await fetchBanners();
@@ -3896,7 +3880,7 @@
 
     async function updatePlaybookStatus(id, status) {
       try {
-        const res = await apiFetch('/api/marketing/playbooks/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+        const res = await apiPost('/api/marketing/playbooks/' + id, { status }, 'PUT');
         if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Failed'); }
         playbookData = null; fetchPlaybook();
       } catch (err) { showToast(err.message, 'error'); }
@@ -4791,11 +4775,7 @@
       const input = document.getElementById('int-input-' + key);
       if (!input) return;
       try {
-        const res = await apiFetch('/api/settings/keys', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ keys: [{ key, value: input.value }] })
-        });
+        const res = await apiPost('/api/settings/keys', { keys: [{ key, value: input.value }] }, 'PUT');
         if (!res.ok) throw new Error('Failed to save');
         loadIntegrations();
       } catch (err) {
@@ -4835,10 +4815,7 @@
       const containers = containersStr ? containersStr.split(',').map(c => c.trim()).filter(Boolean) : [];
 
       try {
-        const res = await apiFetch('/api/config/apps', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        const res = await apiPost('/api/config/apps', {
             name,
             type: document.getElementById('addAppType').value,
             domain: document.getElementById('addAppDomain').value.trim(),
@@ -4847,7 +4824,6 @@
             description: document.getElementById('addAppDesc').value.trim(),
             containers,
             tech: document.getElementById('addAppTech').value.trim(),
-          })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
@@ -4981,17 +4957,14 @@
 
     async function saveProjMeta(slug) {
       try {
-        await apiFetch('/api/projects/meta/' + slug, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        await apiPost('/api/projects/meta/' + slug, {
             lifecycle: document.getElementById('projEditLifecycle').value,
             priority: parseInt(document.getElementById('projEditPriority').value),
             revenue_goal_mrr: parseInt(document.getElementById('projEditMRR').value) || null,
             traffic_goal_mpv: parseInt(document.getElementById('projEditTraffic').value) || null,
             user_goal: parseInt(document.getElementById('projEditUsers').value) || null,
             notes: document.getElementById('projEditNotes').value || null,
-          })
-        });
+        }, 'PUT');
         showToast('Saved', 'success');
         const f = document.getElementById('projEditForm');
         if (f) f.remove();
@@ -5113,16 +5086,13 @@
       try {
         const title = document.getElementById('projNewTaskTitle').value.trim();
         if (!title) { showToast('Title required', 'warning'); return; }
-        await apiFetch('/api/projects/tasks', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        await apiPost('/api/projects/tasks', {
             title,
             app_slug: document.getElementById('projNewTaskApp').value || null,
             priority: document.getElementById('projNewTaskPriority').value,
             due_date: document.getElementById('projNewTaskDue').value || null,
             reminder_at: document.getElementById('projNewTaskReminder').value || null,
             description: document.getElementById('projNewTaskDesc').value || null,
-          })
         });
         showToast('Task created', 'success');
         document.getElementById('projTaskForm').classList.remove('active');
@@ -5137,10 +5107,7 @@
       try {
         const text = document.getElementById('projImportText').value;
         if (!text.trim()) { showToast('Paste some markdown', 'warning'); return; }
-        const res = await apiFetch('/api/projects/tasks/import', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, app_slug: document.getElementById('projImportApp').value || null })
-        });
+        const res = await apiPost('/api/projects/tasks/import', { text, app_slug: document.getElementById('projImportApp').value || null });
         const data = await res.json();
         showToast(`Imported ${data.created} tasks`, 'success');
         document.getElementById('projImportForm').classList.remove('active');
@@ -5151,7 +5118,7 @@
     }
 
     async function completeTask(id) { try { await apiFetch('/api/projects/tasks/' + id + '/complete', { method: 'POST' }); fetchProjectTasks(); fetchProjectsOverview(true); } catch {} }
-    async function updateTaskStatus(id, status) { try { await apiFetch('/api/projects/tasks/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }); fetchProjectTasks(); } catch {} }
+    async function updateTaskStatus(id, status) { try { await apiPost('/api/projects/tasks/' + id, { status }, 'PUT'); fetchProjectTasks(); } catch {} }
     async function deleteTask(id) { if (!confirm('Delete this task?')) return; try { await apiFetch('/api/projects/tasks/' + id, { method: 'DELETE' }); fetchProjectTasks(); fetchProjectsOverview(true); showToast('Task deleted', 'success'); } catch {} }
 
     // --- Roadmap ---
@@ -5228,9 +5195,7 @@
       try {
         const title = document.getElementById('projNewRmTitle').value.trim();
         if (!title) { showToast('Title required', 'warning'); return; }
-        await apiFetch('/api/projects/roadmap', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        await apiPost('/api/projects/roadmap', {
             title,
             app_slug: document.getElementById('projNewRmApp').value || null,
             type: document.getElementById('projNewRmType').value,
@@ -5238,7 +5203,6 @@
             effort: document.getElementById('projNewRmEffort').value,
             target_date: document.getElementById('projNewRmDate').value || null,
             description: document.getElementById('projNewRmDesc').value || null,
-          })
         });
         showToast('Roadmap item created', 'success');
         document.getElementById('projRoadmapForm').classList.remove('active');
@@ -5279,9 +5243,7 @@
 
     async function saveRoadmapEdit(id) {
       try {
-        await apiFetch('/api/projects/roadmap/' + id, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        await apiPost('/api/projects/roadmap/' + id, {
             title: document.getElementById('projRmEditTitle').value,
             status: document.getElementById('projRmEditStatus').value,
             app_slug: document.getElementById('projRmEditApp').value || null,
@@ -5289,8 +5251,7 @@
             effort: document.getElementById('projRmEditEffort').value,
             target_date: document.getElementById('projRmEditDate').value || null,
             description: document.getElementById('projRmEditDesc').value || null,
-          })
-        });
+        }, 'PUT');
         showToast('Saved', 'success');
         document.getElementById('projRmEditForm').remove();
         fetchProjectRoadmap();
@@ -5563,10 +5524,7 @@
 
     async function patchErrIssue(id, status) {
       try {
-        await apiFetch('/api/errors/issues/' + id, {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status })
-        });
+        await apiPost('/api/errors/issues/' + id, { status }, 'PATCH');
         fetchErrIssues();
         fetchErrorsOverview();
       } catch {}
