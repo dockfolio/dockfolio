@@ -1828,6 +1828,10 @@
       return fetch(url, opts);
     }
 
+    function apiPost(url, data, method = 'POST') {
+      return apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    }
+
     const fmt = (bytes) => {
       if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' GB';
       if (bytes >= 1e6) return (bytes / 1e6).toFixed(0) + ' MB';
@@ -3538,7 +3542,7 @@
           headline: document.getElementById('xpHeadline').value || undefined,
           cta_text: document.getElementById('xpCta').value || undefined,
         };
-        const res = await apiFetch('/api/marketing/crosspromo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const res = await apiPost('/api/marketing/crosspromo', body);
         if (!res.ok) { const err = await res.json(); throw new Error(err.error); }
         hideCrosspromoForm();
         fetchCrosspromo();
@@ -3670,7 +3674,7 @@
         } else {
           body.content = document.getElementById('bnContent').value;
         }
-        const res = await apiFetch('/api/marketing/banners', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const res = await apiPost('/api/marketing/banners', body);
         if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Create failed'); }
         hideBannerForm();
         bannersData = null;
@@ -3881,7 +3885,7 @@
           content: document.getElementById('pbContent').value,
         };
         if (!body.title?.trim() || !body.content?.trim()) { showToast('Title and content required', 'warning'); return; }
-        const res = await apiFetch('/api/marketing/playbooks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const res = await apiPost('/api/marketing/playbooks', body);
         if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Failed'); }
         hidePlaybookForm();
         playbookData = null;

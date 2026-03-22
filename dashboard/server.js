@@ -23,10 +23,24 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 const BACKUP_DIR = process.env.BACKUP_DIR || join(process.env.HOME || '/home/deploy', 'backups');
-const rlErrorIngest = rateLimit(30, 60000);   // 30 req/min for error ingestion
-const rlBannerServe = rateLimit(120, 60000);   // 120 req/min for banner serving
-const rlBannerTrack = rateLimit(60, 60000);    // 60 req/min for click/view tracking
-const rlPublicRead  = rateLimit(30, 60000);    // 30 req/min for public read endpoints
+
+// --- Timeout & Rate Limit Constants (ms) ---
+const TIMEOUT_QUICK    = 5_000;     // Health checks, uptime polls (5s)
+const TIMEOUT_STANDARD = 10_000;    // Shell commands, API fetches (10s)
+const TIMEOUT_MEDIUM   = 15_000;    // Email sends, banner generation (15s)
+const TIMEOUT_AI       = 30_000;    // Anthropic API calls (30s)
+const TIMEOUT_HEAVY    = 60_000;    // Docker prune, batch operations (60s)
+const TIMEOUT_BUILD    = 300_000;   // Git pull + docker build (5min)
+const TIMEOUT_SHUTDOWN = 10_000;    // Graceful shutdown deadline (10s)
+const TIMEOUT_TLS      = 8_000;    // TLS certificate checks (8s)
+const RATE_WINDOW      = 60_000;   // Rate limit window (1min)
+const MS_PER_HOUR      = 3_600_000;
+const MS_PER_DAY       = 86_400_000;
+
+const rlErrorIngest = rateLimit(30, RATE_WINDOW);   // 30 req/min
+const rlBannerServe = rateLimit(120, RATE_WINDOW);  // 120 req/min
+const rlBannerTrack = rateLimit(60, RATE_WINDOW);   // 60 req/min
+const rlPublicRead  = rateLimit(30, RATE_WINDOW);   // 30 req/min
 
 // --- Circuit Breaker ---
 function createCircuitBreaker(name, { failThreshold = 3, resetMs = 600000 } = {}) {
@@ -66,9 +80,32 @@ function guardedCron(name, fn) {
   };
 }
 
+// --- Shell Helpers ---
+function getDiskParts() {
+  return execSync('df -B1 / | tail -1', { timeout: TIMEOUT_STANDARD }).toString().trim().split(/\s+/);
+}
+
+function getDiskPercent() {
+  return parseInt(getDiskParts()[4]);
+}
+
+function getLatestFile(dir) {
+  return execSync(`ls -t "${dir}" 2>/dev/null | head -1`, { timeout: TIMEOUT_STANDARD }).toString().trim();
+}
+
 // Load app config
 const configPath = join(__dirname, 'config.yml');
 const config = yaml.load(readFileSync(configPath, 'utf8'));
+
+// --- Config Helpers ---
+function resolveContainerApp(containerName) {
+  const appDef = config.apps?.find(a => (a.containers || [containerName]).some(cn => containerName.includes(cn || slugify(a.name))));
+  return appDef ? { appDef, slug: slugify(appDef.name) } : null;
+}
+
+function getAuditDomains() {
+  return (config.apps || []).filter(a => a.domain && a.type !== 'redirect').map(a => ({ domain: a.domain, slug: slugify(a.name) }));
+}
 
 // Cache for container stats (refreshed every 30s)
 let cachedStats = null;
@@ -159,13 +196,13 @@ function cleanExpiredSessions() {
   authDb.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
 }
 cleanExpiredSessions();
-setInterval(cleanExpiredSessions, 3600_000);
+setInterval(cleanExpiredSessions, MS_PER_HOUR);
 
 const SESSION_TTL_DAYS = 30;
 
 function createSession(userId) {
   const token = randomUUID();
-  const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 86400_000).toISOString();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * MS_PER_DAY).toISOString();
   authDb.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(token, userId, expiresAt);
   return { token, expiresAt };
 }
@@ -260,7 +297,7 @@ app.post('/api/auth/setup', (req, res) => {
   const hash = bcrypt.hashSync(password, 12);
   const result = authDb.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run(username.trim(), hash, 'admin');
   const session = createSession(result.lastInsertRowid);
-  res.cookie('session', session.token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: SESSION_TTL_DAYS * 86400_000 });
+  res.cookie('session', session.token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: SESSION_TTL_DAYS * MS_PER_DAY });
   res.json({ success: true });
 });
 
@@ -278,7 +315,7 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
   const session = createSession(user.id);
-  res.cookie('session', session.token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: SESSION_TTL_DAYS * 86400_000 });
+  res.cookie('session', session.token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: SESSION_TTL_DAYS * MS_PER_DAY });
   res.json({ success: true, username: user.username });
 });
 
@@ -407,7 +444,7 @@ async function sendTelegram(message) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }),
-      signal: AbortSignal.timeout(5000)
+      signal: AbortSignal.timeout(TIMEOUT_QUICK)
     });
   } catch { /* silent — Telegram is best-effort */ }
 }
@@ -418,7 +455,7 @@ function cronFail(cronName, err) {
   console.error(`[CRON] ${cronName} error:`, err.message || err);
   const now = Date.now();
   const last = cronFailAlerted.get(cronName) || 0;
-  if (now - last > 3600_000) {
+  if (now - last > MS_PER_HOUR) {
     cronFailAlerted.set(cronName, now);
     sendTelegram(`⚠️ Cron failed: ${cronName}\n${(err.message || String(err)).slice(0, 200)}`);
   }
@@ -496,14 +533,13 @@ app.get('/api/system', asyncRoute(async (_req, res) => {
   const swapFree = parse('SwapFree');
 
   // Disk usage
-  const dfOutput = execSync('df -B1 / | tail -1', { timeout: 10000 }).toString().trim();
-  const dfParts = dfOutput.split(/\s+/);
+  const dfParts = getDiskParts();
   const diskTotal = parseInt(dfParts[1], 10);
   const diskUsed = parseInt(dfParts[2], 10);
 
   // Load average
   const loadavg = readFileSync('/proc/loadavg', 'utf8').split(' ');
-  const cpuCount = parseInt(execSync('nproc', { timeout: 5000 }).toString().trim(), 10);
+  const cpuCount = parseInt(execSync('nproc', { timeout: TIMEOUT_QUICK }).toString().trim(), 10);
 
   // Uptime
   const uptimeRaw = readFileSync('/proc/uptime', 'utf8').split(' ')[0];
@@ -668,7 +704,7 @@ app.get('/api/uptime', asyncRoute(async (_req, res) => {
   }
 
   const kumaBase = process.env.UPTIME_KUMA_URL || 'http://dockfolio-uptime-kuma:3001';
-  const kumaOpts = { signal: AbortSignal.timeout(5000) };
+  const kumaOpts = { signal: AbortSignal.timeout(TIMEOUT_QUICK) };
   const [statusResult, heartbeatResult] = await Promise.allSettled([
     fetch(`${kumaBase}/api/status-page/status`, kumaOpts),
     fetch(`${kumaBase}/api/status-page/heartbeat/status`, kumaOpts),
@@ -726,7 +762,7 @@ app.get('/api/uptime', asyncRoute(async (_req, res) => {
 // GET /api/ssl — check SSL certificate expiry for all domains
 let cachedSSL = null;
 let lastSSLUpdate = 0;
-const SSL_TTL = 3600_000; // 1 hour
+const SSL_TTL = MS_PER_HOUR;
 
 app.get('/api/ssl', asyncRoute(async (_req, res) => {
   const now = Date.now();
@@ -741,11 +777,11 @@ app.get('/api/ssl', asyncRoute(async (_req, res) => {
 
   const results = {};
   await Promise.all(domains.map(domain => new Promise((resolve) => {
-    const req = https.default.request({ hostname: domain, port: 443, method: 'HEAD', timeout: 5000 }, (response) => {
+    const req = https.default.request({ hostname: domain, port: 443, method: 'HEAD', timeout: TIMEOUT_QUICK }, (response) => {
       const cert = response.socket?.getPeerCertificate?.();
       if (cert?.valid_to) {
         const expiry = new Date(cert.valid_to);
-        const daysLeft = Math.floor((expiry - now) / 86400000);
+        const daysLeft = Math.floor((expiry - now) / MS_PER_DAY);
         results[domain] = { expiry: cert.valid_to, daysLeft, issuer: cert.issuer?.O || '' };
       }
       response.destroy();
@@ -773,7 +809,7 @@ app.get('/api/events', async (_req, res) => {
       return res.json(cachedEvents);
     }
 
-    const since = Math.floor((now - 6 * 3600_000) / 1000);
+    const since = Math.floor((now - 6 * MS_PER_HOUR) / 1000);
     const until = Math.floor(now / 1000);
 
     const stream = await docker.getEvents({
@@ -857,7 +893,7 @@ app.post('/api/actions/prune', asyncRoute(async (req, res) => {
   result.images = pruneImages.ImagesDeleted?.length || 0;
   result.spaceReclaimed = pruneImages.SpaceReclaimed || 0;
 
-  result.buildCache = execSync('docker builder prune -f 2>&1 | tail -1', { timeout: 60000 }).toString().trim();
+  result.buildCache = execSync('docker builder prune -f 2>&1 | tail -1', { timeout: TIMEOUT_HEAVY }).toString().trim();
 
   auditLog(req, 'docker.prune', null, result);
   res.json({ ok: true, ...result });
@@ -949,7 +985,7 @@ app.get('/api/backups', asyncRoute((_req, res) => {
     }
 
     try {
-      const files = execSync(`ls -lt "${dir}" 2>/dev/null | grep -E '\\.(sql\\.gz|gz)$'`, { timeout: 10000 }).toString().trim().split('\n').filter(Boolean);
+      const files = execSync(`ls -lt "${dir}" 2>/dev/null | grep -E '\\.(sql\\.gz|gz)$'`, { timeout: TIMEOUT_STANDARD }).toString().trim().split('\n').filter(Boolean);
       if (files.length === 0) {
         results[app] = { status: 'no_backups', files: [] };
         continue;
@@ -971,7 +1007,7 @@ app.get('/api/backups', asyncRoute((_req, res) => {
 
       const latest = parsed[0];
       const ageMs = latest.mtime ? Date.now() - new Date(latest.mtime).getTime() : null;
-      const ageHours = ageMs ? Math.round(ageMs / 3600000) : null;
+      const ageHours = ageMs ? Math.round(ageMs / MS_PER_HOUR) : null;
 
       results[app] = {
         status: ageHours !== null && ageHours <= 25 ? 'ok' : 'stale',
@@ -1014,7 +1050,7 @@ async function auditSEO(domain) {
   try {
     // Fetch homepage
     const res = await fetch(`https://${domain}`, {
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(TIMEOUT_STANDARD),
       headers: { 'User-Agent': 'AppManager-SEO-Audit/1.0' },
     });
     const html = await res.text();
@@ -1086,7 +1122,7 @@ async function auditSEO(domain) {
   // Sitemap
   try {
     const sRes = await fetch(`https://${domain}/sitemap.xml`, {
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(TIMEOUT_QUICK),
       method: 'HEAD',
     });
     results.sitemap = sRes.ok;
@@ -1099,7 +1135,7 @@ async function auditSEO(domain) {
   // Robots.txt
   try {
     const rRes = await fetch(`https://${domain}/robots.txt`, {
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(TIMEOUT_QUICK),
       method: 'HEAD',
     });
     results.robots = rRes.ok;
@@ -1124,7 +1160,7 @@ async function auditSEO(domain) {
 
 let cachedSEO = null;
 let lastSEOUpdate = 0;
-const SEO_TTL = 3600_000; // 1 hour
+const SEO_TTL = MS_PER_HOUR;
 
 // GET /api/marketing/seo — SEO audit for all marketable apps
 app.get('/api/marketing/seo', asyncRoute(async (req, res) => {
@@ -1167,8 +1203,8 @@ app.get('/api/marketing/overview', asyncRoute(async (_req, res) => {
     const slug = slugify(appDef.name);
 
     // Revenue (from cached metrics)
-    const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
-    const revRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'revenue' ORDER BY date DESC LIMIT 1").get(slug);
+    const mrrRow = qLatestMetric.get(slug, 'mrr');
+    const revRow = qLatestMetric.get(slug, 'revenue');
 
     // Traffic (from cached analytics)
     const trafficData = cachedAnalytics?.apps?.[appDef.name] || null;
@@ -1177,7 +1213,7 @@ app.get('/api/marketing/overview', asyncRoute(async (_req, res) => {
     const secRow = db.prepare('SELECT overall_score as score, grade FROM security_scans ORDER BY timestamp DESC LIMIT 1').get();
 
     // SEO score
-    const seoRow = db.prepare('SELECT score FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug);
+    const seoRow = qLatestSEO.get(slug);
 
     // Project tasks
     const openTasks = db.prepare("SELECT COUNT(*) as n FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled')").get(slug)?.n || 0;
@@ -1318,7 +1354,7 @@ app.post('/api/apps/:slug/recreate', (req, res) => {
     const projectDir = dirname(appDef.composeFile);
     const output = execSync(
       `docker compose -f "${appDef.composeFile}" --project-directory "${projectDir}" up -d --no-build 2>&1`,
-      { timeout: 60000 }
+      { timeout: TIMEOUT_HEAVY }
     ).toString();
 
     console.log(`[RECREATE] ${appDef.name}: container recreated`);
@@ -1335,7 +1371,7 @@ const KEY_HEALTH_TTL = 300_000; // 5 minutes
 
 async function validateKey(type, value) {
   try {
-    const opts = { method: 'GET', headers: {}, signal: AbortSignal.timeout(10000) };
+    const opts = { method: 'GET', headers: {}, signal: AbortSignal.timeout(TIMEOUT_STANDARD) };
     let url;
     if (type === 'STRIPE_SECRET_KEY') {
       url = 'https://api.stripe.com/v1/balance';
@@ -2033,6 +2069,10 @@ const upsertMetric = db.prepare(`
   ON CONFLICT(app_slug, date, metric_type) DO UPDATE SET value = excluded.value, metadata = excluded.metadata
 `);
 
+// --- Prepared Query Helpers ---
+const qLatestMetric = db.prepare('SELECT value, metadata FROM metrics_daily WHERE app_slug = ? AND metric_type = ? ORDER BY date DESC LIMIT 1');
+const qLatestSEO = db.prepare('SELECT score, grade, checks FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1');
+
 const upsertSEOAudit = db.prepare(`
   INSERT INTO seo_audits (app_slug, date, score, grade, checks)
   VALUES (?, ?, ?, ?, ?)
@@ -2111,7 +2151,7 @@ function ingestError({ app: appSlug, message, stack, severity = 'error', source 
 
   if (tracker.count > 20) {
     const lastAlert = errorSpikeAlerted.get(appSlug) || 0;
-    if (now - lastAlert > 3600_000) { // max once per hour per app
+    if (now - lastAlert > MS_PER_HOUR) { // max once per hour per app
       errorSpikeAlerted.set(appSlug, now);
       sendTelegram(`⚡ Error spike: ${appSlug} — ${tracker.count} errors in 5 min`);
     }
@@ -2150,7 +2190,7 @@ async function fetchStripeData(secretKey) {
   const headers = {
     'Authorization': 'Basic ' + Buffer.from(secretKey + ':').toString('base64'),
   };
-  const opts = { headers, signal: AbortSignal.timeout(10000) };
+  const opts = { headers, signal: AbortSignal.timeout(TIMEOUT_STANDARD) };
 
   try {
     const [balanceRes, chargesRes] = await Promise.all([
@@ -2290,7 +2330,7 @@ async function fetchPlausibleStats(domain, period = '30d') {
     const baseUrl = `${getPlausibleUrl()}/api/v1/stats`;
     const apiKey = getPlausibleApiKey();
     const headers = apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {};
-    const opts = { signal: AbortSignal.timeout(10000), headers };
+    const opts = { signal: AbortSignal.timeout(TIMEOUT_STANDARD), headers };
 
     const [realtimeRes, aggregateRes, topPagesRes, topSourcesRes] = await Promise.all([
       fetch(`${baseUrl}/realtime/visitors?site_id=${domain}`, opts),
@@ -2367,7 +2407,7 @@ app.get('/api/marketing/analytics', asyncRoute(async (req, res) => {
 // GET /api/marketing/trends — historical metric data from SQLite
 app.get('/api/marketing/trends', asyncRoute((req, res) => {
   const days = parseInt(req.query.days) || 30;
-  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString().slice(0, 10);
 
   const rows = db.prepare(`
     SELECT app_slug, date, metric_type, value
@@ -2392,7 +2432,7 @@ app.get('/api/marketing/trends', asyncRoute((req, res) => {
 // GET /api/charts/revenue — MRR series per app, pre-formatted for Chart.js
 app.get('/api/charts/revenue', asyncRoute((req, res) => {
   const days = parseInt(req.query.days) || 30;
-  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString().slice(0, 10);
   const rows = db.prepare(`
     SELECT app_slug, date, value FROM metrics_daily
     WHERE metric_type = 'mrr' AND date >= ?
@@ -2418,7 +2458,7 @@ app.get('/api/charts/revenue', asyncRoute((req, res) => {
 // GET /api/charts/traffic — visitors/pageviews per app per day
 app.get('/api/charts/traffic', asyncRoute((req, res) => {
   const days = parseInt(req.query.days) || 30;
-  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString().slice(0, 10);
   const rows = db.prepare(`
     SELECT app_slug, date, visitors, pageviews FROM analytics_daily
     WHERE date >= ?
@@ -2444,7 +2484,7 @@ app.get('/api/charts/traffic', asyncRoute((req, res) => {
 // GET /api/charts/errors — error counts by severity per day
 app.get('/api/charts/errors', asyncRoute((req, res) => {
   const days = parseInt(req.query.days) || 7;
-  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString().slice(0, 10);
   const rows = db.prepare(`
     SELECT date(timestamp) as day, severity, COUNT(*) as count
     FROM error_events
@@ -2469,7 +2509,7 @@ app.get('/api/charts/errors', asyncRoute((req, res) => {
 // GET /api/charts/latency — hourly p50/p95/p99 aggregates
 app.get('/api/charts/latency', asyncRoute((req, res) => {
   const hours = parseInt(req.query.hours) || 168;
-  const cutoff = new Date(Date.now() - hours * 3600000).toISOString().slice(0, 13);
+  const cutoff = new Date(Date.now() - hours * MS_PER_HOUR).toISOString().slice(0, 13);
   const rows = db.prepare(`
     SELECT hour, SUM(request_count) as requests,
            AVG(p50_ms) as p50, AVG(p95_ms) as p95, AVG(p99_ms) as p99
@@ -2490,7 +2530,7 @@ app.get('/api/charts/latency', asyncRoute((req, res) => {
 // GET /api/charts/uptime — per-app status per hour (heatmap data)
 app.get('/api/charts/uptime', asyncRoute((req, res) => {
   const days = parseInt(req.query.days) || 7;
-  const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+  const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString();
   const rows = db.prepare(`
     SELECT app_slug, strftime('%Y-%m-%d %H:00', checked_at) as hour,
            SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_count,
@@ -2515,7 +2555,7 @@ app.get('/api/charts/uptime', asyncRoute((req, res) => {
 
 // GET /api/charts/sparklines — 24h CPU/memory sparklines per container (for app cards)
 app.get('/api/charts/sparklines', asyncRoute((req, res) => {
-  const cutoff = new Date(Date.now() - 24 * 3600000).toISOString();
+  const cutoff = new Date(Date.now() - 24 * MS_PER_HOUR).toISOString();
   const rows = db.prepare(`
     SELECT container_name, app_slug, ts, cpu, memory
     FROM container_metrics
@@ -2716,7 +2756,7 @@ async function generateContent(appSlug, contentType, keyword) {
   const anthropicKey = getAnthropicKey();
   if (!anthropicKey) throw new Error('No Anthropic API key found in any app .env file');
 
-  const appDef = findAppBySlug(appSlug) || config.apps.find(a => slugify(a.name) === appSlug);
+  const appDef = findAppBySlug(appSlug);
   if (!appDef) throw new Error(`App not found: ${appSlug}`);
 
   const promptFn = CONTENT_PROMPTS[contentType];
@@ -2727,7 +2767,7 @@ async function generateContent(appSlug, contentType, keyword) {
   const userPrompt = promptFn(keyword, appDef);
 
   const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
-    model: 'claude-sonnet-4-20250514', maxTokens: 1024, timeout: 30000,
+    model: 'claude-sonnet-4-20250514', maxTokens: 1024, timeout: TIMEOUT_AI,
     system: systemPrompt, messages: [{ role: 'user', content: userPrompt }],
   }));
 
@@ -2849,7 +2889,7 @@ async function paginateStripe(secretKey, endpoint, extraParams = '', maxPages = 
     let url = `https://api.stripe.com/v1/${endpoint}?limit=100`;
     if (extraParams) url += '&' + extraParams;
     if (startingAfter) url += '&starting_after=' + startingAfter;
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MEDIUM) });
     if (!res.ok) {
       console.error(`[Stripe] ${endpoint} page ${pages} failed: ${res.status}`);
       break;
@@ -3175,7 +3215,7 @@ async function sendEmail(toEmail, subject, htmlBody, appSlug) {
       subject,
       html: htmlBody,
     }),
-    signal: AbortSignal.timeout(10000),
+    signal: AbortSignal.timeout(TIMEOUT_STANDARD),
   });
 
   if (!res.ok) {
@@ -3363,7 +3403,7 @@ async function collectBriefingContext() {
     const memTotal = parseInt(memInfo.match(/MemTotal:\s+(\d+)/)?.[1] || '0') * 1024;
     const memAvail = parseInt(memInfo.match(/MemAvailable:\s+(\d+)/)?.[1] || '0') * 1024;
     const memUsedPct = Math.round(((memTotal - memAvail) / memTotal) * 100);
-    const diskLine = execSync('df -B1 / | tail -1', { timeout: 10000 }).toString().trim().split(/\s+/);
+    const diskLine = getDiskParts();
     const diskUsedPct = parseInt(diskLine[4]);
     context.system = { memUsedPct, diskUsedPct, diskUsedGB: Math.round(parseInt(diskLine[2]) / 1e9), diskTotalGB: Math.round(parseInt(diskLine[1]) / 1e9) };
   } catch { context.system = { error: 'unavailable' }; }
@@ -3395,10 +3435,10 @@ async function collectBriefingContext() {
       const dir = join(BACKUP_DIR, app);
       if (!existsSync(dir)) { context.backups[app] = 'no_backups'; continue; }
       try {
-        const files = execSync(`ls -t "${dir}" 2>/dev/null | head -1`, { timeout: 10000 }).toString().trim();
+        const files = getLatestFile(dir);
         if (!files) { context.backups[app] = 'no_backups'; continue; }
         const mtime = statSync(join(dir, files)).mtime;
-        const ageH = Math.round((Date.now() - mtime.getTime()) / 3600000);
+        const ageH = Math.round((Date.now() - mtime.getTime()) / MS_PER_HOUR);
         context.backups[app] = ageH <= 25 ? `ok (${ageH}h ago)` : `stale (${ageH}h ago)`;
       } catch { context.backups[app] = 'error'; }
     }
@@ -3427,7 +3467,7 @@ async function collectBriefingContext() {
 
   // Recent Docker events (last 24h)
   try {
-    const since = Math.floor((Date.now() - 86400000) / 1000);
+    const since = Math.floor((Date.now() - MS_PER_DAY) / 1000);
     const events = await docker.getEvents({ since, until: Math.floor(Date.now() / 1000), filters: { type: ['container'], event: ['die', 'oom', 'restart', 'health_status'] } });
     const chunks = [];
     await new Promise((resolve) => {
@@ -3446,14 +3486,14 @@ async function collectBriefingContext() {
 
   // Healing log (last 24h)
   try {
-    const since24h = new Date(Date.now() - 86400000).toISOString();
+    const since24h = new Date(Date.now() - MS_PER_DAY).toISOString();
     const healingActions = db.prepare('SELECT * FROM healing_log WHERE timestamp >= ? ORDER BY timestamp DESC').all(since24h);
     context.healing = healingActions.map(h => ({ condition: h.condition, action: h.action_taken, result: h.result, app: h.app_slug }));
   } catch (err) { console.error('[BRIEFING] Healing log query failed:', err.message); context.healing = []; }
 
   // Project tasks (overdue + due today)
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayString();
     const overdue = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled')").get(today);
     const dueToday = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE due_date = ? AND status NOT IN ('done','cancelled')").get(today);
     const lastShipped = db.prepare("SELECT title, app_slug, shipped_date FROM project_roadmap WHERE status = 'shipped' ORDER BY shipped_date DESC LIMIT 1").get();
@@ -3642,7 +3682,7 @@ const HEALING_PLAYBOOKS = [
     condition: 'Disk usage > 90%',
     check: async () => {
       try {
-        const diskLine = execSync('df / | tail -1', { timeout: 10000 }).toString().trim().split(/\s+/);
+        const diskLine = getDiskParts();
         const pct = parseInt(diskLine[4]);
         return pct > 90 ? [{ name: 'root_disk', pct }] : [];
       } catch { return []; }
@@ -3887,8 +3927,8 @@ async function scanContainerSecurity() {
     let inspect;
     try { inspect = await docker.getContainer(c.Id).inspect(); } catch { continue; }
 
-    const appDef = config.apps?.find(a => (a.containers || [name]).some(cn => name.includes(cn || slugify(a.name))));
-    const appSlug = appDef ? slugify(appDef.name) : null;
+    const resolved = resolveContainerApp(name);
+    const appSlug = resolved?.slug || null;
 
     for (const check of CONTAINER_SECURITY_CHECKS) {
       totalWeight += check.weight;
@@ -3908,7 +3948,7 @@ async function scanContainerSecurity() {
 
 async function scanCertificateSecurity() {
   const tls = await import('tls');
-  const domains = (config.apps || []).filter(a => a.domain && a.type !== 'redirect').map(a => ({ domain: a.domain, slug: slugify(a.name) }));
+  const domains = getAuditDomains();
   const findings = [];
   let totalWeight = 0, earnedWeight = 0;
 
@@ -3916,7 +3956,7 @@ async function scanCertificateSecurity() {
     const checkWeights = { ssl_valid: 20, ssl_expiry: 15, ssl_chain: 10, tls_version: 10, self_signed: 10 };
     Object.values(checkWeights).forEach(w => totalWeight += w);
 
-    const socket = tls.default.connect({ host: domain, port: 443, servername: domain, timeout: 8000, rejectUnauthorized: false }, () => {
+    const socket = tls.default.connect({ host: domain, port: 443, servername: domain, timeout: TIMEOUT_TLS, rejectUnauthorized: false }, () => {
       const cert = socket.getPeerCertificate(true);
       const proto = socket.getProtocol();
 
@@ -3925,7 +3965,7 @@ async function scanCertificateSecurity() {
         title: `${domain}: Certificate not trusted`, details: socket.authorizationError, remediation: 'Renew certificate via certbot or check chain.' }); }
 
       if (cert?.valid_to) {
-        const daysLeft = Math.floor((new Date(cert.valid_to) - Date.now()) / 86400000);
+        const daysLeft = Math.floor((new Date(cert.valid_to) - Date.now()) / MS_PER_DAY);
         if (daysLeft > 30) { earnedWeight += checkWeights.ssl_expiry; }
         else if (daysLeft > 7) {
           earnedWeight += 7;
@@ -3973,13 +4013,13 @@ async function scanCertificateSecurity() {
 }
 
 async function scanHeaderSecurity() {
-  const domains = (config.apps || []).filter(a => a.domain && a.type !== 'redirect').map(a => ({ domain: a.domain, slug: slugify(a.name) }));
+  const domains = getAuditDomains();
   const findings = [];
   let totalWeight = 0, earnedWeight = 0;
 
   for (const { domain, slug } of domains) {
     try {
-      const res = await fetch(`https://${domain}`, { method: 'HEAD', signal: AbortSignal.timeout(8000),
+      const res = await fetch(`https://${domain}`, { method: 'HEAD', signal: AbortSignal.timeout(TIMEOUT_TLS),
         headers: { 'User-Agent': 'Dockfolio-Security-Audit/1.0' } });
       for (const check of SECURITY_HEADERS) {
         totalWeight += check.weight;
@@ -4003,8 +4043,8 @@ async function scanNetworkSecurity() {
 
   for (const c of containers) {
     const name = containerName(c);
-    const appDef = config.apps?.find(a => (a.containers || [name]).some(cn => name.includes(cn || slugify(a.name))));
-    const slug = appDef ? slugify(appDef.name) : null;
+    const resolved = resolveContainerApp(name);
+    const slug = resolved?.slug || null;
 
     const published = (c.Ports || []).filter(p => p.IP === '0.0.0.0' && p.PublicPort);
     totalWeight += 10;
@@ -4108,7 +4148,7 @@ cron.schedule('0 */6 * * *', async () => {
 // Cleanup old security scans (90-day retention)
 cron.schedule('0 5 * * 0', () => {
   try {
-    const cutoff = new Date(Date.now() - 90 * 86400000).toISOString();
+    const cutoff = new Date(Date.now() - 90 * MS_PER_DAY).toISOString();
     const old = db.prepare('SELECT id FROM security_scans WHERE timestamp < ?').all(cutoff);
     if (old.length > 0) {
       const placeholders = old.map(() => '?').join(',');
@@ -4204,7 +4244,7 @@ app.post('/api/marketing/crosspromo', asyncRoute(async (req, res) => {
             size: { width: size.width, height: size.height },
             format: 'png',
           }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(TIMEOUT_MEDIUM),
         });
 
         if (renderResp.ok) {
@@ -4383,7 +4423,7 @@ app.post('/api/marketing/banners', asyncRoute(async (req, res) => {
           size: { width: w, height: h },
           format: 'png',
         }),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(TIMEOUT_MEDIUM),
       });
       if (renderResp.ok) {
         const result = await renderResp.json();
@@ -4463,7 +4503,7 @@ app.post('/api/marketing/banners/:id/regenerate', asyncRoute(async (req, res) =>
       size: { width: banner.width, height: banner.height },
       format: 'png',
     }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(TIMEOUT_MEDIUM),
   });
 
   if (!renderResp.ok) throw new Error('BannerForge render failed');
@@ -4667,7 +4707,7 @@ app.get('/api/banners/injection-status', asyncRoute(async (_req, res) => {
     const slug = slugify(app.name);
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      const timeout = setTimeout(() => controller.abort(), TIMEOUT_QUICK);
       const resp = await fetch(`https://${app.domain}/`, {
         headers: { 'Accept-Encoding': '' },
         signal: controller.signal,
@@ -4740,21 +4780,9 @@ app.delete('/api/marketing/playbooks/:id', asyncRoute((req, res) => {
   res.json({ ok: true });
 }));
 
-app.post('/api/marketing/playbooks/:appSlug/generate', async (req, res) => {
-  try {
-    const appSlug = req.params.appSlug;
-    const appDef = findAppBySlug(appSlug) || config.apps.find(a => slugify(a.name) === appSlug);
-    if (!appDef) return res.status(404).json({ error: 'App not found' });
-
-    const anthropicKey = getAnthropicKey();
-    if (!anthropicKey) return res.status(500).json({ error: 'No Anthropic API key available' });
-
-    // Gather context
-    const today = new Date().toISOString().split('T')[0];
-    const seoAudit = db.prepare('SELECT score, grade, checks FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slugify(appDef.name));
-    const revenueData = db.prepare('SELECT value, metadata FROM metrics_daily WHERE app_slug = ? AND metric_type = ? ORDER BY date DESC LIMIT 1').get(slugify(appDef.name), 'revenue');
-
-    const prompt = `You are a marketing strategist for a portfolio of SaaS/tool apps.
+// --- Playbook Generation Helpers ---
+function buildPlaybookPrompt(appDef, seoAudit, revenueData) {
+  return `You are a marketing strategist for a portfolio of SaaS/tool apps.
 Generate a marketing playbook for ${appDef.name} (${appDef.domain}).
 
 App details:
@@ -4777,52 +4805,56 @@ Sections needed:
 6. section:"crosssell" How to cross-promote with related apps in the portfolio
 
 Output ONLY a JSON array of 6 objects, no other text. Each object: {"section":"...", "title":"...", "content":"..."}`;
+}
 
-    const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
-      maxTokens: 4096, timeout: 30000, messages: [{ role: 'user', content: prompt }],
-    }));
-    let text = ai.text || '[]';
-    const tokens = ai.tokens;
-
-    // Strip markdown code fences that LLMs often wrap around JSON
-    text = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
-
-    // Parse JSON array from AI response (handle truncation by closing brackets)
-    let sections;
-    try {
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      let jsonStr = jsonMatch ? jsonMatch[0] : text;
-      // Fix truncated JSON: try to close it if it was cut off
-      try {
-        sections = JSON.parse(jsonStr);
-      } catch (_) {
-        // Remove last incomplete object and close the array
-        jsonStr = jsonStr.replace(/,\s*\{[^}]*$/, '').replace(/,\s*$/, '');
-        if (!jsonStr.endsWith(']')) jsonStr += ']';
-        sections = JSON.parse(jsonStr);
-      }
-    } catch (parseErr) {
-      return res.status(500).json({ error: 'Failed to parse AI response', raw: text });
-    }
-
-    // Delete existing playbook for this app and insert new sections
-    const insertPlaybook = db.transaction(() => {
-      db.prepare('DELETE FROM marketing_playbooks WHERE app_slug = ?').run(slugify(appDef.name));
-      for (const s of sections) {
-        if (s.section && s.title && s.content) {
-          db.prepare('INSERT INTO marketing_playbooks (app_slug, section, title, content, status) VALUES (?, ?, ?, ?, ?)')
-            .run(slugify(appDef.name), s.section, s.title, s.content, 'draft');
-        }
-      }
-    });
-    insertPlaybook();
-
-    const entries = db.prepare('SELECT * FROM marketing_playbooks WHERE app_slug = ? ORDER BY section, priority DESC').all(slugify(appDef.name));
-    res.json({ entries, tokens, generated: new Date().toISOString() });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+function parseAIJsonArray(text) {
+  // Strip markdown code fences that LLMs often wrap around JSON
+  text = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  let jsonStr = jsonMatch ? jsonMatch[0] : text;
+  try {
+    return JSON.parse(jsonStr);
+  } catch (_) {
+    // Fix truncated JSON: remove last incomplete object and close the array
+    jsonStr = jsonStr.replace(/,\s*\{[^}]*$/, '').replace(/,\s*$/, '');
+    if (!jsonStr.endsWith(']')) jsonStr += ']';
+    return JSON.parse(jsonStr);
   }
-});
+}
+
+app.post('/api/marketing/playbooks/:appSlug/generate', asyncRoute(async (req, res) => {
+  const appSlug = req.params.appSlug;
+  const appDef = findAppBySlug(appSlug);
+  if (!appDef) return res.status(404).json({ error: 'App not found' });
+
+  const anthropicKey = getAnthropicKey();
+  if (!anthropicKey) return res.status(500).json({ error: 'No Anthropic API key available' });
+
+  const slug = slugify(appDef.name);
+  const seoAudit = qLatestSEO.get(slug);
+  const revenueData = qLatestMetric.get(slug, 'revenue');
+
+  const prompt = buildPlaybookPrompt(appDef, seoAudit, revenueData);
+  const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
+    maxTokens: 4096, timeout: TIMEOUT_AI, messages: [{ role: 'user', content: prompt }],
+  }));
+
+  const sections = parseAIJsonArray(ai.text || '[]');
+
+  const insertPlaybook = db.transaction(() => {
+    db.prepare('DELETE FROM marketing_playbooks WHERE app_slug = ?').run(slug);
+    for (const s of sections) {
+      if (s.section && s.title && s.content) {
+        db.prepare('INSERT INTO marketing_playbooks (app_slug, section, title, content, status) VALUES (?, ?, ?, ?, ?)')
+          .run(slug, s.section, s.title, s.content, 'draft');
+      }
+    }
+  });
+  insertPlaybook();
+
+  const entries = db.prepare('SELECT * FROM marketing_playbooks WHERE app_slug = ? ORDER BY section, priority DESC').all(slug);
+  res.json({ entries, tokens: ai.tokens, generated: new Date().toISOString() });
+}));
 
 // =============================================
 // Projects Manager
@@ -4846,7 +4878,7 @@ try { initProjectDefaults(); } catch (err) { console.error('[PROJECTS] Init erro
 app.get('/api/projects/overview', asyncRoute(async (req, res) => {
   const allMeta = db.prepare('SELECT * FROM project_meta').all();
   const metaMap = Object.fromEntries(allMeta.map(m => [m.app_slug, m]));
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayString();
 
   const apps = config.apps.map(appDef => {
     const slug = slugify(appDef.name);
@@ -4864,13 +4896,13 @@ app.get('/api/projects/overview', asyncRoute(async (req, res) => {
     const rmMap = Object.fromEntries(roadmapCounts.map(r => [r.status, r.count]));
 
     // Latest SEO score
-    const seo = db.prepare('SELECT score, grade FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug);
+    const seo = qLatestSEO.get(slug);
 
     // Latest security findings count for this app
     const secFindings = db.prepare("SELECT COUNT(*) as count FROM security_findings WHERE app_slug = ? AND status = 'open'").get(slug);
 
     // Latest MRR from metrics_daily
-    const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
+    const mrrRow = qLatestMetric.get(slug, 'mrr');
 
     return {
       slug, name: appDef.name, type: appDef.type, domain: appDef.domain,
@@ -4982,13 +5014,13 @@ app.post('/api/projects/tasks/:id/complete', asyncRoute((req, res) => {
 }));
 
 app.get('/api/projects/tasks/overdue', asyncRoute((_req, res) => {
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayString();
   const tasks = db.prepare("SELECT * FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled') ORDER BY due_date ASC").all(today);
   res.json(tasks);
 }));
 
 app.get('/api/projects/tasks/today', asyncRoute((_req, res) => {
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayString();
   const tasks = db.prepare("SELECT * FROM project_tasks WHERE (due_date <= ? OR due_date IS NULL) AND status NOT IN ('done','cancelled') ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END, due_date ASC").all(today);
   res.json(tasks);
 }));
@@ -5081,7 +5113,7 @@ app.get('/api/projects/insights/:slug', asyncRoute(async (req, res) => {
     const cached = db.prepare('SELECT * FROM project_ai_insights WHERE app_slug = ? AND insight_type = ?').get(slug, type);
     if (cached) {
       const age = Date.now() - new Date(cached.generated_at).getTime();
-      const maxAge = type === 'weekly_summary' ? 7 * 86400000 : 72 * 3600000;
+      const maxAge = type === 'weekly_summary' ? 7 * MS_PER_DAY : 72 * MS_PER_HOUR;
       if (age < maxAge) return res.json({ content: cached.content, generated_at: cached.generated_at, cached: true });
     }
   }
@@ -5092,8 +5124,8 @@ app.get('/api/projects/insights/:slug', asyncRoute(async (req, res) => {
   const meta = db.prepare('SELECT * FROM project_meta WHERE app_slug = ?').get(slug) || {};
   const openTasks = db.prepare("SELECT title FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled') LIMIT 5").all(slug);
   const roadmapItems = db.prepare("SELECT title, status FROM project_roadmap WHERE app_slug = ? AND status IN ('planned','in_progress') LIMIT 5").all(slug);
-  const seo = db.prepare('SELECT score, grade FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug);
-  const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
+  const seo = qLatestSEO.get(slug);
+  const mrrRow = qLatestMetric.get(slug, 'mrr');
 
   const anthropicKey = getAnthropicKey();
   if (!anthropicKey) return res.status(503).json({ error: 'No Anthropic API key available' });
@@ -5123,7 +5155,7 @@ app.get('/api/projects/insights/portfolio/summary', asyncRoute(async (req, res) 
     const cached = db.prepare("SELECT * FROM project_ai_insights WHERE app_slug = '_portfolio' AND insight_type = 'summary'").get();
     if (cached) {
       const age = Date.now() - new Date(cached.generated_at).getTime();
-      if (age < 24 * 3600000) return res.json({ content: cached.content, generated_at: cached.generated_at, cached: true });
+      if (age < 24 * MS_PER_HOUR) return res.json({ content: cached.content, generated_at: cached.generated_at, cached: true });
     }
   }
 
@@ -5135,11 +5167,11 @@ app.get('/api/projects/insights/portfolio/summary', asyncRoute(async (req, res) 
     const slug = slugify(a.name);
     const meta = db.prepare('SELECT lifecycle, priority FROM project_meta WHERE app_slug = ?').get(slug) || {};
     const openTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled')").get(slug)?.count || 0;
-    const mrr = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug)?.value || 0;
+    const mrr = qLatestMetric.get(slug, 'mrr')?.value || 0;
     return `- ${a.name}: lifecycle=${meta.lifecycle || 'launched'}, MRR=€${(mrr / 100).toFixed(0)}, ${openTasks} open tasks`;
   }).join('\n');
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayString();
   const totalOverdue = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled')").get(today)?.count || 0;
   const weekDone = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE completed_at >= datetime('now', '-7 days')").get()?.count || 0;
 
@@ -5179,13 +5211,13 @@ cron.schedule('*/15 * * * *', async () => {
 // Daily 8 AM: overdue task alert
 cron.schedule('0 8 * * *', async () => {
   try {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayString();
     const overdue = db.prepare("SELECT * FROM project_tasks WHERE due_date < ? AND status NOT IN ('done','cancelled') ORDER BY due_date ASC LIMIT 10").all(today);
     if (overdue.length === 0) return;
 
     const lines = overdue.map(t => {
       const appName = config.apps.find(a => slugify(a.name) === t.app_slug)?.name || 'Portfolio';
-      const daysLate = Math.ceil((new Date(today) - new Date(t.due_date)) / 86400000);
+      const daysLate = Math.ceil((new Date(today) - new Date(t.due_date)) / MS_PER_DAY);
       return `• ${appName}: ${t.title} (${daysLate}d late)`;
     });
     await sendTelegram(`⚠ Overdue Tasks — ${overdue.length} task${overdue.length > 1 ? 's' : ''} past due:\n${lines.join('\n')}`);
@@ -5196,14 +5228,14 @@ cron.schedule('0 8 * * *', async () => {
 // Weekly Monday 6 AM: snapshot per-app KPIs
 cron.schedule('0 6 * * 1', async () => {
   try {
-    const snapDate = new Date().toISOString().split('T')[0];
+    const snapDate = todayString();
     for (const appDef of config.apps) {
       const slug = slugify(appDef.name);
-      const mrr = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug)?.value || null;
+      const mrr = qLatestMetric.get(slug, 'mrr')?.value || null;
       const openTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled')").get(slug)?.count || 0;
       const doneTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND status = 'done'").get(slug)?.count || 0;
       const shipped = db.prepare("SELECT COUNT(*) as count FROM project_roadmap WHERE app_slug = ? AND status = 'shipped'").get(slug)?.count || 0;
-      const seo = db.prepare('SELECT score FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug)?.score || null;
+      const seo = qLatestSEO.get(slug)?.score || null;
       const secScore = db.prepare('SELECT score FROM security_scans WHERE app_slug = ? ORDER BY timestamp DESC LIMIT 1').get(slug)?.score || null;
 
       // Plausible traffic (30d visitors)
@@ -5213,7 +5245,7 @@ cron.schedule('0 6 * * 1', async () => {
         try {
           const tRes = await fetch(
             `${getPlausibleUrl()}/api/v1/stats/aggregate?site_id=${appDef.domain}&period=30d&metrics=visitors`,
-            { headers: { Authorization: `Bearer ${plausibleKey}` }, signal: AbortSignal.timeout(5000) }
+            { headers: { Authorization: `Bearer ${plausibleKey}` }, signal: AbortSignal.timeout(TIMEOUT_QUICK) }
           );
           if (tRes.ok) {
             const tData = await tRes.json();
@@ -5256,7 +5288,7 @@ cron.schedule('0 4 * * 0', async () => {
       try {
         const meta = db.prepare('SELECT * FROM project_meta WHERE app_slug = ?').get(slug) || {};
         const openTasks = db.prepare("SELECT title FROM project_tasks WHERE app_slug = ? AND status NOT IN ('done','cancelled') LIMIT 5").all(slug);
-        const mrrRow = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
+        const mrrRow = qLatestMetric.get(slug, 'mrr');
         const prompt = `Write a concise weekly status for ${appDef.name} (${appDef.type}): lifecycle=${meta.lifecycle}, MRR=€${((mrrRow?.value || 0) / 100).toFixed(0)}, ${openTasks.length} open tasks${openTasks.length > 0 ? ': ' + openTasks.map(t => t.title).join(', ') : ''}. 3 short paragraphs: state, progress, next focus.`;
         const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, { maxTokens: 400, messages: [{ role: 'user', content: prompt }] }));
         if (ai.text) {
@@ -5301,7 +5333,7 @@ async function calculateWorryScore() {
 
   // 3. Disk usage
   try {
-    const diskLine = execSync('df -B1 / | tail -1', { timeout: 10000 }).toString().trim().split(/\s+/);
+    const diskLine = getDiskParts();
     const diskPct = parseInt(diskLine[4]);
     if (diskPct >= 90) breakdown.disk = 15;
     else if (diskPct >= 80) breakdown.disk = 10;
@@ -5316,9 +5348,9 @@ async function calculateWorryScore() {
       let staleCount = 0;
       for (const d of dirs) {
         try {
-          const latest = execSync(`ls -t "${join(backupDir, d.name)}" 2>/dev/null | head -1`, { timeout: 10000 }).toString().trim();
+          const latest = getLatestFile(join(backupDir, d.name));
           if (!latest) { staleCount++; continue; }
-          const ageH = (Date.now() - statSync(join(backupDir, d.name, latest)).mtime.getTime()) / 3600000;
+          const ageH = (Date.now() - statSync(join(backupDir, d.name, latest)).mtime.getTime()) / MS_PER_HOUR;
           if (ageH > 25) staleCount++;
         } catch { staleCount++; }
       }
@@ -5338,7 +5370,7 @@ async function calculateWorryScore() {
 
   // 6. Healing activity (last hour)
   try {
-    const since1h = new Date(Date.now() - 3600000).toISOString();
+    const since1h = new Date(Date.now() - MS_PER_HOUR).toISOString();
     const r = db.prepare("SELECT COUNT(*) as n FROM healing_log WHERE timestamp >= ? AND result IN ('executed','pending')").get(since1h);
     breakdown.healing = Math.min(MAX.healing, (r?.n || 0) * 5);
   } catch (err) { console.error('[WORRY] Healing activity query failed:', err.message); }
@@ -5355,7 +5387,7 @@ async function calculateWorryScore() {
 
   // 8. Error tracking
   try {
-    const since1h = new Date(Date.now() - 3600000).toISOString();
+    const since1h = new Date(Date.now() - MS_PER_HOUR).toISOString();
     const criticals = db.prepare("SELECT COUNT(*) as n FROM error_issues WHERE severity = 'critical' AND status = 'open' AND last_seen >= ?").get(since1h);
     const openErrors = db.prepare("SELECT COUNT(*) as n FROM error_events WHERE timestamp >= datetime('now', '-1 hour')").get();
     breakdown.errors = errorScore(criticals?.n || 0, openErrors?.n || 0);
@@ -5391,7 +5423,7 @@ async function snapshotBaseline(type = 'auto') {
   const configHash = hashValue(readFileSync(configPath, 'utf8'));
   let diskPct = 0;
   try {
-    diskPct = parseInt(execSync('df -B1 / | tail -1', { timeout: 10000 }).toString().trim().split(/\s+/)[4]);
+    diskPct = getDiskPercent();
   } catch (err) { console.error('[BASELINE] Disk usage check failed:', err.message); }
 
   db.prepare(`INSERT INTO ops_baselines (snapshot_type, env_hashes, container_states, disk_usage_pct, total_containers, config_hash)
@@ -5457,7 +5489,7 @@ async function detectDrift() {
 
   // Disk usage jump
   try {
-    const diskPct = parseInt(execSync('df -B1 / | tail -1', { timeout: 10000 }).toString().trim().split(/\s+/)[4]);
+    const diskPct = getDiskPercent();
     if (baseline.disk_usage_pct && diskPct > baseline.disk_usage_pct + 10) {
       drifts.push({ type: 'drift_disk', severity: diskPct >= 80 ? 'critical' : 'warning', title: `Disk: ${baseline.disk_usage_pct}% → ${diskPct}%`, details: JSON.stringify({ was: baseline.disk_usage_pct, now: diskPct }) });
     }
@@ -5484,9 +5516,9 @@ function calculateAppReportCard(slug) {
   try {
     const backupDir = join(BACKUP_DIR, slug);
     if (existsSync(backupDir)) {
-      const latest = execSync(`ls -t "${backupDir}" 2>/dev/null | head -1`, { timeout: 10000 }).toString().trim();
+      const latest = getLatestFile(backupDir);
       if (latest) {
-        const ageH = (Date.now() - statSync(join(backupDir, latest)).mtime.getTime()) / 3600000;
+        const ageH = (Date.now() - statSync(join(backupDir, latest)).mtime.getTime()) / MS_PER_HOUR;
         const s = ageH <= 25 ? 100 : ageH <= 48 ? 70 : ageH <= 168 ? 40 : 10;
         dims.backup = { score: s, grade: letterGrade(s) };
       } else dims.backup = { score: 0, grade: 'F' };
@@ -5495,7 +5527,7 @@ function calculateAppReportCard(slug) {
 
   // Revenue
   try {
-    const row = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'mrr' ORDER BY date DESC LIMIT 1").get(slug);
+    const row = qLatestMetric.get(slug, 'mrr');
     const mrr = row?.value || 0;
     const s = mrr > 0 ? Math.min(100, Math.round(50 + Math.log10(mrr / 100 + 1) * 30)) : 0;
     dims.revenue = { score: s, grade: letterGrade(s), mrr: mrr / 100 };
@@ -5503,7 +5535,7 @@ function calculateAppReportCard(slug) {
 
   // Traffic
   try {
-    const row = db.prepare("SELECT value FROM metrics_daily WHERE app_slug = ? AND metric_type = 'pageviews_30d' ORDER BY date DESC LIMIT 1").get(slug);
+    const row = qLatestMetric.get(slug, 'pageviews_30d');
     const pv = row?.value || 0;
     const s = pv > 0 ? Math.min(100, Math.round(30 + Math.log10(pv + 1) * 20)) : 0;
     dims.traffic = { score: s, grade: letterGrade(s), pageviews: pv };
@@ -5511,7 +5543,7 @@ function calculateAppReportCard(slug) {
 
   // SEO
   try {
-    const row = db.prepare('SELECT score, grade FROM seo_audits WHERE app_slug = ? ORDER BY date DESC LIMIT 1').get(slug);
+    const row = qLatestSEO.get(slug);
     dims.seo = row ? { score: row.score, grade: row.grade } : { score: 0, grade: 'N/A' };
   } catch { dims.seo = { score: 0, grade: 'N/A' }; }
 
@@ -5682,7 +5714,7 @@ cron.schedule('0 9 * * 1', async () => {
     const baselines = db.prepare('SELECT env_hashes, timestamp FROM ops_baselines ORDER BY timestamp ASC LIMIT 1').get();
     if (!baselines) return;
     const firstSeen = safeJSON(baselines.env_hashes, {});
-    const baselineAge = Math.round((Date.now() - new Date(baselines.timestamp).getTime()) / 86400000);
+    const baselineAge = Math.round((Date.now() - new Date(baselines.timestamp).getTime()) / MS_PER_DAY);
     if (baselineAge > 90) {
       for (const [slug, keys] of Object.entries(firstSeen)) {
         for (const keyName of Object.keys(keys)) {
@@ -5766,13 +5798,13 @@ cron.schedule('*/5 * * * *', guardedCron('error-ingest', async () => {
 
 // --- Docker Event Watcher (persistent stream with exponential backoff) ---
 let eventStream = null;
-let eventWatcherBackoff = 5000; // start at 5s, max 5min
+let eventWatcherBackoff = TIMEOUT_QUICK; // start at 5s, max 5min
 
 async function startEventWatcher() {
   try {
     if (eventStream) try { eventStream.destroy(); } catch (e) { console.error('[ERROR_WATCH] Stream destroy error:', e.message); }
     eventStream = await docker.getEvents({ filters: { type: ['container'], event: ['die', 'oom', 'health_status'] } });
-    eventWatcherBackoff = 5000; // reset on successful connect
+    eventWatcherBackoff = TIMEOUT_QUICK; // reset on successful connect
 
     eventStream.on('data', async (chunk) => {
       try {
@@ -5811,7 +5843,7 @@ async function startEventWatcher() {
       const jitter = Math.random() * eventWatcherBackoff * 0.3;
       const delay = eventWatcherBackoff + jitter;
       console.error(`[ERROR_WATCH] ${reason}, reconnecting in ${Math.round(delay / 1000)}s`);
-      eventWatcherBackoff = Math.min(eventWatcherBackoff * 2, 300000); // cap at 5 min
+      eventWatcherBackoff = Math.min(eventWatcherBackoff * 2, TIMEOUT_BUILD); // cap at 5 min
       setTimeout(startEventWatcher, delay);
     };
     eventStream.on('error', (err) => scheduleReconnect(`Stream error: ${err?.message || 'unknown'}`));
@@ -5899,9 +5931,9 @@ cron.schedule('0 5 * * *', () => {
     const dirs = readdirSync(BACKUP_DIR, { withFileTypes: true }).filter(d => d.isDirectory());
     for (const d of dirs) {
       try {
-        const latest = execSync(`ls -t "${join(BACKUP_DIR, d.name)}" 2>/dev/null | head -1`, { timeout: 10000 }).toString().trim();
+        const latest = getLatestFile(join(BACKUP_DIR, d.name));
         if (!latest) { stale.push(d.name); continue; }
-        const ageH = (Date.now() - statSync(join(BACKUP_DIR, d.name, latest)).mtime.getTime()) / 3600000;
+        const ageH = (Date.now() - statSync(join(BACKUP_DIR, d.name, latest)).mtime.getTime()) / MS_PER_HOUR;
         if (ageH > 25) stale.push(`${d.name} (${Math.round(ageH)}h ago)`);
       } catch { stale.push(d.name); }
     }
@@ -5919,11 +5951,11 @@ cron.schedule('0 7 * * *', async () => {
     for (const a of config.apps) {
       if (!a.domain) continue;
       try {
-        const result = execSync(`echo | openssl s_client -servername ${a.domain} -connect ${a.domain}:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null`, { timeout: 15000 }).toString().trim();
+        const result = execSync(`echo | openssl s_client -servername ${a.domain} -connect ${a.domain}:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null`, { timeout: TIMEOUT_MEDIUM }).toString().trim();
         const match = result.match(/notAfter=(.*)/);
         if (match) {
           const expiresAt = new Date(match[1]);
-          const daysLeft = Math.round((expiresAt - Date.now()) / 86400000);
+          const daysLeft = Math.round((expiresAt - Date.now()) / MS_PER_DAY);
           if (daysLeft < 14) expiring.push(`${a.domain}: ${daysLeft}d left`);
         }
       } catch { /* skip domains without SSL */ }
@@ -5948,12 +5980,12 @@ cron.schedule('*/5 * * * *', guardedCron('uptime', async () => {
         if (a.domain) {
           const url = a.health ? `https://${a.domain}${a.health}` : `https://${a.domain}`;
           const start = Date.now();
-          const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+          const r = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_STANDARD) });
           response_ms = Date.now() - start;
           status = r.ok ? 'up' : 'degraded';
         } else if (a.health) {
           const start = Date.now();
-          const r = await fetch(`https://${a.domain}`, { signal: AbortSignal.timeout(10000) });
+          const r = await fetch(`https://${a.domain}`, { signal: AbortSignal.timeout(TIMEOUT_STANDARD) });
           response_ms = Date.now() - start;
           status = r.ok ? 'up' : 'degraded';
         } else continue;
@@ -6141,14 +6173,14 @@ app.get('/api/errors/perf', asyncRoute((req, res) => {
 // --- Public Status Page ---
 app.get('/api/status', rlPublicRead, asyncRoute(async (_req, res) => {
   const results = [];
-  const dayAgo = new Date(Date.now() - 86400000).toISOString();
+  const dayAgo = new Date(Date.now() - MS_PER_DAY).toISOString();
   for (const a of config.apps) {
     let status = 'unknown';
     let response_ms = null;
     try {
       if (a.health) {
         const start = Date.now();
-        const r = await fetch(a.health, { signal: AbortSignal.timeout(5000) });
+        const r = await fetch(a.health, { signal: AbortSignal.timeout(TIMEOUT_QUICK) });
         response_ms = Date.now() - start;
         status = r.ok ? 'up' : 'degraded';
       } else {
@@ -6255,7 +6287,7 @@ app.get('/api/uptime/history', asyncRoute((req, res) => {
   const { app: appSlug, range = '24h' } = req.query;
   const ranges = { '24h': 1, '7d': 7, '30d': 30 };
   const days = ranges[range] || 1;
-  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const since = new Date(Date.now() - days * MS_PER_DAY).toISOString();
   let sql = 'SELECT * FROM uptime_history WHERE checked_at > ?';
   const params = [since];
   if (appSlug) { sql += ' AND app_slug = ?'; params.push(appSlug); }
@@ -6339,7 +6371,7 @@ app.post('/api/analytics/event', rlPublicRead, (req, res) => {
 app.get('/api/analytics/overview', asyncRoute(async (req, res) => {
   const period = req.query.period || '30d';
   const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
-  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const since = new Date(Date.now() - days * MS_PER_DAY).toISOString().slice(0, 10);
   const rows = db.prepare('SELECT app_slug, SUM(visitors) as visitors, SUM(pageviews) as pageviews FROM analytics_daily WHERE date >= ? GROUP BY app_slug ORDER BY visitors DESC').all(since);
   const total = rows.reduce((s, r) => ({ visitors: s.visitors + (r.visitors || 0), pageviews: s.pageviews + (r.pageviews || 0) }), { visitors: 0, pageviews: 0 });
   res.json({ period, total, apps: rows });
@@ -6349,7 +6381,7 @@ app.get('/api/analytics/overview', asyncRoute(async (req, res) => {
 app.get('/api/analytics/:slug', asyncRoute(async (req, res) => {
   const slug = req.params.slug;
   const days = parseInt(req.query.days) || 30;
-  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const since = new Date(Date.now() - days * MS_PER_DAY).toISOString().slice(0, 10);
   const daily = db.prepare('SELECT * FROM analytics_daily WHERE app_slug = ? AND date >= ? ORDER BY date').all(slug, since);
   const latest = daily[daily.length - 1];
   res.json({ slug, days, daily, topPages: safeJSON(latest?.top_pages, []), topReferrers: safeJSON(latest?.top_referrers, []), countries: safeJSON(latest?.countries, {}) });
@@ -6391,10 +6423,10 @@ app.get('/api/streaks', asyncRoute(async (_req, res) => {
 // Hourly :05 — roll up page_views into analytics_hourly
 cron.schedule('5 * * * *', () => {
   try {
-    const prevHour = new Date(Date.now() - 3600000);
+    const prevHour = new Date(Date.now() - MS_PER_HOUR);
     const hour = prevHour.toISOString().slice(0, 13);
     const start = hour + ':00:00';
-    const nextHour = new Date(prevHour.getTime() + 3600000).toISOString().slice(0, 13) + ':00:00';
+    const nextHour = new Date(prevHour.getTime() + MS_PER_HOUR).toISOString().slice(0, 13) + ':00:00';
     const rows = db.prepare('SELECT app_slug, COUNT(*) as pageviews, COUNT(DISTINCT session_id) as visitors FROM page_views WHERE created_at >= ? AND created_at < ? GROUP BY app_slug').all(start, nextHour);
     const upsert = db.prepare('INSERT INTO analytics_hourly (app_slug, hour, visitors, pageviews) VALUES (?, ?, ?, ?) ON CONFLICT(app_slug, hour) DO UPDATE SET visitors = excluded.visitors, pageviews = excluded.pageviews');
     for (const r of rows) upsert.run(r.app_slug, hour, r.visitors, r.pageviews);
@@ -6405,7 +6437,7 @@ cron.schedule('5 * * * *', () => {
 // Daily 1:30 AM — roll up into analytics_daily + prune raw page_views >7 days
 cron.schedule('30 1 * * *', () => {
   try {
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - MS_PER_DAY).toISOString().slice(0, 10);
     const rows = db.prepare(`
       SELECT app_slug, COUNT(*) as pageviews, COUNT(DISTINCT session_id) as visitors
       FROM page_views WHERE date(created_at) = ? GROUP BY app_slug
@@ -6449,7 +6481,7 @@ app.post('/api/webhooks/github', (req, res) => {
     if (appDef?.composePath) {
       try {
         const dir = dirname(appDef.composePath);
-        execSync(`cd ${dir} && git pull && docker compose up -d --build`, { timeout: 300000 });
+        execSync(`cd ${dir} && git pull && docker compose up -d --build`, { timeout: TIMEOUT_BUILD });
         sendTelegram(`Deploy complete: ${appSlug} (${payload.head_commit?.id?.slice(0, 7)})`);
       } catch (err) {
         console.error(`[DEPLOY] ${appSlug} failed:`, err.message);
@@ -6485,7 +6517,7 @@ cron.schedule('0 3 * * *', async () => {
     await authDb.backup(join(backupDir, `auth-${timestamp}.db`));
     console.log(`[BACKUP] auth.db backed up`);
     // Prune backups older than 7 days
-    const cutoff = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const cutoff = new Date(Date.now() - 7 * MS_PER_DAY).toISOString().slice(0, 10);
     for (const f of readdirSync(backupDir)) {
       const match = f.match(/\d{4}-\d{2}-\d{2}/);
       if (match && match[0] < cutoff) {
@@ -6557,7 +6589,7 @@ function gracefulShutdown(signal) {
     console.log('[SHUTDOWN] Databases closed. Exiting.');
     process.exit(0);
   });
-  setTimeout(() => { console.error('[SHUTDOWN] Forceful shutdown after 10s timeout'); process.exit(1); }, 10000);
+  setTimeout(() => { console.error('[SHUTDOWN] Forceful shutdown after 10s timeout'); process.exit(1); }, TIMEOUT_SHUTDOWN);
 }
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
