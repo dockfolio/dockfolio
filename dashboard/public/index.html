@@ -994,6 +994,9 @@
   </style>
 </head>
 <body>
+  <div id="demoBanner" style="display:none;background:linear-gradient(90deg,#f59e0b,#d97706);color:#000;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;position:fixed;top:0;left:0;right:0;z-index:10000">
+    This is a read-only demo. <a href="https://dockfolio.dev" style="color:#000;text-decoration:underline">Deploy your own instance</a> to manage real infrastructure.
+  </div>
   <div class="toast-container" id="toastContainer"></div>
 
   <!-- Keyboard Shortcuts Help -->
@@ -6057,6 +6060,14 @@
       if (sc && sc.innerHTML) sc.style.display = '';
     });
     setInterval(tick, 1000);
+
+    // Demo mode banner
+    fetch('/api/auth/status').then(r=>r.json()).then(d=>{
+      if(d.demoMode){
+        const b=document.getElementById('demoBanner');
+        if(b){b.style.display='';document.body.style.paddingTop='36px';}
+      }
+    }).catch(()=>{});
 
     // Auto-show briefing on first visit
     setTimeout(maybeShowBriefing, 3000);

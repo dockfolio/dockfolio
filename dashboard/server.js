@@ -250,6 +250,19 @@ function authMiddleware(req, res, next) {
 
 app.use(authMiddleware);
 
+// --- Demo Mode ---
+const DEMO_MODE = process.env.DEMO_MODE === 'true';
+const DEMO_ALLOW_WRITES = ['/api/auth/', '/api/errors/', '/api/analytics/', '/api/banners/', '/api/crosspromo/', '/api/webhooks/'];
+if (DEMO_MODE) {
+  app.use((req, res, next) => {
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+      if (DEMO_ALLOW_WRITES.some(p => req.path.startsWith(p))) return next();
+      return res.status(403).json({ error: 'Demo mode is read-only. Deploy your own instance to make changes.' });
+    }
+    next();
+  });
+}
+
 // --- Login Page ---
 app.get('/login', (_req, res) => {
   const setup = !isSetupComplete();
@@ -281,9 +294,16 @@ setInterval(() => {
   }
 }, 30 * 60_000);
 
+// --- Demo Mode: auto-create demo user ---
+if (DEMO_MODE && isSetupComplete() === false) {
+  const hash = bcrypt.hashSync('demo1234', 12);
+  authDb.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run('demo', hash, 'admin');
+  console.log('[demo] Created demo user (demo / demo1234)');
+}
+
 // --- Auth API ---
 app.get('/api/auth/status', (_req, res) => {
-  res.json({ setupComplete: isSetupComplete() });
+  res.json({ setupComplete: isSetupComplete(), demoMode: DEMO_MODE });
 });
 
 app.post('/api/auth/setup', (req, res) => {

@@ -1,0 +1,43 @@
+# Dockfolio — Demo Instance (read-only mode)
+# Usage: docker compose -p dockfolio-demo -f docker-compose.demo.yml up -d
+
+name: dockfolio-demo
+
+services:
+  demo:
+    build: ./dashboard
+    container_name: dockfolio-demo
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9092:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - dockfolio-demo-data:/data
+      - ./dashboard/config.yml:/app/config.yml:ro
+    environment:
+      - NODE_ENV=production
+      - DEMO_MODE=true
+      - AUTH_DB_PATH=/data/auth.db
+      - MARKETING_DB_PATH=/data/marketing.db
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+      - /app/node_modules/.cache:size=32m
+    mem_limit: 192m
+    cpus: 0.25
+    pids_limit: 100
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes:
+  dockfolio-demo-data:
