@@ -6048,7 +6048,7 @@
     function tick() {
       nextRefresh--;
       if (nextRefresh <= 0) { fetchAll(); nextRefresh = 30; }
-      document.getElementById('countdown').textContent = nextRefresh + 's';
+      const cd = document.getElementById('countdown'); if (cd) cd.textContent = nextRefresh + 's';
     }
 
     // Periodically check healing status (every 60s)
