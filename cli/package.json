@@ -1,0 +1,8 @@
+{
+  "name": "dockfolio-cli",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "dockfolio": "./dockfolio.mjs"
+  }
+}

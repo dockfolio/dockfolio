@@ -1050,6 +1050,115 @@ app.get('/api/images/updates', asyncRoute(async (req, res) => {
   res.json(result);
 }));
 
+// POST /api/containers/:name/diagnose — run diagnostic checks on a container
+app.post('/api/containers/:name/diagnose', asyncRoute(async (req, res) => {
+  const containers = await docker.listContainers({ all: true });
+  const target = containers.find(c => containerName(c) === req.params.name);
+  if (!target) return res.status(404).json({ error: 'Container not found' });
+
+  const container = docker.getContainer(target.Id);
+  const report = { container: req.params.name, status: target.State };
+
+  // Run all diagnostic checks in parallel
+  const [inspectResult, statsResult, topResult, logsResult] = await Promise.allSettled([
+    container.inspect(),
+    target.State === 'running' ? container.stats({ stream: false }) : Promise.reject(new Error('not running')),
+    target.State === 'running' ? container.top() : Promise.reject(new Error('not running')),
+    container.logs({ stdout: true, stderr: true, tail: 50, timestamps: true }),
+  ]);
+
+  // Uptime from container start time
+  if (inspectResult.status === 'fulfilled') {
+    const info = inspectResult.value;
+    const startedAt = info.State?.StartedAt;
+    if (startedAt) {
+      const ms = Date.now() - new Date(startedAt).getTime();
+      const days = Math.floor(ms / 86400000);
+      const hours = Math.floor((ms % 86400000) / 3600000);
+      const mins = Math.floor((ms % 3600000) / 60000);
+      report.uptime = days > 0 ? `${days}d ${hours}h ${mins}m` : hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+    }
+    // Config summary
+    report.config = {
+      image: info.Config?.Image || info.Image || '',
+      created: info.Created,
+      restartPolicy: info.HostConfig?.RestartPolicy?.Name || 'none',
+      mounts: (info.Mounts || []).map(m => ({ type: m.Type, source: m.Source, destination: m.Destination, mode: m.Mode })),
+      ports: Object.entries(info.HostConfig?.PortBindings || {}).map(([container, bindings]) => ({
+        container,
+        host: (bindings || []).map(b => b.HostPort).join(', '),
+      })),
+      env: (info.Config?.Env || []).map(e => {
+        const [key] = e.split('=', 1);
+        const lower = key.toLowerCase();
+        const isSensitive = ['password', 'secret', 'key', 'token', 'api_key', 'apikey', 'auth', 'credential'].some(s => lower.includes(s));
+        return isSensitive ? `${key}=***` : e;
+      }),
+    };
+    // Health check info
+    const health = info.State?.Health;
+    if (health) {
+      const lastLog = health.Log?.length ? health.Log[health.Log.length - 1] : null;
+      report.healthCheck = {
+        status: health.Status,
+        failingStreak: health.FailingStreak || 0,
+        lastCheck: lastLog?.End || null,
+        exitCode: lastLog?.ExitCode ?? null,
+        output: lastLog?.Output ? lastLog.Output.trim().slice(0, 500) : null,
+      };
+    }
+  }
+
+  // Stats snapshot
+  if (statsResult.status === 'fulfilled') {
+    const s = statsResult.value;
+    const cpuDelta = s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage;
+    const systemDelta = s.cpu_stats.system_cpu_usage - s.precpu_stats.system_cpu_usage;
+    const cpuCount = s.cpu_stats.online_cpus || 1;
+    const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * cpuCount * 100 : 0;
+    const memUsage = s.memory_stats.usage || 0;
+    const memLimit = s.memory_stats.limit || 0;
+    const netRx = s.networks ? Object.values(s.networks).reduce((sum, n) => sum + n.rx_bytes, 0) : 0;
+    const netTx = s.networks ? Object.values(s.networks).reduce((sum, n) => sum + n.tx_bytes, 0) : 0;
+    const blkRead = s.blkio_stats?.io_service_bytes_recursive?.find(e => e.op === 'read')?.value || 0;
+    const blkWrite = s.blkio_stats?.io_service_bytes_recursive?.find(e => e.op === 'write')?.value || 0;
+
+    report.resources = {
+      cpuPercent: Math.round(cpuPercent * 100) / 100,
+      memoryBytes: memUsage,
+      memoryLimitBytes: memLimit,
+      memoryPercent: memLimit > 0 ? Math.round((memUsage / memLimit) * 10000) / 100 : 0,
+      netRxBytes: netRx,
+      netTxBytes: netTx,
+      blockReadBytes: blkRead,
+      blockWriteBytes: blkWrite,
+      cpuCount,
+    };
+  }
+
+  // Process list
+  if (topResult.status === 'fulfilled') {
+    const top = topResult.value;
+    const titles = top.Titles || [];
+    report.processes = (top.Processes || []).map(row => {
+      const proc = {};
+      titles.forEach((t, i) => { proc[t] = row[i]; });
+      return proc;
+    });
+  }
+
+  // Recent logs
+  if (logsResult.status === 'fulfilled') {
+    const raw = logsResult.value.toString('utf8');
+    report.recentLogs = raw.split('\n')
+      .map(line => line.length > 8 ? line.slice(8) : line)
+      .filter(line => line.trim());
+  }
+
+  auditLog(req, 'container.diagnose', req.params.name);
+  res.json(report);
+}));
+
 // POST /api/containers/:name/restart — restart a container
 app.post('/api/containers/:name/restart', asyncRoute(async (req, res) => {
   const containers = await docker.listContainers({ all: true });
@@ -7768,6 +7877,93 @@ app.get('/api/export/:entity', asyncRoute((req, res) => {
     return res.send(toCsv(rows));
   }
   res.json({ entity, count: rows.length, data: rows });
+}));
+
+// --- Comprehensive Data Export ---
+function sendExport(res, rows, name, format) {
+  if (format === 'csv') {
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}-${new Date().toISOString().slice(0,10)}.csv"`);
+    return res.send(toCsv(rows));
+  }
+  res.json({ entity: name, exported_at: new Date().toISOString(), count: rows.length, data: rows });
+}
+
+app.get('/api/export/metrics', asyncRoute((req, res) => {
+  const days = parseInt(req.query.days) || 30;
+  const format = req.query.format || 'json';
+  const rows = db.prepare("SELECT * FROM metrics_daily WHERE date >= date('now', '-' || ? || ' days') ORDER BY date DESC").all(days);
+  sendExport(res, rows, 'metrics', format);
+}));
+
+app.get('/api/export/errors', asyncRoute((req, res) => {
+  const days = parseInt(req.query.days) || 7;
+  const format = req.query.format || 'json';
+  const rows = db.prepare(`
+    SELECT e.id, e.issue_id, e.app_slug, e.timestamp, e.message, e.source, e.container_name,
+           e.request_url, e.request_method, i.severity, i.status, i.title as issue_title, i.fingerprint
+    FROM error_events e
+    LEFT JOIN error_issues i ON e.issue_id = i.id
+    WHERE e.timestamp >= datetime('now', '-' || ? || ' days')
+    ORDER BY e.timestamp DESC
+  `).all(days);
+  sendExport(res, rows, 'errors', format);
+}));
+
+app.get('/api/export/healing', asyncRoute((req, res) => {
+  const days = parseInt(req.query.days) || 30;
+  const format = req.query.format || 'json';
+  const rows = db.prepare("SELECT * FROM healing_log WHERE timestamp >= datetime('now', '-' || ? || ' days') ORDER BY timestamp DESC").all(days);
+  sendExport(res, rows, 'healing', format);
+}));
+
+app.get('/api/export/notifications', asyncRoute((req, res) => {
+  const days = parseInt(req.query.days) || 30;
+  const format = req.query.format || 'json';
+  const rows = db.prepare("SELECT * FROM notifications WHERE timestamp >= datetime('now', '-' || ? || ' days') ORDER BY timestamp DESC").all(days);
+  sendExport(res, rows, 'notifications', format);
+}));
+
+app.get('/api/export/deploys', asyncRoute((req, res) => {
+  const days = parseInt(req.query.days) || 30;
+  const format = req.query.format || 'json';
+  const rows = db.prepare("SELECT * FROM deploy_log WHERE timestamp >= datetime('now', '-' || ? || ' days') ORDER BY timestamp DESC").all(days);
+  sendExport(res, rows, 'deploys', format);
+}));
+
+app.get('/api/export/system', asyncRoute((req, res) => {
+  const days = parseInt(req.query.days) || 7;
+  const format = req.query.format || 'json';
+  const rows = db.prepare("SELECT * FROM system_snapshots WHERE ts >= datetime('now', '-' || ? || ' days') ORDER BY ts DESC").all(days);
+  sendExport(res, rows, 'system', format);
+}));
+
+app.get('/api/export/container-metrics', asyncRoute((req, res) => {
+  const format = req.query.format || 'json';
+  const rows = db.prepare("SELECT * FROM container_metrics WHERE ts >= datetime('now', '-48 hours') ORDER BY ts DESC").all();
+  sendExport(res, rows, 'container-metrics', format);
+}));
+
+app.get('/api/export/all', asyncRoute((req, res) => {
+  const format = req.query.format || 'json';
+  if (format === 'csv') return res.status(400).json({ error: 'Full export only available as JSON' });
+  const bundle = {
+    exported_at: new Date().toISOString(),
+    metrics: db.prepare("SELECT * FROM metrics_daily ORDER BY date DESC").all(),
+    errors: db.prepare(`
+      SELECT e.id, e.issue_id, e.app_slug, e.timestamp, e.message, e.source, e.container_name,
+             e.request_url, e.request_method, i.severity, i.status, i.title as issue_title, i.fingerprint
+      FROM error_events e LEFT JOIN error_issues i ON e.issue_id = i.id ORDER BY e.timestamp DESC
+    `).all(),
+    healing: db.prepare("SELECT * FROM healing_log ORDER BY timestamp DESC").all(),
+    notifications: db.prepare("SELECT * FROM notifications ORDER BY timestamp DESC").all(),
+    deploys: db.prepare("SELECT * FROM deploy_log ORDER BY timestamp DESC").all(),
+    system_snapshots: db.prepare("SELECT * FROM system_snapshots ORDER BY ts DESC").all(),
+    container_metrics: db.prepare("SELECT * FROM container_metrics WHERE ts >= datetime('now', '-48 hours') ORDER BY ts DESC").all(),
+    app_config: config.apps
+  };
+  res.setHeader('Content-Disposition', `attachment; filename="dockfolio-export-${new Date().toISOString().slice(0,10)}.json"`);
+  res.json(bundle);
 }));
 
 // --- Anti-SaaS Savings Tracker ---

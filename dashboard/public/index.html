@@ -1,6 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
+  <script>
+    // Prevent flash of wrong theme — runs before any rendering
+    (function(){var t=localStorage.getItem('dockfolio-theme');if(!t)t=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';document.documentElement.setAttribute('data-theme',t);})();
+  </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dockfolio</title>
@@ -44,8 +48,48 @@
       --duration-normal: 250ms;
       --duration-slow: 400ms;
     }
+    /* Light theme overrides */
+    [data-theme="light"] {
+      --bg: #f8f9fa;
+      --surface: #ffffff;
+      --surface2: #f0f1f3;
+      --surface3: #e4e6e9;
+      --border: #d1d5db;
+      --border-hover: #9ca3af;
+      --text: #111827;
+      --text-dim: #4b5563;
+      --text-muted: #9ca3af;
+      --green: #16a34a;
+      --green-dim: #15803d;
+      --yellow: #d97706;
+      --red: #dc2626;
+      --blue: #2563eb;
+      --purple: #7c3aed;
+      --cyan: #0891b2;
+      --orange: #ea580c;
+    }
+
+    /* Smooth theme transition */
+    body, .header, .system-bar, .nav-bar, .app-card, .modal, .modal-header,
+    .modal-overlay, .notif-dropdown, .log-viewer, .container-detail,
+    .docker-stat, .key-health-app, .marketing-panel, .activity-panel,
+    .btn, .header-btn, .search-input, .env-edit-input {
+      transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: var(--font-sans); background: var(--bg); color: var(--text); min-height: 100vh; letter-spacing: var(--tracking-normal); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+    /* Light theme hardcoded overrides */
+    [data-theme="light"] body::before { background: linear-gradient(135deg, rgba(59,130,246,0.06), rgba(139,92,246,0.07), rgba(6,182,212,0.06)); }
+    [data-theme="light"] .header { background: rgba(248,249,250,0.9); }
+    [data-theme="light"] .log-viewer { background: #f3f4f6; color: var(--text-dim); }
+    [data-theme="light"] .modal-overlay { background: rgba(0,0,0,0.4); }
+    [data-theme="light"] .app-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.08), 0 0 0 1px rgba(59,130,246,0.15); }
+    [data-theme="light"] .nav-tab:hover { background: rgba(0,0,0,0.03); }
+    [data-theme="light"] .notif-cat { background: rgba(0,0,0,0.06); }
+    [data-theme="light"] .btn:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    [data-theme="light"] .modal { box-shadow: 0 24px 80px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.05); }
 
     /* Animated gradient background */
     @keyframes gradientShift { 0%,100%{background-position:0% 50%} 50%{background-position:100% 50%} }
@@ -1199,6 +1243,7 @@
       <div class="health-summary" id="healthSummary"></div>
     </div>
     <div class="header-right">
+      <button class="header-btn" onclick="toggleTheme()" id="themeToggleBtn" title="Toggle light/dark theme">&#9788;</button>
       <input class="search-input" id="searchInput" type="text" placeholder="Search apps... (/)" oninput="filterApps(this.value)">
       <span class="last-updated" id="lastUpdated"><span class="refresh-dot"></span><span id="countdown"></span></span>
       <span class="notif-btn-wrap" id="notifWrap">
@@ -1914,6 +1959,34 @@
           <div id="envDiffTable" style="overflow-x:auto"><span style="color:var(--text-muted);font-size:12px">Click to load...</span></div>
         </div>
       </div>
+      <div class="integrations-section" style="margin-top:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h3>Export Data</h3>
+          <span style="font-size:10px;color:var(--text-muted)">Download your data as CSV or JSON</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+          <button class="btn" onclick="exportData('metrics','csv',30)" title="Last 30 days">Metrics CSV</button>
+          <button class="btn" onclick="exportData('errors','csv',7)" title="Last 7 days">Errors CSV</button>
+          <button class="btn" onclick="exportData('healing','csv',30)" title="Last 30 days">Healing Log CSV</button>
+          <button class="btn" onclick="exportData('notifications','csv',30)" title="Last 30 days">Notifications CSV</button>
+          <button class="btn" onclick="exportData('deploys','csv',30)" title="Last 30 days">Deploys CSV</button>
+          <button class="btn" onclick="exportData('system','csv',7)" title="Last 7 days">System Snapshots CSV</button>
+          <button class="btn" onclick="exportData('container-metrics','csv')" title="Last 48 hours">Container Metrics CSV</button>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+          <button class="btn" onclick="exportData('metrics','json',30)">Metrics JSON</button>
+          <button class="btn" onclick="exportData('errors','json',7)">Errors JSON</button>
+          <button class="btn" onclick="exportData('healing','json',30)">Healing JSON</button>
+          <button class="btn" onclick="exportData('notifications','json',30)">Notifications JSON</button>
+          <button class="btn" onclick="exportData('deploys','json',30)">Deploys JSON</button>
+          <button class="btn" onclick="exportData('system','json',7)">System JSON</button>
+          <button class="btn" onclick="exportData('container-metrics','json')">Container Metrics JSON</button>
+        </div>
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+          <button class="btn" onclick="exportData('all','json')" style="background:var(--blue);color:#fff;font-weight:600">Export All Data (JSON Bundle)</button>
+          <span style="font-size:11px;color:var(--text-muted);margin-left:8px">Full backup: metrics, errors, healing, notifications, deploys, system snapshots, and app config</span>
+        </div>
+      </div>
       <div id="addAppForm" class="add-app-form">
         <h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text)">Add New App</h3>
         <div class="form-row">
@@ -2063,6 +2136,43 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script>
+    // === Theme Toggle ===
+    (function initTheme() {
+      const stored = localStorage.getItem('dockfolio-theme');
+      let theme;
+      if (stored) {
+        theme = stored;
+      } else {
+        theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', theme);
+      updateThemeIcon(theme);
+    })();
+
+    function updateThemeIcon(theme) {
+      const btn = document.getElementById('themeToggleBtn');
+      if (btn) btn.innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+    }
+
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme') || 'dark';
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('dockfolio-theme', next);
+      updateThemeIcon(next);
+      // Update Chart.js colors if charts exist
+      if (typeof Chart !== 'undefined') {
+        Chart.defaults.color = next === 'dark' ? '#52525b' : '#9ca3af';
+        Chart.defaults.borderColor = next === 'dark' ? '#27272a' : '#d1d5db';
+        Chart.defaults.plugins.tooltip.backgroundColor = next === 'dark' ? '#16161e' : '#ffffff';
+        Chart.defaults.plugins.tooltip.titleColor = next === 'dark' ? '#fafafa' : '#111827';
+        Chart.defaults.plugins.tooltip.bodyColor = next === 'dark' ? '#a1a1aa' : '#4b5563';
+        Chart.defaults.plugins.tooltip.borderColor = next === 'dark' ? '#27272a' : '#d1d5db';
+        // Redraw all active charts
+        Object.values(_chartInstances || {}).forEach(c => { if (c && !c._destroyed) c.update(); });
+      }
+    }
+
     // === Chart.js Premium Defaults ===
     if (typeof Chart !== 'undefined') {
       Chart.defaults.color = '#52525b';
@@ -2656,6 +2766,7 @@
             <div class="btn-row">
               <button class="btn" onclick="viewLogs('${escapeHtml(c.name)}')">View Logs</button>
               <button class="btn" onclick="viewLogs('${escapeHtml(c.name)}', 200)">Last 200 lines</button>
+              <button class="btn" onclick="diagnoseContainer('${escapeHtml(c.name)}')">Diagnose</button>
               <button class="btn" onclick="restartContainer('${escapeHtml(c.name)}', this)" style="margin-left:auto;color:var(--yellow)">Restart</button>
             </div>
           </div>`;
@@ -4269,6 +4380,113 @@
       }
     }
 
+    async function diagnoseContainer(containerName) {
+      const area = document.getElementById('logArea');
+      area.innerHTML = `<div class="log-viewer" style="color:var(--text-muted)">Running diagnostics on ${escapeHtml(containerName)}...</div>`;
+      try {
+        const res = await apiFetch(`/api/containers/${containerName}/diagnose`, { method: 'POST' });
+        const d = await res.json();
+        if (d.error) { area.innerHTML = `<div class="log-viewer" style="color:var(--red)">Error: ${escapeHtml(d.error)}</div>`; return; }
+
+        const fmtBytes = (b) => { if (b >= 1e9) return (b/1e9).toFixed(1)+' GB'; if (b >= 1e6) return (b/1e6).toFixed(0)+' MB'; if (b >= 1e3) return (b/1e3).toFixed(0)+' KB'; return b+' B'; };
+        const bar = (pct, color) => `<div style="display:inline-flex;align-items:center;gap:6px;min-width:200px">
+          <div style="flex:1;height:8px;background:rgba(255,255,255,0.1);border-radius:4px;overflow:hidden">
+            <div style="width:${Math.min(pct,100)}%;height:100%;background:var(--${color});border-radius:4px"></div>
+          </div>
+          <span style="font-size:11px;min-width:40px">${pct.toFixed(1)}%</span>
+        </div>`;
+
+        let html = `<div class="diagnose-report" style="margin-top:12px">`;
+        html += `<h3 style="margin:0 0 12px;font-size:14px;color:var(--text)">Diagnostic Report: ${escapeHtml(d.container)}</h3>`;
+
+        // Status & uptime
+        const statusColor = d.status === 'running' ? 'green' : 'red';
+        html += `<div class="diagnose-section" style="margin-bottom:12px">
+          <span style="color:var(--${statusColor});font-weight:600;text-transform:uppercase">${escapeHtml(d.status)}</span>
+          ${d.uptime ? `<span style="color:var(--text-muted);margin-left:12px">Uptime: ${escapeHtml(d.uptime)}</span>` : ''}
+        </div>`;
+
+        // Resources
+        if (d.resources) {
+          const r = d.resources;
+          const cpuColor = r.cpuPercent > 80 ? 'red' : r.cpuPercent > 50 ? 'yellow' : 'green';
+          const memColor = r.memoryPercent > 85 ? 'red' : r.memoryPercent > 60 ? 'yellow' : 'green';
+          html += `<div class="diagnose-section" style="background:rgba(255,255,255,0.03);border-radius:8px;padding:10px;margin-bottom:12px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Resources</div>
+            <div style="display:grid;grid-template-columns:80px 1fr;gap:6px 12px;align-items:center;font-size:12px">
+              <span style="color:var(--text-muted)">CPU</span>${bar(r.cpuPercent, cpuColor)}
+              <span style="color:var(--text-muted)">Memory</span>${bar(r.memoryPercent, memColor)}
+              <span style="color:var(--text-muted)">Used</span><span>${fmtBytes(r.memoryBytes)} / ${fmtBytes(r.memoryLimitBytes)}</span>
+              <span style="color:var(--text-muted)">Network</span><span>${fmtBytes(r.netRxBytes)} in / ${fmtBytes(r.netTxBytes)} out</span>
+              <span style="color:var(--text-muted)">Block I/O</span><span>${fmtBytes(r.blockReadBytes)} read / ${fmtBytes(r.blockWriteBytes)} write</span>
+            </div>
+          </div>`;
+        }
+
+        // Health check
+        if (d.healthCheck) {
+          const hc = d.healthCheck;
+          const hColor = hc.status === 'healthy' ? 'green' : hc.status === 'unhealthy' ? 'red' : 'yellow';
+          html += `<div class="diagnose-section" style="background:rgba(255,255,255,0.03);border-radius:8px;padding:10px;margin-bottom:12px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Health Check</div>
+            <div style="font-size:12px">
+              <span style="color:var(--${hColor});font-weight:600">${escapeHtml(hc.status)}</span>
+              ${hc.failingStreak > 0 ? `<span style="color:var(--red);margin-left:8px">(${hc.failingStreak} failures)</span>` : ''}
+              ${hc.output ? `<pre style="margin:6px 0 0;font-size:11px;color:var(--text-muted);white-space:pre-wrap;max-height:80px;overflow:auto">${escapeHtml(hc.output)}</pre>` : ''}
+            </div>
+          </div>`;
+        }
+
+        // Processes
+        if (d.processes && d.processes.length) {
+          const cols = Object.keys(d.processes[0]);
+          html += `<div class="diagnose-section" style="background:rgba(255,255,255,0.03);border-radius:8px;padding:10px;margin-bottom:12px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Processes (${d.processes.length})</div>
+            <div style="overflow-x:auto"><table style="width:100%;font-size:11px;border-collapse:collapse">
+              <thead><tr>${cols.map(c => `<th style="text-align:left;padding:3px 8px;border-bottom:1px solid rgba(255,255,255,0.1);color:var(--text-muted)">${escapeHtml(c)}</th>`).join('')}</tr></thead>
+              <tbody>${d.processes.map(p => `<tr>${cols.map(c => `<td style="padding:3px 8px;border-bottom:1px solid rgba(255,255,255,0.05);font-family:monospace">${escapeHtml(p[c] || '')}</td>`).join('')}</tr>`).join('')}</tbody>
+            </table></div>
+          </div>`;
+        }
+
+        // Config
+        if (d.config) {
+          const cfg = d.config;
+          html += `<div class="diagnose-section" style="background:rgba(255,255,255,0.03);border-radius:8px;padding:10px;margin-bottom:12px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Configuration</div>
+            <div style="display:grid;grid-template-columns:100px 1fr;gap:4px 12px;font-size:12px">
+              <span style="color:var(--text-muted)">Image</span><span style="font-family:monospace;font-size:11px">${escapeHtml(cfg.image)}</span>
+              <span style="color:var(--text-muted)">Restart</span><span>${escapeHtml(cfg.restartPolicy)}</span>
+              ${cfg.ports.length ? `<span style="color:var(--text-muted)">Ports</span><span>${cfg.ports.map(p => escapeHtml(p.host + ' -> ' + p.container)).join(', ')}</span>` : ''}
+              ${cfg.mounts.length ? `<span style="color:var(--text-muted)">Mounts</span><span style="font-size:11px">${cfg.mounts.map(m => escapeHtml(m.source + ' -> ' + m.destination)).join('<br>')}</span>` : ''}
+            </div>
+            ${cfg.env.length ? `<details style="margin-top:8px"><summary style="font-size:11px;color:var(--text-muted);cursor:pointer">Environment (${cfg.env.length} vars)</summary>
+              <pre style="margin:4px 0 0;font-size:10px;color:var(--text-muted);max-height:120px;overflow:auto;white-space:pre-wrap">${cfg.env.map(e => escapeHtml(e)).join('\n')}</pre>
+            </details>` : ''}
+          </div>`;
+        }
+
+        // Recent logs
+        if (d.recentLogs && d.recentLogs.length) {
+          html += `<div class="diagnose-section" style="background:rgba(255,255,255,0.03);border-radius:8px;padding:10px;margin-bottom:12px">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px">Recent Logs (${d.recentLogs.length} lines)</div>
+            <div class="log-viewer" style="max-height:200px;font-size:11px">${d.recentLogs.map(l => escapeHtml(l)).join('\n')}</div>
+          </div>`;
+        }
+
+        html += `</div>`;
+        area.innerHTML = html;
+      } catch (err) {
+        area.innerHTML = `<div class="log-viewer" style="color:var(--red)">Diagnostic error: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function diagnoseFirstContainer() {
+      const app = appData.find(a => (a.slug || slugify(a.name)) === ctxSlug);
+      if (!app?.containerStatuses?.length) return;
+      openDetail(ctxAppName).then(() => diagnoseContainer(app.containerStatuses[0].name));
+    }
+
     function renderPingChart(pings) {
       const w = 660, h = 50, pad = 2;
       const max = Math.max(...pings) * 1.1 || 1;
@@ -4346,6 +4564,7 @@
         const items = [
           { icon: '\uD83C\uDF10', label: 'Open ' + ctxDomain, action: () => window.open('https://' + ctxDomain, '_blank') },
           { icon: '\uD83D\uDCCB', label: 'View Logs', hint: '', action: () => { openDetail(ctxAppName); }, enabled: hasContainers },
+          { icon: '\uD83E\uDE7A', label: 'Diagnose', action: () => diagnoseFirstContainer(), enabled: hasContainers },
           { icon: '\u26A0\uFE0F', label: 'Restart All Containers', cls: 'danger', action: () => restartAllContainers(), enabled: hasContainers },
           { icon: '\uD83D\uDD11', label: 'View Environment', action: () => { openDetail(ctxAppName).then(() => { const envBtn = document.querySelector('.modal-tab:nth-child(2)'); if (envBtn) envBtn.click(); }); } },
           { icon: '\uD83D\uDD0D', label: 'Run SEO Audit', action: () => runCtxSeoAudit() },
@@ -5822,6 +6041,24 @@
         panel.innerHTML = html;
       } catch (err) {
         panel.innerHTML = '<span style="color:var(--red);font-size:12px">Error loading integrations</span>';
+      }
+    }
+
+    // --- Data Export ---
+    function exportData(entity, format, days) {
+      let url = '/api/export/' + entity + '?format=' + format;
+      if (days) url += '&days=' + days;
+      if (format === 'csv' || entity === 'all') {
+        // Trigger file download via hidden link
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = entity + '-export.' + (format === 'csv' ? 'csv' : 'json');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } else {
+        // Open JSON in new tab for viewing
+        window.open(url, '_blank');
       }
     }
 
