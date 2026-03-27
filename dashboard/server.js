@@ -483,6 +483,55 @@ function findAppBySlug(slug) {
   return config.apps.find(a => slugify(a.name) === slug);
 }
 
+// === Maintenance Mode ===
+// In-memory Map: slug -> { enabled, reason, duration, startedAt, expiresAt }
+const maintenanceMode = new Map();
+
+function loadMaintenanceState() {
+  try {
+    const raw = getSetting('maintenance_mode');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      for (const [slug, state] of Object.entries(parsed)) {
+        if (state.enabled) {
+          // Check if expired
+          if (state.expiresAt && Date.now() > state.expiresAt) continue;
+          maintenanceMode.set(slug, state);
+        }
+      }
+    }
+  } catch { /* silent — first boot or corrupt data */ }
+}
+
+function persistMaintenanceState() {
+  const obj = Object.fromEntries(maintenanceMode);
+  upsertSettingStmt.run('maintenance_mode', JSON.stringify(obj));
+}
+
+function isInMaintenance(slug) {
+  const state = maintenanceMode.get(slug);
+  if (!state || !state.enabled) return false;
+  // Auto-expire if duration elapsed
+  if (state.expiresAt && Date.now() > state.expiresAt) {
+    maintenanceMode.delete(slug);
+    persistMaintenanceState();
+    console.log(`[MAINTENANCE] Auto-expired maintenance mode for ${slug}`);
+    return false;
+  }
+  return true;
+}
+
+function setMaintenance(slug, enabled, reason, durationMinutes) {
+  if (enabled) {
+    const now = Date.now();
+    const expiresAt = durationMinutes ? now + durationMinutes * 60 * 1000 : null;
+    maintenanceMode.set(slug, { enabled: true, reason: reason || '', duration: durationMinutes || null, startedAt: now, expiresAt });
+  } else {
+    maintenanceMode.delete(slug);
+  }
+  persistMaintenanceState();
+}
+
 function getBannerForgeUrl() {
   const dbVal = getSetting('BANNERFORGE_URL');
   if (dbVal) return dbVal;
@@ -548,10 +597,15 @@ async function sendTelegram(message) {
   const chatId = getSetting('TELEGRAM_CHAT_ID') || process.env.TELEGRAM_CHAT_ID;
 
   // Always add to notification center, even if Telegram is not configured
+  let parsedSlug = null;
   try {
     const parsed = parseNotificationFromTelegram(message);
+    parsedSlug = parsed.appSlug;
     addNotification(parsed.category, parsed.severity, parsed.title, parsed.message, parsed.appSlug);
   } catch { /* silent */ }
+
+  // Suppress Telegram alert if the app is in maintenance mode (notification is still stored above)
+  if (parsedSlug && isInMaintenance(parsedSlug)) return;
 
   if (!token || !chatId) return;
   try {
@@ -622,12 +676,16 @@ app.get('/api/apps', asyncRoute(async (_req, res) => {
       hasSentry = !!(sentryVar && sentryVar.value);
     }
 
+    const appSlug = appDef.slug || slugify(appDef.name);
+    const maintenance = isInMaintenance(appSlug) ? maintenanceMode.get(appSlug) : null;
+
     return {
       ...appDef,
       containerStatuses,
       overallHealth,
       hasSentry,
       hasEnvFile,
+      maintenance: maintenance || null,
     };
   });
 
@@ -1189,6 +1247,36 @@ app.post('/api/apps/:slug/restart', asyncRoute(async (req, res) => {
   }
   auditLog(req, 'app.restart', req.params.slug);
   res.json({ ok: true, app: req.params.slug, results });
+}));
+
+// POST /api/apps/:slug/maintenance — toggle maintenance mode
+app.post('/api/apps/:slug/maintenance', asyncRoute((req, res) => {
+  const appDef = config.apps.find(a => (a.slug || slugify(a.name)) === req.params.slug);
+  if (!appDef) return res.status(404).json({ error: 'App not found' });
+  const { enabled, reason, duration } = req.body;
+  setMaintenance(req.params.slug, !!enabled, reason || '', duration || null);
+  auditLog(req, 'app.maintenance', req.params.slug, { enabled: !!enabled, reason, duration });
+  console.log(`[MAINTENANCE] ${enabled ? 'Enabled' : 'Disabled'} maintenance mode for ${req.params.slug}${reason ? ` — ${reason}` : ''}${duration ? ` (${duration}m)` : ''}`);
+  res.json({ ok: true, slug: req.params.slug, maintenance: maintenanceMode.get(req.params.slug) || { enabled: false } });
+}));
+
+// GET /api/apps/:slug/maintenance — check maintenance status for an app
+app.get('/api/apps/:slug/maintenance', asyncRoute((req, res) => {
+  const appDef = config.apps.find(a => (a.slug || slugify(a.name)) === req.params.slug);
+  if (!appDef) return res.status(404).json({ error: 'App not found' });
+  const state = maintenanceMode.get(req.params.slug);
+  res.json(state && isInMaintenance(req.params.slug) ? state : { enabled: false });
+}));
+
+// GET /api/maintenance — list all apps in maintenance mode
+app.get('/api/maintenance', asyncRoute((_req, res) => {
+  const result = {};
+  for (const [slug, state] of maintenanceMode) {
+    if (isInMaintenance(slug)) {
+      result[slug] = state;
+    }
+  }
+  res.json(result);
 }));
 
 // GET /api/health — detailed health check
@@ -2338,6 +2426,21 @@ app.put('/api/settings/keys', (req, res) => {
   }
 
   res.json({ success: true, saved, deleted });
+});
+
+// GET /api/settings/favorites — get favorite app slugs
+app.get('/api/settings/favorites', (req, res) => {
+  const raw = getSetting('favorite_apps');
+  const favorites = raw ? JSON.parse(raw) : [];
+  res.json({ favorites });
+});
+
+// PUT /api/settings/favorites — save favorite app slugs
+app.put('/api/settings/favorites', (req, res) => {
+  const { favorites } = req.body;
+  if (!Array.isArray(favorites)) return res.status(400).json({ error: 'favorites must be an array' });
+  upsertSettingStmt.run('favorite_apps', JSON.stringify(favorites));
+  res.json({ success: true, favorites });
 });
 
 // --- App Configuration Management ---
@@ -3659,6 +3762,9 @@ function getSetting(key) {
   const row = getSettingStmt.get(key);
   return row ? row.value : null;
 }
+
+// Load persisted maintenance state now that getSetting is available
+loadMaintenanceState();
 
 const INTEGRATION_KEYS = [
   { key: 'STRIPE_SECRET_KEY', label: 'Stripe Secret Key', category: 'Payments', validatable: true },
@@ -5094,6 +5200,12 @@ async function runHealingCheck() {
       for (const target of targets) {
         const appSlug = target.name || 'system';
 
+        // Skip apps in maintenance mode
+        if (isInMaintenance(appSlug)) {
+          console.log(`[HEALING] Skipped ${appSlug} — maintenance mode`);
+          continue;
+        }
+
         // Check if we already acted on this in the last hour (avoid spam)
         const recentAction = db.prepare(
           "SELECT id FROM healing_log WHERE app_slug = ? AND condition = ? AND timestamp >= datetime('now', '-1 hour')"
@@ -5132,6 +5244,11 @@ async function runHealingCheck() {
 
 // Run healing checks every 2 minutes
 cron.schedule('*/2 * * * *', guardedCron('healing', async () => {
+  // Auto-expire maintenance mode entries
+  for (const [slug] of maintenanceMode) {
+    isInMaintenance(slug); // triggers auto-expiry check
+  }
+
   await runHealingCheck().catch(err => cronFail('Healing check', err));
 
   // Event loop lag alert (max once per hour)

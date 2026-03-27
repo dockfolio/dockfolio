@@ -153,9 +153,29 @@
 
     /* Sections */
     .section { padding: 20px 32px 8px; }
-    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 600; }
+    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; cursor: pointer; user-select: none; }
+    .section-header:hover .section-title { color: var(--text); }
+    .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 600; transition: color 0.2s; }
+    .section-collapse-icon { font-size: 10px; color: var(--text-muted); margin-right: 6px; transition: transform 0.2s; display: inline-block; }
+    .section-header.collapsed .section-collapse-icon { transform: rotate(-90deg); }
+    .section-header.collapsed + .app-grid { display: none; }
     .section-count { font-size: 11px; color: var(--text-muted); background: var(--surface2); padding: 2px 8px; border-radius: 10px; }
+    .section.favorites-section { border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 8px; }
+    .section.favorites-section .section-title { color: var(--yellow); }
+
+    /* Favorite star */
+    .app-fav-btn { background: none; border: none; cursor: pointer; font-size: 16px; padding: 0 2px; line-height: 1; color: var(--text-muted); opacity: 0.4; transition: opacity 0.2s, color 0.2s, transform 0.15s; }
+    .app-fav-btn:hover { opacity: 1; transform: scale(1.2); }
+    .app-fav-btn.is-fav { color: var(--yellow); opacity: 1; }
+
+    /* Filter bar */
+    .filter-bar { display: flex; align-items: center; gap: 8px; padding: 8px 32px; flex-wrap: wrap; }
+    .filter-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 12px; font-size: 11px; color: var(--text-muted); cursor: pointer; transition: all 0.2s; font-family: inherit; }
+    .filter-btn:hover { border-color: var(--border-hover); color: var(--text); }
+    .filter-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .filter-search { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 11px; color: var(--text); font-family: inherit; width: 160px; outline: none; }
+    .filter-search:focus { border-color: var(--blue); }
+    .filter-search::placeholder { color: var(--text-muted); }
 
     /* App cards */
     .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-bottom: 16px; }
@@ -165,6 +185,20 @@
     .app-card:hover::before { opacity:1; }
     .app-card.has-issue { border-left: 3px solid var(--red); }
     .app-card.has-warning { border-left: 3px solid var(--yellow); }
+    .app-card.in-maintenance { border-left: 3px solid var(--text-muted); opacity: 0.75; }
+    .app-card.in-maintenance::before { background: linear-gradient(90deg, transparent, var(--text-muted), transparent); }
+    .maintenance-badge { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--surface2); color: var(--yellow); border: 1px solid var(--yellow); display: inline-flex; align-items: center; gap: 3px; }
+    .maintenance-toggle { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--border); margin-top: 12px; }
+    .maintenance-toggle label { font-size: 13px; font-weight: 600; color: var(--text-dim); }
+    .toggle-switch { position: relative; width: 40px; height: 22px; cursor: pointer; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--surface2); border: 1px solid var(--border); border-radius: 11px; transition: background 0.2s; }
+    .toggle-slider::before { content: ''; position: absolute; width: 16px; height: 16px; left: 2px; bottom: 2px; background: var(--text-muted); border-radius: 50%; transition: transform 0.2s, background 0.2s; }
+    .toggle-switch input:checked + .toggle-slider { background: var(--yellow); border-color: var(--yellow); }
+    .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); background: #fff; }
+    .maintenance-fields { display: none; margin-top: 8px; padding: 10px; background: var(--surface2); border-radius: 8px; gap: 8px; }
+    .maintenance-fields.active { display: flex; flex-direction: column; }
+    .maintenance-fields input, .maintenance-fields select { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 12px; }
     .app-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
     .app-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
     .app-badges { display: flex; gap: 4px; }
@@ -1410,6 +1444,14 @@
     </div>
 
     <div class="savings-card" id="savingsCard" style="display:none"></div>
+    <div class="filter-bar" id="filterBar">
+      <button class="filter-btn active" data-filter="all" onclick="setTypeFilter('all',this)">All</button>
+      <button class="filter-btn" data-filter="saas" onclick="setTypeFilter('saas',this)">SaaS</button>
+      <button class="filter-btn" data-filter="tool" onclick="setTypeFilter('tool',this)">Tools</button>
+      <button class="filter-btn" data-filter="static" onclick="setTypeFilter('static',this)">Static</button>
+      <button class="filter-btn" data-filter="infra" onclick="setTypeFilter('infra',this)">Infra</button>
+      <input class="filter-search" id="filterSearch" type="text" placeholder="Filter by name..." oninput="setFilterSearch(this.value)">
+    </div>
     <div id="appSections"></div>
   </div><!-- /view-home -->
 
@@ -2275,6 +2317,51 @@
     const typeShort = { saas: 'SaaS', tool: 'Tool', infra: 'Infra', static: 'Static', redirect: 'Redirect' };
     const typeOrder = ['saas', 'tool', 'infra', 'static', 'redirect'];
 
+    // Favorites & filter state
+    let favoriteApps = JSON.parse(localStorage.getItem('dockfolio_favorites') || '[]');
+    let activeTypeFilter = 'all';
+    let filterSearchTerm = '';
+    let collapsedSections = JSON.parse(localStorage.getItem('dockfolio_collapsed') || '{}');
+
+    // Load favorites from server on init
+    apiFetch('/api/settings/favorites').then(r => r.ok ? r.json() : null).then(d => {
+      if (d && d.favorites && d.favorites.length > 0) {
+        favoriteApps = d.favorites;
+        localStorage.setItem('dockfolio_favorites', JSON.stringify(favoriteApps));
+        if (appData.length) renderApps(appData);
+      }
+    }).catch(() => {});
+
+    function toggleFavorite(slug, event) {
+      if (event) { event.stopPropagation(); event.preventDefault(); }
+      const idx = favoriteApps.indexOf(slug);
+      if (idx >= 0) favoriteApps.splice(idx, 1);
+      else favoriteApps.push(slug);
+      localStorage.setItem('dockfolio_favorites', JSON.stringify(favoriteApps));
+      apiFetch('/api/settings/favorites', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ favorites: favoriteApps }) }).catch(() => {});
+      renderApps(appData);
+    }
+
+    function setTypeFilter(type, btn) {
+      activeTypeFilter = type;
+      document.querySelectorAll('.filter-bar .filter-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+      renderApps(appData);
+    }
+
+    function setFilterSearch(term) {
+      filterSearchTerm = term.toLowerCase();
+      renderApps(appData);
+    }
+
+    function toggleSection(sectionKey, headerEl) {
+      collapsedSections[sectionKey] = !collapsedSections[sectionKey];
+      localStorage.setItem('dockfolio_collapsed', JSON.stringify(collapsedSections));
+      headerEl.classList.toggle('collapsed');
+      const grid = headerEl.nextElementSibling;
+      if (grid) grid.style.display = collapsedSections[sectionKey] ? 'none' : '';
+    }
+
     let appData = [];
     let statsData = {};
     let systemData = {};
@@ -2561,12 +2648,115 @@
       return svg;
     }
 
+    function renderAppCard(app) {
+      const slug = app.slug || slugify(app.name);
+      const h = app.overallHealth || 'unknown';
+      const hasIssue = h === 'unhealthy' || h === 'degraded';
+      const hasWarning = h === 'restarting';
+      const inMaintenance = !!app.maintenance;
+      const cardClass = inMaintenance ? 'in-maintenance' : hasIssue ? 'has-issue' : hasWarning ? 'has-warning' : '';
+      const isFav = favoriteApps.includes(slug);
+
+      let totalCpu = 0, totalMem = 0;
+      if (app.containerStatuses) {
+        for (const c of app.containerStatuses) {
+          const s = statsData[c.name] || {};
+          totalCpu += s.cpu || 0;
+          totalMem += s.memory || 0;
+        }
+      }
+
+      const maintBadge = inMaintenance ? `<span class="maintenance-badge" title="${escapeHtml(app.maintenance.reason || 'Maintenance mode')}">&#128295; Maintenance</span>` : '';
+
+      let card = `<div class="app-card ${cardClass}" data-slug="${slug}" data-domain="${escapeHtml(app.domain || '')}" data-appname="${escapeHtml(app.name)}" onclick="openDetail('${escapeHtml(app.name)}')">
+        <div class="app-card-header">
+          <span class="app-name"><span class="status-dot ${h}" data-label="${h}"></span>${app.name}</span>
+          <div class="app-badges">
+            ${maintBadge}
+            <button class="app-fav-btn ${isFav ? 'is-fav' : ''}" onclick="toggleFavorite('${slug}', event)" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">&#9733;</button>
+            <span class="badge ${typeBadge[app.type]}">${typeShort[app.type]}</span>
+            ${app.hasEnvFile ? '<span class="badge-env" title="Has .env file">ENV</span>' : ''}
+          </div>
+        </div>
+        <div class="app-domain"><a href="https://${app.domain}" target="_blank" onclick="event.stopPropagation()">${app.domain}</a></div>
+        <div class="app-desc">${app.description || ''}</div>
+        <div class="app-meta">`;
+
+      const um = uptimeData.monitors?.[app.name];
+      const ssl = sslData.domains?.[app.domain];
+
+      if (app.containerStatuses && app.containerStatuses.length > 0) {
+        card += `<span class="app-meta-item">${app.containerStatuses.length} containers</span>`;
+        if (totalCpu > 0) card += `<span class="app-meta-item">${totalCpu.toFixed(1)}% CPU</span>`;
+        if (totalMem > 0) card += `<span class="app-meta-item">${fmt(totalMem)} RAM</span>`;
+      } else if (app.type === 'redirect') {
+        card += `<span class="app-meta-item">&#8594; ${app.redirectTo || ''}</span>`;
+      } else {
+        card += `<span class="app-meta-item">${app.tech || 'static'}</span>`;
+      }
+      if (um?.uptime24h != null) {
+        const uColor = um.uptime24h >= 99.9 ? 'var(--green)' : um.uptime24h >= 95 ? 'var(--yellow)' : 'var(--red)';
+        let spark = '';
+        if (um.sparkline?.length > 0) {
+          spark = '<span class="sparkline">' + um.sparkline.map(s =>
+            '<span class="sparkline-bar ' + s + '" style="height:' + (s === 'up' ? '14' : s === 'down' ? '14' : '4') + 'px;' + (s === 'down' ? 'width:3px;' : '') + '"></span>'
+          ).join('') + '</span>';
+        }
+        card += `<span class="app-meta-item" style="color:${uColor}">${um.uptime24h}%${spark}</span>`;
+      }
+      if (um?.avgPing) {
+        card += `<span class="app-meta-item">${um.avgPing}ms</span>`;
+      }
+      if (ssl?.daysLeft != null && ssl.daysLeft <= 14) {
+        const sColor = ssl.daysLeft <= 3 ? 'var(--red)' : 'var(--yellow)';
+        card += `<span class="app-meta-item" style="color:${sColor}">SSL: ${ssl.daysLeft}d</span>`;
+      }
+      card += `</div>`;
+
+      if (app.containerStatuses && app.containerStatuses.length > 0) {
+        card += `<div class="container-bars">`;
+        for (const c of app.containerStatuses) {
+          card += `<div class="container-bar ${c.health}" title="${c.name}: ${c.health}"></div>`;
+        }
+        card += `</div>`;
+      }
+      if (app.containerStatuses && Object.keys(sparklineData).length > 0) {
+        let cpuAll = [], memAll = [];
+        for (const c of app.containerStatuses) {
+          const sd = sparklineData[c.name];
+          if (sd) {
+            if (sd.cpu?.length > cpuAll.length) cpuAll = sd.cpu;
+            if (sd.memory?.length > memAll.length) memAll = sd.memory.map(m => m / (1024 * 1024));
+          }
+        }
+        if (cpuAll.length >= 2) {
+          card += `<div class="app-sparklines">`;
+          card += `<div class="app-sparkline" title="CPU: ${cpuAll[cpuAll.length-1]?.toFixed(1)}% (latest)"><span class="spark-label">CPU</span>${svgSparkline(cpuAll, 50, 16, '#3b82f6', { fill: true, labels: cpuAll, unit: '%' })}</div>`;
+          if (memAll.length >= 2) card += `<div class="app-sparkline" title="MEM: ${memAll[memAll.length-1]?.toFixed(0)} MB (latest)"><span class="spark-label">MEM</span>${svgSparkline(memAll, 50, 16, '#8b5cf6', { fill: true, labels: memAll, unit: ' MB' })}</div>`;
+          card += `</div>`;
+        }
+      }
+      card += `</div>`;
+      return card;
+    }
+
     function renderApps(apps) {
-      const filtered = searchTerm
+      // Apply global search (from header search bar)
+      let filtered = searchTerm
         ? apps.filter(a => a.name.toLowerCase().includes(searchTerm) || a.domain?.toLowerCase().includes(searchTerm) || a.tech?.toLowerCase().includes(searchTerm))
         : apps;
 
-      if (!filtered.length && !searchTerm) {
+      // Apply filter bar search
+      if (filterSearchTerm) {
+        filtered = filtered.filter(a => a.name.toLowerCase().includes(filterSearchTerm) || a.domain?.toLowerCase().includes(filterSearchTerm));
+      }
+
+      // Apply type filter
+      if (activeTypeFilter !== 'all') {
+        filtered = filtered.filter(a => a.type === activeTypeFilter);
+      }
+
+      if (!filtered.length && !searchTerm && !filterSearchTerm && activeTypeFilter === 'all') {
         document.getElementById('content').innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted)">
           <h3>No apps configured</h3>
           <p>Click <b>Settings</b> (or press <b>s</b>) to discover and add your Docker containers.</p>
@@ -2574,6 +2764,27 @@
         return;
       }
 
+      let html = '';
+
+      // Favorites section
+      const favApps = filtered
+        .filter(a => favoriteApps.includes(a.slug || slugify(a.name)))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      if (favApps.length > 0) {
+        const favKey = '_favorites';
+        const favCollapsed = collapsedSections[favKey] ? 'collapsed' : '';
+        html += `<div class="section favorites-section">
+          <div class="section-header ${favCollapsed}" onclick="toggleSection('${favKey}', this)">
+            <span class="section-title"><span class="section-collapse-icon">&#9660;</span>&#9733; Favorites</span>
+            <span class="section-count">${favApps.length}</span>
+          </div>
+          <div class="app-grid" ${collapsedSections[favKey] ? 'style="display:none"' : ''}>`;
+        for (const app of favApps) html += renderAppCard(app);
+        html += `</div></div>`;
+      }
+
+      // Group remaining apps by type
       const grouped = {};
       for (const app of filtered) {
         const type = app.type || 'other';
@@ -2581,107 +2792,43 @@
         grouped[type].push(app);
       }
 
-      let html = '';
       for (const type of typeOrder) {
         const group = grouped[type];
         if (!group || group.length === 0) continue;
+        // Sort alphabetically within group
+        group.sort((a, b) => a.name.localeCompare(b.name));
 
+        const sKey = 'type_' + type;
+        const sCollapsed = collapsedSections[sKey] ? 'collapsed' : '';
         html += `<div class="section">
-          <div class="section-header">
-            <span class="section-title">${typeLabels[type] || type}</span>
+          <div class="section-header ${sCollapsed}" onclick="toggleSection('${sKey}', this)">
+            <span class="section-title"><span class="section-collapse-icon">&#9660;</span>${typeLabels[type] || type}</span>
             <span class="section-count">${group.length}</span>
           </div>
-          <div class="app-grid">`;
-
-        for (const app of group) {
-          const h = app.overallHealth || 'unknown';
-          const hasIssue = h === 'unhealthy' || h === 'degraded';
-          const hasWarning = h === 'restarting';
-          const cardClass = hasIssue ? 'has-issue' : hasWarning ? 'has-warning' : '';
-
-          // Calculate total resource usage for this app
-          let totalCpu = 0, totalMem = 0;
-          if (app.containerStatuses) {
-            for (const c of app.containerStatuses) {
-              const s = statsData[c.name] || {};
-              totalCpu += s.cpu || 0;
-              totalMem += s.memory || 0;
-            }
-          }
-
-          html += `<div class="app-card ${cardClass}" data-slug="${app.slug || slugify(app.name)}" data-domain="${escapeHtml(app.domain || '')}" data-appname="${escapeHtml(app.name)}" onclick="openDetail('${escapeHtml(app.name)}')">
-            <div class="app-card-header">
-              <span class="app-name"><span class="status-dot ${h}" data-label="${h}"></span>${app.name}</span>
-              <div class="app-badges">
-                <span class="badge ${typeBadge[app.type]}">${typeShort[app.type]}</span>
-                ${app.hasEnvFile ? '<span class="badge-env" title="Has .env file">ENV</span>' : ''}
-              </div>
-            </div>
-            <div class="app-domain"><a href="https://${app.domain}" target="_blank" onclick="event.stopPropagation()">${app.domain}</a></div>
-            <div class="app-desc">${app.description || ''}</div>
-            <div class="app-meta">`;
-
-          // Uptime data from Kuma
-          const um = uptimeData.monitors?.[app.name];
-          const ssl = sslData.domains?.[app.domain];
-
-          if (app.containerStatuses && app.containerStatuses.length > 0) {
-            html += `<span class="app-meta-item">${app.containerStatuses.length} containers</span>`;
-            if (totalCpu > 0) html += `<span class="app-meta-item">${totalCpu.toFixed(1)}% CPU</span>`;
-            if (totalMem > 0) html += `<span class="app-meta-item">${fmt(totalMem)} RAM</span>`;
-          } else if (app.type === 'redirect') {
-            html += `<span class="app-meta-item">&#8594; ${app.redirectTo || ''}</span>`;
-          } else {
-            html += `<span class="app-meta-item">${app.tech || 'static'}</span>`;
-          }
-          if (um?.uptime24h != null) {
-            const uColor = um.uptime24h >= 99.9 ? 'var(--green)' : um.uptime24h >= 95 ? 'var(--yellow)' : 'var(--red)';
-            let spark = '';
-            if (um.sparkline?.length > 0) {
-              spark = '<span class="sparkline">' + um.sparkline.map(s =>
-                '<span class="sparkline-bar ' + s + '" style="height:' + (s === 'up' ? '14' : s === 'down' ? '14' : '4') + 'px;' + (s === 'down' ? 'width:3px;' : '') + '"></span>'
-              ).join('') + '</span>';
-            }
-            html += `<span class="app-meta-item" style="color:${uColor}">${um.uptime24h}%${spark}</span>`;
-          }
-          if (um?.avgPing) {
-            html += `<span class="app-meta-item">${um.avgPing}ms</span>`;
-          }
-          if (ssl?.daysLeft != null && ssl.daysLeft <= 14) {
-            const sColor = ssl.daysLeft <= 3 ? 'var(--red)' : 'var(--yellow)';
-            html += `<span class="app-meta-item" style="color:${sColor}">SSL: ${ssl.daysLeft}d</span>`;
-          }
-          html += `</div>`;
-
-          // Mini health bars for containers
-          if (app.containerStatuses && app.containerStatuses.length > 0) {
-            html += `<div class="container-bars">`;
-            for (const c of app.containerStatuses) {
-              html += `<div class="container-bar ${c.health}" title="${c.name}: ${c.health}"></div>`;
-            }
-            html += `</div>`;
-          }
-          // 24h CPU/memory sparklines
-          if (app.containerStatuses && Object.keys(sparklineData).length > 0) {
-            let cpuAll = [], memAll = [];
-            for (const c of app.containerStatuses) {
-              const sd = sparklineData[c.name];
-              if (sd) {
-                if (sd.cpu?.length > cpuAll.length) cpuAll = sd.cpu;
-                if (sd.memory?.length > memAll.length) memAll = sd.memory.map(m => m / (1024 * 1024)); // MB
-              }
-            }
-            if (cpuAll.length >= 2) {
-              html += `<div class="app-sparklines">`;
-              html += `<div class="app-sparkline" title="CPU: ${cpuAll[cpuAll.length-1]?.toFixed(1)}% (latest)"><span class="spark-label">CPU</span>${svgSparkline(cpuAll, 50, 16, '#3b82f6', { fill: true, labels: cpuAll, unit: '%' })}</div>`;
-              if (memAll.length >= 2) html += `<div class="app-sparkline" title="MEM: ${memAll[memAll.length-1]?.toFixed(0)} MB (latest)"><span class="spark-label">MEM</span>${svgSparkline(memAll, 50, 16, '#8b5cf6', { fill: true, labels: memAll, unit: ' MB' })}</div>`;
-              html += `</div>`;
-            }
-          }
-          html += `</div>`;
-        }
+          <div class="app-grid" ${collapsedSections[sKey] ? 'style="display:none"' : ''}>`;
+        for (const app of group) html += renderAppCard(app);
         html += `</div></div>`;
       }
+
+      // Handle 'other' type if any
+      if (grouped['other']?.length > 0) {
+        const group = grouped['other'].sort((a, b) => a.name.localeCompare(b.name));
+        const sKey = 'type_other';
+        const sCollapsed = collapsedSections[sKey] ? 'collapsed' : '';
+        html += `<div class="section">
+          <div class="section-header ${sCollapsed}" onclick="toggleSection('${sKey}', this)">
+            <span class="section-title"><span class="section-collapse-icon">&#9660;</span>Other</span>
+            <span class="section-count">${group.length}</span>
+          </div>
+          <div class="app-grid" ${collapsedSections[sKey] ? 'style="display:none"' : ''}>`;
+        for (const app of group) html += renderAppCard(app);
+        html += `</div></div>`;
+      }
+
+      if (!html && (searchTerm || filterSearchTerm || activeTypeFilter !== 'all')) {
+        html = `<div style="text-align:center;padding:40px;color:var(--text-muted)"><p>No apps match the current filter.</p></div>`;
+      }
+
       document.getElementById('appSections').innerHTML = html;
     }
 
@@ -2772,6 +2919,38 @@
           </div>`;
         }
       }
+      // Maintenance mode toggle
+      const maint = app.maintenance;
+      const maintChecked = maint ? 'checked' : '';
+      const maintReason = maint?.reason || '';
+      const maintSlug = app.slug || slugify(app.name);
+      const maintDuration = maint?.duration || '';
+      let maintTimeLeft = '';
+      if (maint?.expiresAt) {
+        const mins = Math.max(0, Math.round((maint.expiresAt - Date.now()) / 60000));
+        maintTimeLeft = mins > 60 ? `${Math.round(mins / 60)}h ${mins % 60}m remaining` : `${mins}m remaining`;
+      }
+      overview += `<div class="maintenance-toggle">
+        <label>&#128295; Maintenance Mode</label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="maintToggle" ${maintChecked} onchange="toggleMaintenance('${maintSlug}', this.checked)">
+          <span class="toggle-slider"></span>
+        </label>
+        ${maintTimeLeft ? `<span style="font-size:11px;color:var(--yellow)">${maintTimeLeft}</span>` : ''}
+        ${maint?.reason ? `<span style="font-size:11px;color:var(--text-muted)">${escapeHtml(maint.reason)}</span>` : ''}
+      </div>
+      <div class="maintenance-fields ${maint ? '' : ''}" id="maintFields">
+        <input type="text" id="maintReason" placeholder="Reason (optional)" value="${escapeHtml(maintReason)}" style="width:100%">
+        <select id="maintDuration">
+          <option value="">Indefinite</option>
+          <option value="30" ${maintDuration == 30 ? 'selected' : ''}>30 minutes</option>
+          <option value="60" ${maintDuration == 60 ? 'selected' : ''}>1 hour</option>
+          <option value="120" ${maintDuration == 120 ? 'selected' : ''}>2 hours</option>
+          <option value="240" ${maintDuration == 240 ? 'selected' : ''}>4 hours</option>
+          <option value="480" ${maintDuration == 480 ? 'selected' : ''}>8 hours</option>
+        </select>
+      </div>`;
+
       overview += `<div id="logArea"></div>`;
 
       let body = tabsHtml;
@@ -4508,6 +4687,37 @@
       </svg>`;
     }
 
+    async function toggleMaintenance(slug, enabled) {
+      const reason = document.getElementById('maintReason')?.value || '';
+      const durationVal = document.getElementById('maintDuration')?.value;
+      const duration = durationVal ? parseInt(durationVal, 10) : null;
+      const fieldsEl = document.getElementById('maintFields');
+
+      if (enabled && fieldsEl && !fieldsEl.classList.contains('active')) {
+        fieldsEl.classList.add('active');
+        // Don't send yet — wait for user to fill in fields and re-check
+        // Actually, toggle is already checked, send it now
+      }
+
+      try {
+        const res = await apiFetch(`/api/apps/${slug}/maintenance`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled, reason, duration })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast(enabled ? `Maintenance mode enabled for ${slug}` : `Maintenance mode disabled for ${slug}`, 'success');
+          if (fieldsEl) fieldsEl.classList.toggle('active', enabled);
+          setTimeout(() => fetchAll(), 1000);
+        } else {
+          showToast('Failed to toggle maintenance mode', 'error');
+        }
+      } catch (err) {
+        showToast('Error: ' + err.message, 'error');
+      }
+    }
+
     async function restartContainer(name, btn) {
       if (!confirm(`Restart container "${name}"?`)) return;
       const orig = btn.textContent;
@@ -4560,7 +4770,13 @@
       }
 
       function buildMenu() {
-        const hasContainers = appData.find(a => (a.slug || slugify(a.name)) === ctxSlug)?.containerStatuses?.length > 0;
+        const ctxApp = appData.find(a => (a.slug || slugify(a.name)) === ctxSlug);
+        const hasContainers = ctxApp?.containerStatuses?.length > 0;
+        const inMaint = !!ctxApp?.maintenance;
+        const maintLabel = inMaint ? 'Disable Maintenance Mode' : 'Enable Maintenance Mode';
+        const maintAction = () => {
+          toggleMaintenance(ctxSlug, !inMaint);
+        };
         const items = [
           { icon: '\uD83C\uDF10', label: 'Open ' + ctxDomain, action: () => window.open('https://' + ctxDomain, '_blank') },
           { icon: '\uD83D\uDCCB', label: 'View Logs', hint: '', action: () => { openDetail(ctxAppName); }, enabled: hasContainers },
@@ -4570,6 +4786,7 @@
           { icon: '\uD83D\uDD0D', label: 'Run SEO Audit', action: () => runCtxSeoAudit() },
           { icon: '\uD83D\uDCCE', label: 'Copy Domain', action: () => copyDomain() },
           { sep: true },
+          { icon: '\uD83D\uDD27', label: maintLabel, cls: inMaint ? '' : 'danger', action: maintAction },
           { icon: '\uD83D\uDCC8', label: 'View in Plausible', action: () => window.open('https://plausible.theadhdmind.org/' + ctxDomain, '_blank') },
           { icon: '\uD83D\uDD0E', label: 'View in GSC', action: () => window.open('https://search.google.com/search-console?resource_id=sc-domain:' + ctxDomain, '_blank') }
         ];
