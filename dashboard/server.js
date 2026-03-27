@@ -11,6 +11,7 @@ import cron from 'node-cron';
 import bcrypt from 'bcryptjs';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import { monitorEventLoopDelay } from 'perf_hooks';
 import {
   slugify, containerName, hashValue, todayString, percent, safeJSON,
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
@@ -21,7 +22,9 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
-const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+const docker = process.env.DOCKER_SOCKET
+  ? new Docker({ socketPath: process.env.DOCKER_SOCKET })
+  : new Docker({ host: process.env.DOCKER_HOST || 'docker-proxy', port: parseInt(process.env.DOCKER_PORT || '2375') });
 const BACKUP_DIR = process.env.BACKUP_DIR || join(process.env.HOME || '/home/deploy', 'backups');
 
 // --- Timeout & Rate Limit Constants (ms) ---
@@ -36,6 +39,23 @@ const TIMEOUT_TLS      = 8_000;    // TLS certificate checks (8s)
 const RATE_WINDOW      = 60_000;   // Rate limit window (1min)
 const MS_PER_HOUR      = 3_600_000;
 const MS_PER_DAY       = 86_400_000;
+
+// --- Event Loop Lag Monitor ---
+const eventLoopHistogram = monitorEventLoopDelay({ resolution: 20 });
+eventLoopHistogram.enable();
+let eventLoopLagAlertedAt = 0; // dedup: max 1 alert per hour
+
+// Reset histogram every 5 minutes to keep readings fresh
+setInterval(() => { eventLoopHistogram.reset(); }, 5 * 60_000);
+
+function getEventLoopMetrics() {
+  return {
+    min:  Math.round(eventLoopHistogram.min / 1e6 * 100) / 100,
+    max:  Math.round(eventLoopHistogram.max / 1e6 * 100) / 100,
+    mean: Math.round(eventLoopHistogram.mean / 1e6 * 100) / 100,
+    p99:  Math.round(eventLoopHistogram.percentile(99) / 1e6 * 100) / 100,
+  };
+}
 
 const rlErrorIngest = rateLimit(30, RATE_WINDOW);   // 30 req/min
 const rlBannerServe = rateLimit(120, RATE_WINDOW);  // 120 req/min
@@ -132,6 +152,13 @@ app.use(helmet({
 app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody = buf; } }));
 app.use(cookieParser());
 
+// --- Request duration ring buffer ---
+const PERF_RING_SIZE = 100;
+const SLOW_REQUEST_THRESHOLD_MS = 2000;
+const perfRing = [];         // last 100 request durations {method, path, durationMs, timestamp}
+let perfRingIdx = 0;
+const slowRequests = [];     // last 10 slow requests (> 2000ms)
+
 // --- Request logging & tracing ---
 app.use((req, res, next) => {
   const requestId = randomUUID();
@@ -142,6 +169,21 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (process.env.DEBUG && req.path.startsWith('/api/')) {
       console.log(`[REQ] ${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+    }
+    // Track API request durations in ring buffer
+    if (req.path.startsWith('/api/')) {
+      const entry = { method: req.method, path: req.path, durationMs: duration, timestamp: new Date().toISOString() };
+      if (perfRing.length < PERF_RING_SIZE) {
+        perfRing.push(entry);
+      } else {
+        perfRing[perfRingIdx % PERF_RING_SIZE] = entry;
+      }
+      perfRingIdx++;
+      if (duration > SLOW_REQUEST_THRESHOLD_MS) {
+        console.log(`[SLOW] ${req.method} ${req.path} took ${duration}ms`);
+        slowRequests.push(entry);
+        if (slowRequests.length > 10) slowRequests.shift();
+      }
     }
   });
   next();
@@ -174,6 +216,10 @@ const AUTH_DB_PATH = process.env.AUTH_DB_PATH || join(__dirname, 'auth.db');
 const authDb = new Database(AUTH_DB_PATH);
 authDb.pragma('journal_mode = WAL');
 authDb.pragma('busy_timeout = 5000');
+authDb.pragma('synchronous = NORMAL');
+authDb.pragma('cache_size = -16000');   // 16MB (auth DB is small)
+authDb.pragma('temp_store = MEMORY');
+authDb.pragma('mmap_io = 67108864');    // 64MB
 
 authDb.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -455,9 +501,58 @@ function setCORS(res) {
   res.setHeader('Access-Control-Max-Age', '86400');
 }
 
+function addNotification(category, severity, title, message, appSlug) {
+  try {
+    db.prepare(
+      'INSERT INTO notifications (category, severity, title, message, app_slug) VALUES (?, ?, ?, ?, ?)'
+    ).run(category, severity, (title || '').slice(0, 500), (message || '').slice(0, 2000), appSlug || null);
+  } catch (err) {
+    console.error('[NOTIFY] Failed to insert notification:', err.message);
+  }
+}
+
+function parseNotificationFromTelegram(msg) {
+  const plain = msg.replace(/<[^>]+>/g, ''); // strip HTML tags
+  const lines = plain.split('\n').filter(l => l.trim());
+  const title = (lines[0] || 'Alert').slice(0, 500);
+  const message = lines.slice(1).join('\n').slice(0, 2000) || null;
+  const lower = plain.toLowerCase();
+
+  let category = 'system';
+  if (/heal|auto-heal/i.test(lower)) category = 'healing';
+  else if (/error|spike|bug|recurring critical/i.test(lower)) category = 'error';
+  else if (/ssl|certificate/i.test(lower)) category = 'ssl';
+  else if (/backup|stale backup/i.test(lower)) category = 'backup';
+  else if (/security|drift/i.test(lower)) category = 'security';
+  else if (/predict|forecast/i.test(lower)) category = 'prediction';
+  else if (/deploy/i.test(lower)) category = 'deploy';
+  else if (/down|degraded|up.*back/i.test(lower)) category = 'system';
+  else if (/cron|event loop|lag/i.test(lower)) category = 'system';
+  else if (/key rotation|rotation/i.test(lower)) category = 'security';
+  else if (/overdue|reminder|task/i.test(lower)) category = 'system';
+
+  let severity = 'info';
+  if (/critical|down|failed|spike|overdue/i.test(lower)) severity = 'critical';
+  else if (/warning|degraded|expir|stale|needs approval|drift/i.test(lower)) severity = 'warning';
+
+  // Try to extract app slug from message
+  let appSlug = null;
+  const appMatch = plain.match(/App:\s*(\S+)/i) || plain.match(/(?:New \w+|Reopened|Recurring critical):\s*(\S+)/);
+  if (appMatch) appSlug = appMatch[1];
+
+  return { category, severity, title, message, appSlug };
+}
+
 async function sendTelegram(message) {
   const token = getSetting('TELEGRAM_BOT_TOKEN') || process.env.TELEGRAM_BOT_TOKEN;
   const chatId = getSetting('TELEGRAM_CHAT_ID') || process.env.TELEGRAM_CHAT_ID;
+
+  // Always add to notification center, even if Telegram is not configured
+  try {
+    const parsed = parseNotificationFromTelegram(message);
+    addNotification(parsed.category, parsed.severity, parsed.title, parsed.message, parsed.appSlug);
+  } catch { /* silent */ }
+
   if (!token || !chatId) return;
   try {
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -589,6 +684,7 @@ app.get('/api/system', asyncRoute(async (_req, res) => {
       cpuCount,
     },
     uptime: uptimeSeconds,
+    eventLoop: getEventLoopMetrics(),
   });
 }));
 
@@ -627,6 +723,66 @@ app.get('/api/containers/stats', asyncRoute(async (_req, res) => {
   cachedStats = stats;
   lastStatsUpdate = now;
   res.json(stats);
+}));
+
+// GET /api/containers/graph — container dependency graph by shared Docker networks
+let cachedGraph = null;
+let lastGraphUpdate = 0;
+const GRAPH_TTL = 300_000; // 5 minutes
+
+app.get('/api/containers/graph', asyncRoute(async (_req, res) => {
+  const now = Date.now();
+  if (cachedGraph && (now - lastGraphUpdate) < GRAPH_TTL) {
+    return res.json(cachedGraph);
+  }
+
+  const containers = await docker.listContainers({ all: true });
+  const networkMap = {}; // networkName -> [containerInfo]
+  const nodes = [];
+
+  for (const c of containers.slice(0, 50)) {
+    const name = containerName(c);
+    const networks = Object.keys(c.NetworkSettings?.Networks || {});
+    const slug = (config.apps || []).find(a =>
+      (a.containers || []).some(cn => name.includes(cn))
+    );
+    const appSlug = slug ? slugify(slug.name) : null;
+
+    nodes.push({
+      id: name,
+      app: appSlug,
+      status: c.State || 'unknown',
+      networks,
+    });
+
+    for (const net of networks) {
+      if (!networkMap[net]) networkMap[net] = [];
+      networkMap[net].push(name);
+    }
+  }
+
+  const edgeSet = new Set();
+  const edges = [];
+  for (const [net, members] of Object.entries(networkMap)) {
+    for (let i = 0; i < members.length; i++) {
+      for (let j = i + 1; j < members.length; j++) {
+        const key = [members[i], members[j]].sort().join('|||') + '|||' + net;
+        if (!edgeSet.has(key)) {
+          edgeSet.add(key);
+          edges.push({ source: members[i], target: members[j], network: net });
+        }
+      }
+    }
+  }
+
+  cachedGraph = {
+    nodes,
+    edges,
+    networks: Object.keys(networkMap),
+    timestamp: new Date().toISOString(),
+  };
+  lastGraphUpdate = now;
+  res.json(cachedGraph);
 }));
 
 // GET /api/containers/:name/logs — last N lines of container logs
@@ -684,6 +840,216 @@ app.get('/api/docker/overview', asyncRoute(async (_req, res) => {
   });
 }));
 
+// === Feature: Docker Image Update Checker ===
+let cachedImageUpdates = null;
+let lastImageUpdatesCheck = 0;
+const IMAGE_UPDATES_TTL = 6 * MS_PER_HOUR; // 6 hours
+
+async function checkImageUpdates() {
+  const containers = await docker.listContainers();
+  const images = [];
+  const summary = { total: 0, upToDate: 0, updatesAvailable: 0, skipped: 0, error: 0 };
+
+  // Collect unique image references from running containers
+  const imageMap = new Map(); // image ref -> [container names]
+  for (const c of containers) {
+    const name = containerName(c);
+    const image = c.Image || '';
+    if (!imageMap.has(image)) imageMap.set(image, []);
+    imageMap.get(image).push(name);
+  }
+
+  // Rate limit: process max 10 at a time
+  const entries = [...imageMap.entries()];
+  for (let i = 0; i < entries.length; i += 10) {
+    const batch = entries.slice(i, i + 10);
+    const results = await Promise.allSettled(batch.map(async ([imageRef, containerNames]) => {
+      // Parse image reference into registry, name, tag
+      const parsed = parseImageRef(imageRef);
+
+      // Skip private/non-Hub registries
+      if (parsed.registry && parsed.registry !== 'docker.io' && parsed.registry !== 'registry.hub.docker.com') {
+        for (const cn of containerNames) {
+          images.push({ container: cn, image: imageRef, status: 'skipped', reason: 'private registry' });
+          summary.skipped++;
+          summary.total++;
+        }
+        return;
+      }
+
+      // Skip images without a real tag (only SHA digest)
+      if (!parsed.tag || parsed.tag.startsWith('sha256:')) {
+        for (const cn of containerNames) {
+          images.push({ container: cn, image: imageRef, status: 'skipped', reason: 'no tag (digest only)' });
+          summary.skipped++;
+          summary.total++;
+        }
+        return;
+      }
+
+      // Get local image digest
+      let localDigest = '';
+      try {
+        const inspectData = await docker.getImage(imageRef).inspect();
+        // RepoDigests contains the pullable digest e.g. ["redis@sha256:abc..."]
+        const repoDigest = (inspectData.RepoDigests || []).find(d => d.includes('@sha256:'));
+        if (repoDigest) {
+          localDigest = repoDigest.split('@')[1] || '';
+        }
+      } catch (_e) {
+        // image inspect failed
+      }
+
+      // Check Docker Hub for remote digest
+      let remoteDigest = '';
+      let hasUpdate = false;
+      let status = 'up_to_date';
+
+      try {
+        const hubPath = parsed.isOfficial
+          ? `library/${parsed.name}`
+          : `${parsed.owner}/${parsed.name}`;
+
+        // Get auth token (Docker Hub requires token even for public images on v2 manifest)
+        const tokenUrl = `https://auth.docker.io/token?service=registry.docker.io&scope=repository:${hubPath}:pull`;
+        const tokenController = new AbortController();
+        const tokenTimeout = setTimeout(() => tokenController.abort(), TIMEOUT_STANDARD);
+        const tokenRes = await fetch(tokenUrl, { signal: tokenController.signal });
+        clearTimeout(tokenTimeout);
+        const tokenData = await tokenRes.json();
+        const token = tokenData.token;
+
+        if (token) {
+          const manifestUrl = `https://registry-1.docker.io/v2/${hubPath}/manifests/${parsed.tag}`;
+          const manifestController = new AbortController();
+          const manifestTimeout = setTimeout(() => manifestController.abort(), TIMEOUT_STANDARD);
+          const manifestRes = await fetch(manifestUrl, {
+            headers: {
+              'Accept': 'application/vnd.docker.distribution.manifest.v2+json',
+              'Authorization': `Bearer ${token}`,
+            },
+            signal: manifestController.signal,
+          });
+          clearTimeout(manifestTimeout);
+
+          if (manifestRes.ok) {
+            // Docker-Content-Digest header contains the manifest digest
+            remoteDigest = manifestRes.headers.get('docker-content-digest') || '';
+          }
+        }
+      } catch (_e) {
+        // Registry check failed — mark as error
+      }
+
+      if (!remoteDigest) {
+        status = 'check_failed';
+        for (const cn of containerNames) {
+          images.push({ container: cn, image: imageRef, currentDigest: localDigest, status, reason: 'registry check failed' });
+          summary.error++;
+          summary.total++;
+        }
+        return;
+      }
+
+      if (localDigest && remoteDigest && localDigest !== remoteDigest) {
+        hasUpdate = true;
+        status = 'update_available';
+      } else if (localDigest && remoteDigest && localDigest === remoteDigest) {
+        hasUpdate = false;
+        status = 'up_to_date';
+      } else {
+        // No local digest to compare
+        status = 'unknown';
+      }
+
+      for (const cn of containerNames) {
+        images.push({ container: cn, image: imageRef, currentDigest: localDigest, remoteDigest, hasUpdate, status });
+        if (status === 'update_available') summary.updatesAvailable++;
+        else if (status === 'up_to_date') summary.upToDate++;
+        else summary.skipped++;
+        summary.total++;
+      }
+    }));
+
+    // Log errors from batch
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        console.error('[IMAGE-UPDATES] Batch error:', r.reason?.message);
+      }
+    }
+  }
+
+  // Sort: updates first, then up_to_date, then skipped/error
+  const statusOrder = { update_available: 0, unknown: 1, check_failed: 2, up_to_date: 3, skipped: 4 };
+  images.sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9));
+
+  return { images, summary, checkedAt: new Date().toISOString() };
+}
+
+function parseImageRef(ref) {
+  // Remove sha256 digests appended with @
+  const cleanRef = ref.split('@')[0];
+  let registry = '';
+  let owner = '';
+  let name = '';
+  let tag = 'latest';
+
+  const parts = cleanRef.split('/');
+
+  if (parts.length === 1) {
+    // e.g. "redis:7-alpine" — official Docker Hub image
+    const [n, t] = parts[0].split(':');
+    name = n;
+    tag = t || 'latest';
+    return { registry: 'docker.io', owner: 'library', name, tag, isOfficial: true };
+  }
+
+  if (parts.length === 2) {
+    // Could be "owner/image:tag" (Docker Hub) or "registry/image:tag"
+    if (parts[0].includes('.') || parts[0].includes(':')) {
+      // It's a registry like ghcr.io
+      registry = parts[0];
+      const [n, t] = parts[1].split(':');
+      name = n;
+      tag = t || 'latest';
+      return { registry, owner: '', name, tag, isOfficial: false };
+    }
+    // Docker Hub user image
+    owner = parts[0];
+    const [n, t] = parts[1].split(':');
+    name = n;
+    tag = t || 'latest';
+    return { registry: 'docker.io', owner, name, tag, isOfficial: false };
+  }
+
+  if (parts.length >= 3) {
+    // e.g. "ghcr.io/user/app:tag"
+    registry = parts[0];
+    owner = parts.slice(1, -1).join('/');
+    const [n, t] = parts[parts.length - 1].split(':');
+    name = n;
+    tag = t || 'latest';
+    return { registry, owner, name, tag, isOfficial: false };
+  }
+
+  return { registry, owner, name: ref, tag, isOfficial: false };
+}
+
+// GET /api/images/updates — check for Docker image updates
+app.get('/api/images/updates', asyncRoute(async (req, res) => {
+  const force = req.query.force === 'true';
+  const now = Date.now();
+
+  if (!force && cachedImageUpdates && (now - lastImageUpdatesCheck) < IMAGE_UPDATES_TTL) {
+    return res.json(cachedImageUpdates);
+  }
+
+  const result = await checkImageUpdates();
+  cachedImageUpdates = result;
+  lastImageUpdatesCheck = now;
+  res.json(result);
+}));
+
 // POST /api/containers/:name/restart — restart a container
 app.post('/api/containers/:name/restart', asyncRoute(async (req, res) => {
   const containers = await docker.listContainers({ all: true });
@@ -696,15 +1062,60 @@ app.post('/api/containers/:name/restart', asyncRoute(async (req, res) => {
   res.json({ ok: true, message: `Container ${req.params.name} restarted` });
 }));
 
+// POST /api/apps/:slug/restart — restart all containers for an app
+app.post('/api/apps/:slug/restart', asyncRoute(async (req, res) => {
+  const appDef = config.apps.find(a => (a.slug || slugify(a.name)) === req.params.slug);
+  if (!appDef) return res.status(404).json({ error: 'App not found' });
+  if (!appDef.containers?.length) return res.status(400).json({ error: 'No containers configured for this app' });
+
+  const containers = await docker.listContainers({ all: true });
+  const results = [];
+  for (const cn of appDef.containers) {
+    const target = containers.find(c => containerName(c) === cn);
+    if (!target) { results.push({ container: cn, status: 'not_found' }); continue; }
+    try {
+      await docker.getContainer(target.Id).restart({ t: 10 });
+      results.push({ container: cn, status: 'restarted' });
+    } catch (err) { results.push({ container: cn, status: 'failed', error: err.message }); }
+  }
+  auditLog(req, 'app.restart', req.params.slug);
+  res.json({ ok: true, app: req.params.slug, results });
+}));
+
 // GET /api/health — detailed health check
 app.get('/api/health', async (_req, res) => {
   try {
     const containers = await docker.listContainers({ all: true });
     const running = containers.filter(c => c.State === 'running').length;
+    const elMetrics = getEventLoopMetrics();
+    const elDegraded = elMetrics.p99 > 500 || elMetrics.mean > 100;
+
+    // WAL file size monitoring
+    const WAL_THRESHOLD_BYTES = 50 * 1024 * 1024; // 50MB
+    const dataWalBytes = existsSync(MARKETING_DB_PATH + '-wal') ? statSync(MARKETING_DB_PATH + '-wal').size : 0;
+    const authWalBytes = existsSync(AUTH_DB_PATH + '-wal') ? statSync(AUTH_DB_PATH + '-wal').size : 0;
+    const dataWalMB = Math.round(dataWalBytes / 1024 / 1024 * 100) / 100;
+    const authWalMB = Math.round(authWalBytes / 1024 / 1024 * 100) / 100;
+    const walHealthy = dataWalBytes < WAL_THRESHOLD_BYTES && authWalBytes < WAL_THRESHOLD_BYTES;
+
+    // Trigger passive checkpoint if WAL is too large
+    if (!walHealthy) {
+      try {
+        if (dataWalBytes >= WAL_THRESHOLD_BYTES) db.pragma('wal_checkpoint(PASSIVE)');
+        if (authWalBytes >= WAL_THRESHOLD_BYTES) authDb.pragma('wal_checkpoint(PASSIVE)');
+        console.log(`[WAL] Passive checkpoint triggered — data: ${dataWalMB}MB, auth: ${authWalMB}MB`);
+      } catch (cpErr) {
+        console.error('[WAL] Checkpoint failed:', cpErr.message);
+      }
+    }
+
+    const degraded = elDegraded || !walHealthy;
     res.json({
-      status: 'ok',
+      status: degraded ? 'degraded' : 'ok',
       uptime: process.uptime(),
       containers: { total: containers.length, running },
+      eventLoop: { ...elMetrics, degraded: elDegraded },
+      wal: { dataWalMB, authWalMB, healthy: walHealthy },
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
@@ -817,6 +1228,78 @@ app.get('/api/ssl', asyncRoute(async (_req, res) => {
   res.json(cachedSSL);
 }));
 
+// POST /api/ssl/renew — renew SSL certificate for a domain via certbot
+app.post('/api/ssl/renew', asyncRoute(async (req, res) => {
+  const { domain } = req.body;
+  if (!domain || !/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain)) {
+    return res.status(400).json({ error: 'Invalid domain' });
+  }
+  // Verify domain is in our config
+  const app = config.apps.find(a => a.domain === domain);
+  if (!app) return res.status(404).json({ error: 'Domain not found in config' });
+
+  try {
+    const result = execSync(
+      `sudo certbot renew --cert-name ${domain} --non-interactive 2>&1`,
+      { timeout: 60_000 }
+    ).toString();
+    // Reload nginx after renewal
+    try { execSync('sudo nginx -c /home/deploy/nginx-configs/nginx.conf -s reload', { timeout: TIMEOUT_STANDARD }); } catch {}
+    // Bust SSL cache
+    cachedSSL = null;
+    lastSSLUpdate = 0;
+    res.json({ ok: true, output: result.slice(-500) });
+  } catch (err) {
+    res.status(500).json({ error: 'Renewal failed', output: (err.stderr || err.stdout || err.message || '').toString().slice(-500) });
+  }
+}));
+
+// GET /api/logs/search — search across all container logs
+app.get('/api/logs/search', asyncRoute(async (req, res) => {
+  const query = (req.query.q || '').trim();
+  if (!query || query.length < 2) return res.status(400).json({ error: 'Query must be at least 2 characters' });
+
+  const targetSlugs = req.query.app ? [req.query.app] : null;
+  const tail = Math.min(parseInt(req.query.tail) || 200, 500);
+  const containers = await docker.listContainers();
+
+  // Map containers to apps
+  const appMap = {};
+  for (const appDef of config.apps) {
+    if (appDef.containers) {
+      for (const cn of appDef.containers) { appMap[cn] = appDef.slug || appDef.name; }
+    }
+  }
+
+  const results = [];
+  const queryLower = query.toLowerCase();
+
+  for (const c of containers) {
+    const name = c.Names?.[0]?.replace(/^\//, '') || c.Id.slice(0, 12);
+    const appSlug = appMap[name];
+    if (targetSlugs && appSlug && !targetSlugs.includes(appSlug)) continue;
+    if (targetSlugs && !appSlug) continue;
+
+    try {
+      const container = docker.getContainer(c.Id);
+      const logs = await container.logs({ stdout: true, stderr: true, tail, timestamps: true });
+      const logText = typeof logs === 'string' ? logs : logs.toString('utf8');
+      const lines = logText.split('\n').filter(Boolean);
+
+      for (const line of lines) {
+        const clean = line.replace(/^.{8}/, ''); // strip Docker header
+        if (clean.toLowerCase().includes(queryLower)) {
+          results.push({ container: name, app: appSlug || null, line: clean.trim() });
+          if (results.length >= 100) break;
+        }
+      }
+    } catch { /* skip inaccessible containers */ }
+    if (results.length >= 100) break;
+  }
+
+  res.json({ query, count: results.length, results });
+}));
+
 // GET /api/events — recent Docker events (starts, stops, health changes)
 let cachedEvents = null;
 let lastEventsUpdate = 0;
@@ -868,6 +1351,140 @@ app.get('/api/events', async (_req, res) => {
     res.json({ events: [], error: err.message, timestamp: new Date().toISOString() });
   }
 });
+
+// GET /api/uptime/timeline — 24h container uptime timeline
+let cachedUptimeTimeline = null;
+let lastUptimeTimelineUpdate = 0;
+const UPTIME_TIMELINE_TTL = 300_000; // 5 min cache
+
+app.get('/api/uptime/timeline', asyncRoute(async (_req, res) => {
+  const now = Date.now();
+  if (cachedUptimeTimeline && (now - lastUptimeTimelineUpdate) < UPTIME_TIMELINE_TTL) {
+    return res.json(cachedUptimeTimeline);
+  }
+
+  const periodEnd = Math.floor(now / 1000);
+  const periodStart = periodEnd - 86400; // 24 hours ago
+
+  // Fetch Docker events for the last 24 hours
+  const stream = await docker.getEvents({
+    since: periodStart,
+    until: periodEnd,
+    filters: JSON.stringify({
+      type: ['container'],
+      event: ['start', 'stop', 'die', 'restart', 'health_status'],
+    }),
+  });
+
+  const chunks = [];
+  await new Promise((resolve) => {
+    stream.on('data', chunk => chunks.push(chunk));
+    stream.on('end', resolve);
+    stream.on('error', () => resolve());
+    setTimeout(() => { stream.destroy(); resolve(); }, TIMEOUT_STANDARD);
+  });
+
+  const raw = Buffer.concat(chunks).toString();
+  const events = raw.split('\n').filter(Boolean).map(line => {
+    try { return JSON.parse(line); } catch { return null; }
+  }).filter(Boolean);
+
+  // Get current container statuses
+  const runningContainers = await docker.listContainers({ all: true });
+  const currentStatusMap = new Map();
+  for (const c of runningContainers) {
+    const name = containerName(c);
+    if (name) currentStatusMap.set(name, c.State);
+  }
+
+  // Build container-to-app mapping from config
+  const containerToApp = new Map();
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+    for (const cName of (appDef.containers || [])) {
+      containerToApp.set(cName, slug);
+    }
+  }
+
+  // Group events by container name
+  const containerEvents = new Map();
+  for (const e of events) {
+    const name = e.Actor?.Attributes?.name;
+    if (!name) continue;
+    if (!containerEvents.has(name)) containerEvents.set(name, []);
+    containerEvents.get(name).push({
+      time: e.time || Math.floor(e.timeNano / 1e9),
+      action: (e.Action || e.status || '').replace('health_status: ', ''),
+    });
+  }
+
+  // Build timeline for each known container
+  const containers = {};
+  const allContainerNames = new Set([
+    ...containerToApp.keys(),
+    ...containerEvents.keys(),
+  ]);
+
+  for (const name of allContainerNames) {
+    const appSlug = containerToApp.get(name) || null;
+    const evts = (containerEvents.get(name) || []).sort((a, b) => a.time - b.time);
+    const currentStatus = currentStatusMap.get(name) || 'unknown';
+
+    // Calculate uptime: walk through events to determine running/stopped segments
+    // Infer initial state from first event type or current status
+    let wasRunning;
+    if (evts.length === 0) {
+      wasRunning = currentStatus === 'running';
+    } else {
+      const firstAction = evts[0].action;
+      wasRunning = firstAction === 'stop' || firstAction === 'die' || firstAction === 'unhealthy';
+    }
+
+    let runningSeconds = 0;
+    let lastTransition = periodStart;
+
+    for (const evt of evts) {
+      const evtTime = Math.max(evt.time, periodStart);
+      if (wasRunning) {
+        runningSeconds += evtTime - lastTransition;
+      }
+      lastTransition = evtTime;
+
+      if (evt.action === 'start' || evt.action === 'restart' || evt.action === 'healthy') {
+        wasRunning = true;
+      } else if (evt.action === 'stop' || evt.action === 'die' || evt.action === 'unhealthy') {
+        wasRunning = false;
+      }
+    }
+
+    // Account for time from last event to period end
+    if (wasRunning) {
+      runningSeconds += periodEnd - lastTransition;
+    }
+
+    const totalSeconds = periodEnd - periodStart;
+    const uptimePercent = Math.round((runningSeconds / totalSeconds) * 1000) / 10;
+
+    containers[name] = {
+      app: appSlug,
+      currentStatus,
+      events: evts,
+      uptimePercent,
+    };
+  }
+
+  const result = {
+    containers,
+    period: {
+      start: new Date(periodStart * 1000).toISOString(),
+      end: new Date(periodEnd * 1000).toISOString(),
+    },
+  };
+
+  cachedUptimeTimeline = result;
+  lastUptimeTimelineUpdate = now;
+  res.json(result);
+}));
 
 // GET /api/disk — per-container and image disk breakdown
 let cachedDisk = null;
@@ -1364,6 +1981,91 @@ app.put('/api/apps/:slug/env', asyncRoute((req, res) => {
   res.json({ ok: true, message: `Updated ${appDef.name} env file` });
 }));
 
+// GET /api/env/diff — compare env vars across all apps
+app.get('/api/env/diff', asyncRoute((req, res) => {
+  const appsWithEnv = config.apps.filter(a => a.envFile && existsSync(a.envFile));
+  if (appsWithEnv.length === 0) return res.json({ apps: [], keys: {}, warnings: [] });
+
+  const appSlugs = appsWithEnv.map(a => a.slug);
+  const appEnvs = {};  // slug -> { key: value }
+
+  for (const appDef of appsWithEnv) {
+    try {
+      const vars = parseEnvFile(appDef.envFile);
+      const map = {};
+      for (const v of vars) {
+        map[v.key] = v.value;
+      }
+      appEnvs[appDef.slug] = map;
+    } catch (err) {
+      console.error(`[ENV-DIFF] Failed to parse ${appDef.envFile}:`, err.message);
+    }
+  }
+
+  // Build comparison matrix
+  const allKeys = new Set();
+  for (const slug of appSlugs) {
+    if (appEnvs[slug]) {
+      for (const key of Object.keys(appEnvs[slug])) {
+        allKeys.add(key);
+      }
+    }
+  }
+
+  const keys = {};
+  const warnings = [];
+  const sortedKeys = [...allKeys].sort();
+
+  for (const key of sortedKeys) {
+    const sensitive = SENSITIVE_PATTERN.test(key);
+    const entry = {};
+    const presentApps = [];
+    const values = {};  // slug -> actual value (for inconsistency check)
+
+    for (const slug of appSlugs) {
+      if (!appEnvs[slug]) continue;
+      if (key in appEnvs[slug]) {
+        const val = appEnvs[slug][key];
+        if (sensitive) {
+          entry[slug] = val ? '[set]' : '[empty]';
+        } else {
+          entry[slug] = val || '[empty]';
+        }
+        presentApps.push(slug);
+        values[slug] = val;
+      } else {
+        entry[slug] = '[missing]';
+      }
+    }
+
+    keys[key] = entry;
+
+    // Flag missing: key present in 2+ apps but missing in at least one that has env
+    if (presentApps.length >= 2) {
+      for (const slug of appSlugs) {
+        if (appEnvs[slug] && !(key in appEnvs[slug])) {
+          warnings.push({ type: 'missing', key, app: slug });
+        }
+      }
+    }
+
+    // Flag inconsistent values for non-sensitive keys
+    if (!sensitive && presentApps.length >= 2) {
+      const uniqueValues = [...new Set(presentApps.map(s => values[s]).filter(v => v))];
+      if (uniqueValues.length > 1) {
+        warnings.push({
+          type: 'inconsistent',
+          key,
+          apps: presentApps,
+          values: presentApps.map(s => values[s]),
+        });
+      }
+    }
+  }
+
+  res.json({ apps: appSlugs, keys, warnings });
+}));
+
 // POST /api/apps/:slug/recreate — recreate container with new env
 app.post('/api/apps/:slug/recreate', (req, res) => {
   try {
@@ -1588,6 +2290,46 @@ app.post('/api/config/apps', (req, res) => {
   res.json({ success: true, slug: slugify(newApp.name) });
 });
 
+// POST /api/config/apps/validate — validate a partial app config
+app.post('/api/config/apps/validate', asyncRoute(async (req, res) => {
+  const { name, domain, port, step } = req.body;
+  const errors = [];
+
+  // Step 1 validations: basics
+  if (step === undefined || step === 1) {
+    if (!name || !name.trim()) {
+      errors.push('App name is required');
+    } else {
+      const slug = slugify(name.trim());
+      const existing = config.apps.find(a => slugify(a.name) === slug);
+      if (existing) errors.push(`An app with slug "${slug}" already exists`);
+    }
+  }
+
+  // Step 2 validations: infrastructure
+  if (step === undefined || step === 2) {
+    if (domain && domain.trim()) {
+      try {
+        const { promises: dnsPromises } = await import('dns');
+        await dnsPromises.resolve4(domain.trim());
+      } catch {
+        errors.push(`Domain "${domain}" does not resolve (DNS lookup failed)`);
+      }
+    }
+    if (port) {
+      const portNum = Number(port);
+      if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+        errors.push('Port must be a number between 1 and 65535');
+      } else {
+        const portConflict = config.apps.find(a => a.port && Number(a.port) === portNum);
+        if (portConflict) errors.push(`Port ${portNum} is already used by "${portConflict.name}"`);
+      }
+    }
+  }
+
+  res.json({ valid: errors.length === 0, errors });
+}));
+
 // PUT /api/config/apps/:slug — update an app
 app.put('/api/config/apps/:slug', (req, res) => {
   const idx = config.apps.findIndex(a => slugify(a.name) === req.params.slug);
@@ -1628,6 +2370,10 @@ const db = new Database(MARKETING_DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
 db.pragma('foreign_keys = ON');
+db.pragma('synchronous = NORMAL');
+db.pragma('cache_size = -64000');       // 64MB (main data DB)
+db.pragma('temp_store = MEMORY');
+db.pragma('mmap_io = 268435456');       // 256MB
 
 // Create tables
 db.exec(`
@@ -1662,6 +2408,18 @@ db.exec(`
     UNIQUE(container_name, ts)
   );
   CREATE INDEX IF NOT EXISTS idx_container_metrics_lookup ON container_metrics(container_name, ts);
+
+  CREATE TABLE IF NOT EXISTS system_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL DEFAULT (datetime('now')),
+    disk_used_bytes INTEGER NOT NULL,
+    disk_total_bytes INTEGER NOT NULL,
+    mem_used_bytes INTEGER NOT NULL,
+    mem_total_bytes INTEGER NOT NULL,
+    cpu_percent REAL NOT NULL DEFAULT 0,
+    load_1m REAL NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_system_snapshots_ts ON system_snapshots(ts);
 
   CREATE TABLE IF NOT EXISTS customer_graph (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1946,6 +2704,19 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_ops_events_ts ON ops_events(timestamp);
   CREATE INDEX IF NOT EXISTS idx_ops_events_type ON ops_events(event_type, acknowledged);
 
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    category TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'info',
+    title TEXT NOT NULL,
+    message TEXT,
+    read INTEGER NOT NULL DEFAULT 0,
+    app_slug TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_notifications_ts ON notifications(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read);
+
   CREATE TABLE IF NOT EXISTS ops_scores (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL DEFAULT (datetime('now')),
@@ -2080,6 +2851,61 @@ db.exec(`
     UNIQUE(app_slug, hour)
   );
 `);
+
+// --- FTS5 Command Palette Index ---
+db.exec(`DROP TABLE IF EXISTS command_search_fts`);
+db.exec(`
+  CREATE VIRTUAL TABLE command_search_fts USING fts5(
+    type, key, name, description, extra,
+    tokenize='unicode61'
+  )
+`);
+
+// Populate FTS5 index with apps and built-in commands
+const ftsInsert = db.prepare('INSERT INTO command_search_fts (type, key, name, description, extra) VALUES (?, ?, ?, ?, ?)');
+const populateFts = db.transaction(() => {
+  for (const appDef of (config.apps || [])) {
+    const slug = slugify(appDef.name);
+    const containers = (appDef.containers || []).join(' ');
+    ftsInsert.run('app', slug, appDef.name, appDef.description || '', `${slug} ${appDef.domain || ''} ${containers}`);
+  }
+
+  const commands = [
+    { cmd: 'briefing', label: 'Morning Briefing', description: 'AI-generated operations summary' },
+    { cmd: 'revenue', label: 'Revenue Dashboard', description: 'Open marketing revenue tab' },
+    { cmd: 'seo', label: 'SEO Audit', description: 'Open marketing SEO tab' },
+    { cmd: 'backups', label: 'Backup Status', description: 'Show database backup panel' },
+    { cmd: 'prune', label: 'Docker Prune', description: 'Clean up unused containers/images' },
+    { cmd: 'status', label: 'System Status', description: 'Show system metrics' },
+    { cmd: 'healing', label: 'Auto-Healing Log', description: 'Show recent auto-healing actions' },
+    { cmd: 'emails', label: 'Email Sequences', description: 'Open marketing emails tab' },
+    { cmd: 'content', label: 'Content Pipeline', description: 'Open marketing content tab' },
+    { cmd: 'cohorts', label: 'Customer Cohorts', description: 'Open revenue cohorts subtab' },
+    { cmd: 'keys', label: 'API Key Health', description: 'Show API key validation status' },
+    { cmd: 'ssl', label: 'SSL Certificates', description: 'Show SSL certificate expiry' },
+    { cmd: 'crosspromo', label: 'Cross-Promotion', description: 'Manage cross-app promotion campaigns' },
+    { cmd: 'banners', label: 'Banner Manager', description: 'Create and manage ad banners across sites' },
+    { cmd: 'playbook', label: 'Marketing Playbook', description: 'AI-generated marketing strategies per app' },
+    { cmd: 'security', label: 'Security Manager', description: 'Docker security audit and scoring' },
+    { cmd: 'projects', label: 'Projects Manager', description: 'App lifecycle, tasks, roadmap, insights' },
+    { cmd: 'tasks', label: 'Project Tasks', description: 'View and manage project tasks' },
+    { cmd: 'roadmap', label: 'Product Roadmap', description: 'Feature planning and milestones' },
+    { cmd: 'overdue', label: 'Overdue Tasks', description: 'Show tasks past their due date' },
+    { cmd: 'ops', label: 'Ops Intelligence', description: 'Worry score, drift detection, report cards' },
+    { cmd: 'worry', label: 'Worry Score', description: 'Current ops worry score breakdown' },
+    { cmd: 'drift', label: 'Config Drift', description: 'Detect changes since last baseline' },
+    { cmd: 'reportcards', label: 'Report Cards', description: 'Per-app health scorecards' },
+    { cmd: 'playground', label: 'API Playground', description: 'Interactive API explorer' },
+    { cmd: 'notifications', label: 'Notification Center', description: 'View all alerts and events' },
+    { cmd: 'containermap', label: 'Container Map', description: 'Visual network graph of container dependencies' },
+    { cmd: 'uptime', label: 'Uptime Timeline', description: '24h container uptime history with state transitions' },
+    { cmd: 'updates', label: 'Image Updates', description: 'Check for Docker image updates across containers' },
+  ];
+  for (const c of commands) {
+    ftsInsert.run('command', c.cmd, c.label, c.description, c.cmd);
+  }
+});
+populateFts();
 
 const TRANSPARENT_GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 
@@ -2589,6 +3415,35 @@ app.get('/api/charts/sparklines', asyncRoute((req, res) => {
     containers[row.container_name].memory.push(row.memory);
   }
   res.json(containers);
+}));
+
+// GET /api/containers/:name/sparkline — 24h CPU/memory sparkline for a single container
+app.get('/api/containers/:name/sparkline', asyncRoute((req, res) => {
+  const cutoff = new Date(Date.now() - 24 * MS_PER_HOUR).toISOString();
+  const rows = db.prepare(`
+    SELECT ts, cpu, memory FROM container_metrics
+    WHERE container_name = ? AND ts >= ?
+    ORDER BY ts ASC
+  `).all(req.params.name, cutoff);
+  res.json({
+    container: req.params.name,
+    points: rows.map(r => ({ ts: r.ts, cpu: Math.round(r.cpu * 100) / 100, memoryMB: Math.round(r.memory / (1024 * 1024) * 10) / 10 }))
+  });
+}));
+
+// GET /api/apps/:slug/sparkline — aggregated 24h sparkline for all containers of an app
+app.get('/api/apps/:slug/sparkline', asyncRoute((req, res) => {
+  const cutoff = new Date(Date.now() - 24 * MS_PER_HOUR).toISOString();
+  const rows = db.prepare(`
+    SELECT ts, SUM(cpu) as cpu, SUM(memory) as memory FROM container_metrics
+    WHERE app_slug = ? AND ts >= ?
+    GROUP BY ts
+    ORDER BY ts ASC
+  `).all(req.params.slug, cutoff);
+  res.json({
+    app: req.params.slug,
+    points: rows.map(r => ({ ts: r.ts, cpu: Math.round(r.cpu * 100) / 100, memoryMB: Math.round(r.memory / (1024 * 1024) * 10) / 10 }))
+  });
 }));
 
 // GET /api/marketing/health — portfolio health scores
@@ -3404,6 +4259,24 @@ cron.schedule('5 * * * *', async () => {
     }
     // Prune entries older than 48h
     db.prepare("DELETE FROM container_metrics WHERE ts < datetime('now', '-48 hours')").run();
+
+    // System-level snapshot (for predictive alerts)
+    try {
+      const dfParts = getDiskParts();
+      const diskTotal = parseInt(dfParts[1], 10);
+      const diskUsed = parseInt(dfParts[2], 10);
+      const memInfo = readFileSync('/proc/meminfo', 'utf8');
+      const memTotal = parseInt(memInfo.match(/MemTotal:\s+(\d+)/)?.[1] || '0') * 1024;
+      const memAvail = parseInt(memInfo.match(/MemAvailable:\s+(\d+)/)?.[1] || '0') * 1024;
+      const loadavg = parseFloat(readFileSync('/proc/loadavg', 'utf8').split(' ')[0]);
+      const cpuCount = parseInt(execSync('nproc', { timeout: TIMEOUT_QUICK }).toString().trim(), 10);
+      const cpuPct = Math.round((loadavg / cpuCount) * 100);
+      db.prepare('INSERT INTO system_snapshots (ts, disk_used_bytes, disk_total_bytes, mem_used_bytes, mem_total_bytes, cpu_percent, load_1m) VALUES (datetime(\'now\'), ?, ?, ?, ?, ?, ?)')
+        .run(diskUsed, diskTotal, memTotal - memAvail, memTotal, cpuPct, loadavg);
+      // Prune system snapshots older than 30 days
+      db.prepare("DELETE FROM system_snapshots WHERE ts < datetime('now', '-30 days')").run();
+    } catch (sysErr) { console.error('[CRON] System snapshot error:', sysErr.message); }
+
     console.log(`[CRON] Container metrics snapshot: ${count} containers`);
   } catch (err) { cronFail('Container metrics snapshot', err); }
 });
@@ -3589,61 +4462,38 @@ function fuzzyMatch(query, target) {
   return false;
 }
 
+// Shortcut lookup for command palette results
+const commandShortcuts = {
+  briefing: 'd', revenue: 'm', seo: 'm', backups: 'b', prune: '', status: '',
+  healing: 'h', emails: '', content: '', cohorts: '', keys: 'k', ssl: 's',
+  crosspromo: 'x', banners: 'b', playbook: 'p', security: 'S', projects: 'j',
+  tasks: '', roadmap: '', overdue: '', ops: 'o', worry: '', drift: '',
+  reportcards: '', playground: '', notifications: 'n', containermap: '',
+  uptime: '', updates: '',
+};
+
+// Prepared FTS5 search query ranked by BM25
+const ftsSearchStmt = db.prepare(`
+  SELECT type, key, name, description, extra, bm25(command_search_fts) AS rank
+  FROM command_search_fts
+  WHERE command_search_fts MATCH ?
+  ORDER BY rank
+  LIMIT 10
+`);
+
 app.get('/api/command/search', (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) return res.json({ results: [] });
 
-  const results = [];
+  let results = [];
 
-  // Match apps
-  for (const appDef of config.apps) {
-    const slug = slugify(appDef.name);
-    if (fuzzyMatch(q, appDef.name) || fuzzyMatch(q, slug) || (appDef.domain && fuzzyMatch(q, appDef.domain))) {
-      results.push({ type: 'app', name: appDef.name, slug, domain: appDef.domain, description: appDef.description });
-    }
-  }
-
-  // Match built-in commands
-  const commands = [
-    { cmd: 'briefing', label: 'Morning Briefing', description: 'AI-generated operations summary', shortcut: 'd' },
-    { cmd: 'revenue', label: 'Revenue Dashboard', description: 'Open marketing revenue tab', shortcut: 'm' },
-    { cmd: 'seo', label: 'SEO Audit', description: 'Open marketing SEO tab', shortcut: 'm' },
-    { cmd: 'backups', label: 'Backup Status', description: 'Show database backup panel', shortcut: 'b' },
-    { cmd: 'prune', label: 'Docker Prune', description: 'Clean up unused containers/images', shortcut: '' },
-    { cmd: 'status', label: 'System Status', description: 'Show system metrics', shortcut: '' },
-    { cmd: 'healing', label: 'Auto-Healing Log', description: 'Show recent auto-healing actions', shortcut: 'h' },
-    { cmd: 'emails', label: 'Email Sequences', description: 'Open marketing emails tab', shortcut: '' },
-    { cmd: 'content', label: 'Content Pipeline', description: 'Open marketing content tab', shortcut: '' },
-    { cmd: 'cohorts', label: 'Customer Cohorts', description: 'Open revenue cohorts subtab', shortcut: '' },
-    { cmd: 'keys', label: 'API Key Health', description: 'Show API key validation status', shortcut: 'k' },
-    { cmd: 'ssl', label: 'SSL Certificates', description: 'Show SSL certificate expiry', shortcut: 's' },
-    { cmd: 'crosspromo', label: 'Cross-Promotion', description: 'Manage cross-app promotion campaigns', shortcut: 'x' },
-    { cmd: 'banners', label: 'Banner Manager', description: 'Create and manage ad banners across sites', shortcut: 'b' },
-    { cmd: 'playbook', label: 'Marketing Playbook', description: 'AI-generated marketing strategies per app', shortcut: 'p' },
-    { cmd: 'security', label: 'Security Manager', description: 'Docker security audit and scoring', shortcut: 'S' },
-    { cmd: 'projects', label: 'Projects Manager', description: 'App lifecycle, tasks, roadmap, insights', shortcut: 'j' },
-    { cmd: 'tasks', label: 'Project Tasks', description: 'View and manage project tasks', shortcut: '' },
-    { cmd: 'roadmap', label: 'Product Roadmap', description: 'Feature planning and milestones', shortcut: '' },
-    { cmd: 'overdue', label: 'Overdue Tasks', description: 'Show tasks past their due date', shortcut: '' },
-    { cmd: 'ops', label: 'Ops Intelligence', description: 'Worry score, drift detection, report cards', shortcut: 'o' },
-    { cmd: 'worry', label: 'Worry Score', description: 'Current ops worry score breakdown', shortcut: '' },
-    { cmd: 'drift', label: 'Config Drift', description: 'Detect changes since last baseline', shortcut: '' },
-    { cmd: 'reportcards', label: 'Report Cards', description: 'Per-app health scorecards', shortcut: '' },
-  ];
-
-  for (const c of commands) {
-    if (fuzzyMatch(q, c.cmd) || fuzzyMatch(q, c.label)) {
-      results.push({ type: 'command', ...c });
-    }
-  }
-
-  // Match action patterns: "logs X", "restart X", "seo X"
+  // Match action patterns first: "logs X", "restart X", "seo X"
   const actionMatch = q.match(/^(logs?|restart|seo|revenue|env)\s+(.+)/i);
   if (actionMatch) {
     const [, action, target] = actionMatch;
     const matchedApp = config.apps.find(a => fuzzyMatch(target, a.name) || fuzzyMatch(target, slugify(a.name)));
     if (matchedApp) {
-      results.unshift({
+      results.push({
         type: 'action',
         action: action.toLowerCase().replace(/s$/, ''),
         app: matchedApp.name,
@@ -3653,8 +4503,347 @@ app.get('/api/command/search', (req, res) => {
     }
   }
 
+  // FTS5 search with fallback to LIKE-based fuzzy match
+  let ftsMatched = false;
+  try {
+    // Escape user input: double-quote each token and append * for prefix matching
+    const ftsQuery = q
+      .replace(/[""]/g, '') // strip existing quotes
+      .split(/\s+/)
+      .filter(t => t.length > 0)
+      .map(t => '"' + t.replace(/"/g, '""') + '"*')
+      .join(' ');
+
+    if (ftsQuery) {
+      const rows = ftsSearchStmt.all(ftsQuery);
+      for (const row of rows) {
+        if (row.type === 'app') {
+          const appDef = config.apps.find(a => slugify(a.name) === row.key);
+          if (appDef) {
+            results.push({ type: 'app', name: appDef.name, slug: row.key, domain: appDef.domain, description: appDef.description });
+          }
+        } else if (row.type === 'command') {
+          results.push({
+            type: 'command',
+            cmd: row.key,
+            label: row.name,
+            description: row.description,
+            shortcut: commandShortcuts[row.key] || '',
+          });
+        }
+      }
+      ftsMatched = true;
+    }
+  } catch (_ftsErr) {
+    // FTS5 query failed (e.g. invalid syntax) — fall back to fuzzy match
+  }
+
+  // Fallback: original fuzzy match if FTS5 failed or returned nothing
+  if (!ftsMatched || results.length <= (actionMatch ? 1 : 0)) {
+    for (const appDef of config.apps) {
+      const slug = slugify(appDef.name);
+      if (fuzzyMatch(q, appDef.name) || fuzzyMatch(q, slug) || (appDef.domain && fuzzyMatch(q, appDef.domain))) {
+        results.push({ type: 'app', name: appDef.name, slug, domain: appDef.domain, description: appDef.description });
+      }
+    }
+
+    const fallbackCommands = [
+      { cmd: 'briefing', label: 'Morning Briefing', description: 'AI-generated operations summary', shortcut: 'd' },
+      { cmd: 'revenue', label: 'Revenue Dashboard', description: 'Open marketing revenue tab', shortcut: 'm' },
+      { cmd: 'seo', label: 'SEO Audit', description: 'Open marketing SEO tab', shortcut: 'm' },
+      { cmd: 'backups', label: 'Backup Status', description: 'Show database backup panel', shortcut: 'b' },
+      { cmd: 'prune', label: 'Docker Prune', description: 'Clean up unused containers/images', shortcut: '' },
+      { cmd: 'status', label: 'System Status', description: 'Show system metrics', shortcut: '' },
+      { cmd: 'healing', label: 'Auto-Healing Log', description: 'Show recent auto-healing actions', shortcut: 'h' },
+      { cmd: 'emails', label: 'Email Sequences', description: 'Open marketing emails tab', shortcut: '' },
+      { cmd: 'content', label: 'Content Pipeline', description: 'Open marketing content tab', shortcut: '' },
+      { cmd: 'cohorts', label: 'Customer Cohorts', description: 'Open revenue cohorts subtab', shortcut: '' },
+      { cmd: 'keys', label: 'API Key Health', description: 'Show API key validation status', shortcut: 'k' },
+      { cmd: 'ssl', label: 'SSL Certificates', description: 'Show SSL certificate expiry', shortcut: 's' },
+      { cmd: 'crosspromo', label: 'Cross-Promotion', description: 'Manage cross-app promotion campaigns', shortcut: 'x' },
+      { cmd: 'banners', label: 'Banner Manager', description: 'Create and manage ad banners across sites', shortcut: 'b' },
+      { cmd: 'playbook', label: 'Marketing Playbook', description: 'AI-generated marketing strategies per app', shortcut: 'p' },
+      { cmd: 'security', label: 'Security Manager', description: 'Docker security audit and scoring', shortcut: 'S' },
+      { cmd: 'projects', label: 'Projects Manager', description: 'App lifecycle, tasks, roadmap, insights', shortcut: 'j' },
+      { cmd: 'tasks', label: 'Project Tasks', description: 'View and manage project tasks', shortcut: '' },
+      { cmd: 'roadmap', label: 'Product Roadmap', description: 'Feature planning and milestones', shortcut: '' },
+      { cmd: 'overdue', label: 'Overdue Tasks', description: 'Show tasks past their due date', shortcut: '' },
+      { cmd: 'ops', label: 'Ops Intelligence', description: 'Worry score, drift detection, report cards', shortcut: 'o' },
+      { cmd: 'worry', label: 'Worry Score', description: 'Current ops worry score breakdown', shortcut: '' },
+      { cmd: 'drift', label: 'Config Drift', description: 'Detect changes since last baseline', shortcut: '' },
+      { cmd: 'reportcards', label: 'Report Cards', description: 'Per-app health scorecards', shortcut: '' },
+      { cmd: 'playground', label: 'API Playground', description: 'Interactive API explorer', shortcut: '' },
+      { cmd: 'notifications', label: 'Notification Center', description: 'View all alerts and events', shortcut: 'n' },
+      { cmd: 'containermap', label: 'Container Map', description: 'Visual network graph of container dependencies', shortcut: '' },
+      { cmd: 'updates', label: 'Image Updates', description: 'Check for Docker image updates across containers', shortcut: '' },
+    ];
+
+    for (const c of fallbackCommands) {
+      if (fuzzyMatch(q, c.cmd) || fuzzyMatch(q, c.label)) {
+        results.push({ type: 'command', ...c });
+      }
+    }
+  }
+
   res.json({ results: results.slice(0, 10) });
 });
+
+// GET /api/playground/routes — List all registered Express routes grouped by category
+app.get('/api/playground/routes', (_req, res) => {
+  const routes = [];
+  const seen = new Set();
+
+  function categorize(path) {
+    if (/^\/api\/auth\//.test(path)) return 'Auth';
+    if (/^\/api\/(apps|containers|docker)/.test(path)) return 'Docker & Infrastructure';
+    if (/^\/api\/(system|health|uptime|ssl|events|disk|backups)/.test(path)) return 'System';
+    if (/^\/api\/marketing\//.test(path)) return 'Marketing';
+    if (/^\/api\/security\//.test(path)) return 'Security';
+    if (/^\/api\/config\//.test(path)) return 'Configuration';
+    if (/^\/api\/healing\//.test(path)) return 'Auto-Healing';
+    if (/^\/api\/ai\//.test(path)) return 'AI';
+    if (/^\/api\/(predictions|cost-analysis|deploys)/.test(path)) return 'Analytics';
+    if (/^\/api\/banners\//.test(path)) return 'Banners';
+    if (/^\/api\/crosspromo\//.test(path)) return 'Cross-Promotion';
+    if (/^\/api\/playground\//.test(path)) return 'Playground';
+    if (/^\/api\//.test(path)) return 'Other';
+    return null;
+  }
+
+  if (app._router && app._router.stack) {
+    for (const layer of app._router.stack) {
+      if (layer.route) {
+        const path = layer.route.path;
+        const methods = Object.keys(layer.route.methods).filter(m => layer.route.methods[m]).map(m => m.toUpperCase());
+        for (const method of methods) {
+          const key = method + ' ' + path;
+          if (!seen.has(key) && path.startsWith('/api/')) {
+            seen.add(key);
+            const category = categorize(path);
+            if (category) {
+              // Extract URL params from path
+              const params = (path.match(/:(\w+)/g) || []).map(p => p.slice(1));
+              routes.push({ method, path, category, params });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Group by category
+  const grouped = {};
+  for (const route of routes) {
+    if (!grouped[route.category]) grouped[route.category] = [];
+    grouped[route.category].push(route);
+  }
+
+  // Sort categories
+  const order = ['Auth', 'Docker & Infrastructure', 'System', 'Configuration', 'Marketing', 'Banners', 'Cross-Promotion', 'Security', 'Auto-Healing', 'AI', 'Analytics', 'Playground', 'Other'];
+  const sorted = {};
+  for (const cat of order) {
+    if (grouped[cat]) sorted[cat] = grouped[cat];
+  }
+  // Add any remaining categories
+  for (const cat of Object.keys(grouped)) {
+    if (!sorted[cat]) sorted[cat] = grouped[cat];
+  }
+
+  res.json({ routes: sorted, total: routes.length });
+});
+
+// POST /api/ai/command — Natural language container management
+app.post('/api/ai/command', asyncRoute(async (req, res) => {
+  const { query } = req.body;
+  if (!query || typeof query !== 'string' || query.trim().length < 3) {
+    return res.status(400).json({ error: 'Query must be at least 3 characters' });
+  }
+
+  const anthropicKey = getAnthropicKey();
+  if (!anthropicKey) {
+    return res.status(503).json({ error: 'AI not configured — no Anthropic API key found' });
+  }
+
+  const SAFE_ACTIONS = ['restart', 'logs', 'status', 'explain'];
+  const appList = config.apps.map(a => ({
+    name: a.name,
+    slug: slugify(a.name),
+    containers: a.containers || [],
+    domain: a.domain || null,
+  }));
+
+  const systemPrompt = `You are a container management assistant for Dockfolio. Parse the user's natural language command into a structured action.
+
+Available apps and containers:
+${JSON.stringify(appList, null, 2)}
+
+Valid actions: ${SAFE_ACTIONS.join(', ')}
+- restart: Restart a specific container
+- logs: Show recent logs for a container
+- status: Check app or system status
+- explain: Analyze why something is happening (high memory, errors, etc.)
+
+Respond with ONLY valid JSON (no markdown, no backticks):
+{"action": "restart|logs|status|explain", "target_container": "container-name-or-null", "target_app": "app-slug-or-null", "confidence": 0.0-1.0}
+
+Rules:
+- NEVER output anything except the JSON object
+- If the user asks to delete, prune, remove, or any destructive operation, respond: {"action": "blocked", "reason": "Destructive operations are not allowed via AI commands"}
+- If you cannot determine the intent, respond: {"action": "unknown", "reason": "Could not understand the request"}
+- For restart/logs, you MUST identify a specific container name from the available list
+- For status, target_app is optional (null means system-wide)
+- For explain, identify the app/container the user is asking about`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MEDIUM);
+
+  try {
+    // Step 1: Parse intent with AI
+    const parsed = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
+      model: 'claude-haiku-4-20250414', maxTokens: 256, timeout: TIMEOUT_MEDIUM,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: query.trim() }],
+    }));
+
+    let intent;
+    try {
+      intent = JSON.parse(parsed.text.trim());
+    } catch {
+      return res.json({ action: 'error', target: null, result: null, summary: 'Could not parse AI response. Try rephrasing your command.' });
+    }
+
+    // Step 2: Validate action
+    if (intent.action === 'blocked') {
+      return res.json({ action: 'blocked', target: null, result: null, summary: intent.reason || 'This operation is not allowed via AI commands.' });
+    }
+    if (intent.action === 'unknown' || !SAFE_ACTIONS.includes(intent.action)) {
+      return res.json({ action: 'unknown', target: null, result: null, summary: intent.reason || 'Could not understand the request. Try something like "restart promoforge worker" or "show lohncheck logs".' });
+    }
+
+    // Step 3: Execute the action
+    let result = null;
+    let summary = '';
+    const targetContainer = intent.target_container;
+    const targetApp = intent.target_app;
+
+    if (intent.action === 'restart') {
+      if (!targetContainer) {
+        return res.json({ action: 'restart', target: targetApp, result: null, summary: 'Could not identify which container to restart. Please be more specific.' });
+      }
+      const containers = await docker.listContainers({ all: true });
+      const target = containers.find(c => containerName(c) === targetContainer);
+      if (!target) {
+        return res.json({ action: 'restart', target: targetContainer, result: null, summary: `Container "${targetContainer}" not found. Check the name and try again.` });
+      }
+      const container = docker.getContainer(target.Id);
+      await container.restart({ t: 10 });
+      auditLog(req, 'ai.container.restart', targetContainer, { query });
+      result = { restarted: targetContainer };
+      summary = `Restarted container "${targetContainer}" successfully.`;
+    }
+
+    else if (intent.action === 'logs') {
+      if (!targetContainer) {
+        return res.json({ action: 'logs', target: targetApp, result: null, summary: 'Could not identify which container to show logs for. Please specify a container name.' });
+      }
+      const containers = await docker.listContainers({ all: true });
+      const target = containers.find(c => containerName(c) === targetContainer);
+      if (!target) {
+        return res.json({ action: 'logs', target: targetContainer, result: null, summary: `Container "${targetContainer}" not found.` });
+      }
+      const container = docker.getContainer(target.Id);
+      const logs = await container.logs({ stdout: true, stderr: true, tail: 30, timestamps: true });
+      const clean = logs.toString('utf8').split('\n').map(line => line.length > 8 ? line.slice(8) : line).join('\n');
+      result = { logs: clean, container: targetContainer };
+      summary = `Last 30 log lines from "${targetContainer}":\n${clean.split('\n').slice(-10).join('\n')}`;
+    }
+
+    else if (intent.action === 'status') {
+      if (targetApp) {
+        const appDef = findAppBySlug(targetApp);
+        if (!appDef) {
+          return res.json({ action: 'status', target: targetApp, result: null, summary: `App "${targetApp}" not found.` });
+        }
+        const containers = await docker.listContainers({ all: true });
+        const appContainers = (appDef.containers || []).map(name => {
+          const c = containers.find(ct => containerName(ct) === name);
+          return { name, state: c ? c.State : 'not found', status: c ? c.Status : 'N/A' };
+        });
+        result = { app: appDef.name, containers: appContainers };
+        const statusLines = appContainers.map(c => `  ${c.name}: ${c.state} (${c.status})`).join('\n');
+        summary = `Status of ${appDef.name}:\n${statusLines}`;
+      } else {
+        // System-wide status
+        const containers = await docker.listContainers({ all: true });
+        const running = containers.filter(c => c.State === 'running').length;
+        const total = containers.length;
+        result = { containers: { total, running, stopped: total - running } };
+        summary = `System status: ${running}/${total} containers running.`;
+      }
+    }
+
+    else if (intent.action === 'explain') {
+      // Gather context data for AI explanation
+      const contextParts = [];
+
+      if (targetContainer) {
+        const containers = await docker.listContainers({ all: true });
+        const target = containers.find(c => containerName(c) === targetContainer);
+        if (target) {
+          const container = docker.getContainer(target.Id);
+          const [statsResult, logsResult] = await Promise.allSettled([
+            container.stats({ stream: false }),
+            container.logs({ stdout: true, stderr: true, tail: 20, timestamps: true }),
+          ]);
+          if (statsResult.status === 'fulfilled') {
+            const s = statsResult.value;
+            const cpuDelta = s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage;
+            const systemDelta = s.cpu_stats.system_cpu_usage - s.precpu_stats.system_cpu_usage;
+            const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * (s.cpu_stats.online_cpus || 1) * 100 : 0;
+            const memMB = Math.round((s.memory_stats.usage || 0) / 1024 / 1024);
+            const memLimitMB = Math.round((s.memory_stats.limit || 0) / 1024 / 1024);
+            contextParts.push(`Container stats for ${targetContainer}: CPU ${cpuPercent.toFixed(1)}%, Memory ${memMB}MB / ${memLimitMB}MB`);
+          }
+          if (logsResult.status === 'fulfilled') {
+            const clean = logsResult.value.toString('utf8').split('\n').map(l => l.length > 8 ? l.slice(8) : l).join('\n');
+            contextParts.push(`Recent logs:\n${clean}`);
+          }
+          contextParts.push(`Container state: ${target.State}, Status: ${target.Status}`);
+        }
+      }
+
+      if (targetApp) {
+        const appDef = findAppBySlug(targetApp);
+        if (appDef) {
+          contextParts.push(`App: ${appDef.name}, Domain: ${appDef.domain || 'none'}, Containers: ${(appDef.containers || []).join(', ')}`);
+        }
+      }
+
+      if (!contextParts.length) {
+        contextParts.push('No specific container or app context available.');
+      }
+
+      const explainResponse = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
+        model: 'claude-haiku-4-20250414', maxTokens: 512, timeout: TIMEOUT_AI,
+        system: 'You are a DevOps assistant. Analyze the provided container data and logs to explain what is happening. Be concise and actionable. 2-4 sentences max.',
+        messages: [{ role: 'user', content: `User question: ${query}\n\nContext:\n${contextParts.join('\n\n')}` }],
+      }));
+
+      result = { explanation: explainResponse.text };
+      summary = explainResponse.text;
+    }
+
+    res.json({ action: intent.action, target: targetContainer || targetApp, result, summary });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return res.status(504).json({ error: 'AI command timed out. Try a simpler request.' });
+    }
+    console.error('[AI-CMD] Error:', err.message);
+    res.status(500).json({ error: 'AI command failed: ' + (err.message || 'Unknown error') });
+  } finally {
+    clearTimeout(timeout);
+  }
+}));
 
 // === Feature: Auto-Healing Engine ===
 
@@ -3751,6 +4940,42 @@ const insertHealing = db.prepare(
   'INSERT INTO healing_log (app_slug, condition, action_taken, confidence, result, auto, details) VALUES (?, ?, ?, ?, ?, ?, ?)'
 );
 
+async function generateAlertExplanation(condition, containerName, appSlug) {
+  try {
+    const anthropicKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+    if (!anthropicKey) return '';
+
+    // Try to fetch last 50 log lines from the container
+    let logSnippet = '';
+    try {
+      const container = docker.getContainer(containerName);
+      const logs = await container.logs({ stdout: true, stderr: true, tail: 50 });
+      logSnippet = (typeof logs === 'string' ? logs : logs.toString('utf8')).replace(/^.{8}/gm, '').trim();
+    } catch { /* container may not be accessible */ }
+
+    const prompt = `A Docker container triggered an auto-healing alert. Analyze and explain the likely root cause in 2-3 sentences.
+
+Condition: ${condition}
+Container: ${containerName}
+App: ${appSlug}
+${logSnippet ? `\nRecent logs:\n${logSnippet.slice(-2000)}` : '(No logs available)'}
+
+Be concise and actionable. Focus on the most likely root cause.`;
+
+    const ai = await Promise.race([
+      cbAnthropic.call(() => callAnthropic(anthropicKey, {
+        maxTokens: 200, timeout: TIMEOUT_STANDARD,
+        messages: [{ role: 'user', content: prompt }],
+      })),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Alert explanation timeout')), 10_000)),
+    ]);
+
+    return ai.text ? `\n\n🤖 Analysis: ${ai.text}` : '';
+  } catch {
+    return ''; // Best-effort — never block the alert
+  }
+}
+
 async function runHealingCheck() {
   for (const playbook of HEALING_PLAYBOOKS) {
     try {
@@ -3766,6 +4991,9 @@ async function runHealingCheck() {
         ).get(appSlug, playbook.condition);
         if (recentAction) continue;
 
+        // Best-effort AI explanation for the alert (non-blocking)
+        const explanation = await generateAlertExplanation(playbook.condition, target.name, appSlug);
+
         if (playbook.confidence === 'high') {
           // Auto-execute
           try {
@@ -3773,18 +5001,18 @@ async function runHealingCheck() {
             insertHealing.run(appSlug, playbook.condition, playbook.action, playbook.confidence, 'executed', 1, result);
             console.log(`[HEALING] Auto-executed: ${playbook.condition} on ${appSlug} — ${result}`);
 
-            await sendTelegram(`🔧 Auto-Healing: ${playbook.condition}\nApp: ${appSlug}\nAction: ${result}`);
+            await sendTelegram(`🔧 Auto-Healing: ${playbook.condition}\nApp: ${appSlug}\nAction: ${result}${explanation}`);
           } catch (err) {
             insertHealing.run(appSlug, playbook.condition, playbook.action, playbook.confidence, 'failed', 1, err.message);
             console.error(`[HEALING] Failed: ${playbook.condition} on ${appSlug} — ${err.message}`);
-            await sendTelegram(`❌ Healing FAILED: ${playbook.condition}\nApp: ${appSlug}\nError: ${err.message}`);
+            await sendTelegram(`❌ Healing FAILED: ${playbook.condition}\nApp: ${appSlug}\nError: ${err.message}${explanation}`);
           }
         } else {
           // Log as pending for manual approval
           const detail = await playbook.execute(target).catch(e => e.message);
           insertHealing.run(appSlug, playbook.condition, playbook.action, playbook.confidence, 'pending', 0, detail);
           console.log(`[HEALING] Pending approval: ${playbook.condition} on ${appSlug}`);
-          await sendTelegram(`🔔 Healing needs approval: ${playbook.condition}\nApp: ${appSlug}\nAction: ${playbook.action}\nDetails: ${detail}`);
+          await sendTelegram(`🔔 Healing needs approval: ${playbook.condition}\nApp: ${appSlug}\nAction: ${playbook.action}\nDetails: ${detail}${explanation}`);
         }
       }
     } catch (err) {
@@ -3796,6 +5024,16 @@ async function runHealingCheck() {
 // Run healing checks every 2 minutes
 cron.schedule('*/2 * * * *', guardedCron('healing', async () => {
   await runHealingCheck().catch(err => cronFail('Healing check', err));
+
+  // Event loop lag alert (max once per hour)
+  const elMetrics = getEventLoopMetrics();
+  if (elMetrics.p99 > 1000) {
+    const now = Date.now();
+    if (now - eventLoopLagAlertedAt > MS_PER_HOUR) {
+      eventLoopLagAlertedAt = now;
+      sendTelegram(`⚠️ Event loop lag high\np99: ${elMetrics.p99}ms, mean: ${elMetrics.mean}ms, max: ${elMetrics.max}ms`);
+    }
+  }
 }));
 
 // Healing API endpoints
@@ -3840,6 +5078,285 @@ app.post('/api/healing/dismiss/:id', asyncRoute((req, res) => {
   if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
   db.prepare("UPDATE healing_log SET result = 'dismissed' WHERE id = ? AND result = 'pending'").run(id);
   res.json({ ok: true });
+}));
+
+// === Feature: Predictive Resource Alerts ===
+
+// Simple linear regression: returns { slope, intercept, r2 }
+// x = hours since first data point, y = metric value
+function linearRegression(points) {
+  const n = points.length;
+  if (n < 3) return null;
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+  for (const { x, y } of points) {
+    sumX += x; sumY += y; sumXY += x * y; sumX2 += x * x; sumY2 += y * y;
+  }
+  const denom = n * sumX2 - sumX * sumX;
+  if (denom === 0) return null;
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  const ssTot = sumY2 - (sumY * sumY) / n;
+  const ssRes = sumY2 - intercept * sumY - slope * sumXY;
+  const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+  return { slope, intercept, r2 };
+}
+
+function computePredictions() {
+  const snapshots = db.prepare("SELECT * FROM system_snapshots WHERE ts > datetime('now', '-7 days') ORDER BY ts ASC").all();
+  if (snapshots.length < 6) return { status: 'insufficient_data', dataPoints: snapshots.length, predictions: [] };
+
+  const t0 = new Date(snapshots[0].ts + 'Z').getTime();
+  const predictions = [];
+
+  // Disk prediction
+  const diskPoints = snapshots.map(s => ({ x: (new Date(s.ts + 'Z').getTime() - t0) / 3600000, y: s.disk_used_bytes }));
+  const diskReg = linearRegression(diskPoints);
+  if (diskReg && diskReg.slope > 0) {
+    const lastSnap = snapshots[snapshots.length - 1];
+    const diskTotal = lastSnap.disk_total_bytes;
+    const threshold90 = diskTotal * 0.9;
+    const currentUsed = lastSnap.disk_used_bytes;
+    const currentPct = Math.round((currentUsed / diskTotal) * 100);
+    const lastX = diskPoints[diskPoints.length - 1].x;
+    const hoursTo90 = diskReg.slope > 0 ? (threshold90 - diskReg.intercept - diskReg.slope * lastX) / diskReg.slope : Infinity;
+    if (hoursTo90 > 0 && hoursTo90 < 168) { // within 7 days
+      predictions.push({
+        metric: 'disk',
+        severity: hoursTo90 < 48 ? 'critical' : 'warning',
+        currentPct,
+        currentUsedGB: Math.round(currentUsed / 1e9 * 10) / 10,
+        totalGB: Math.round(diskTotal / 1e9 * 10) / 10,
+        growthPerDayGB: Math.round(diskReg.slope * 24 / 1e9 * 100) / 100,
+        hoursToThreshold: Math.round(hoursTo90),
+        thresholdPct: 90,
+        r2: Math.round(diskReg.r2 * 100) / 100,
+        message: `Disk usage at ${currentPct}%, growing ${Math.round(diskReg.slope * 24 / 1e9 * 100) / 100} GB/day — projected to hit 90% in ${Math.round(hoursTo90)} hours (${Math.round(hoursTo90 / 24 * 10) / 10} days)`,
+      });
+    }
+  }
+
+  // Memory prediction
+  const memPoints = snapshots.map(s => ({ x: (new Date(s.ts + 'Z').getTime() - t0) / 3600000, y: s.mem_used_bytes }));
+  const memReg = linearRegression(memPoints);
+  if (memReg && memReg.slope > 0) {
+    const lastSnap = snapshots[snapshots.length - 1];
+    const memTotal = lastSnap.mem_total_bytes;
+    const threshold90 = memTotal * 0.9;
+    const currentUsed = lastSnap.mem_used_bytes;
+    const currentPct = Math.round((currentUsed / memTotal) * 100);
+    const lastX = memPoints[memPoints.length - 1].x;
+    const hoursTo90 = memReg.slope > 0 ? (threshold90 - memReg.intercept - memReg.slope * lastX) / memReg.slope : Infinity;
+    if (hoursTo90 > 0 && hoursTo90 < 168) {
+      predictions.push({
+        metric: 'memory',
+        severity: hoursTo90 < 48 ? 'critical' : 'warning',
+        currentPct,
+        currentUsedGB: Math.round(currentUsed / 1e9 * 10) / 10,
+        totalGB: Math.round(memTotal / 1e9 * 10) / 10,
+        growthPerDayMB: Math.round(memReg.slope * 24 / 1e6),
+        hoursToThreshold: Math.round(hoursTo90),
+        thresholdPct: 90,
+        r2: Math.round(memReg.r2 * 100) / 100,
+        message: `Memory usage at ${currentPct}%, growing ${Math.round(memReg.slope * 24 / 1e6)} MB/day — projected to hit 90% in ${Math.round(hoursTo90)} hours (${Math.round(hoursTo90 / 24 * 10) / 10} days)`,
+      });
+    }
+  }
+
+  return { status: 'ok', dataPoints: snapshots.length, predictions };
+}
+
+// Check predictions daily at 6 AM and alert via Telegram
+const predictionAlerted = new Map(); // metric -> timestamp
+cron.schedule('0 6 * * *', guardedCron('predictions', async () => {
+  try {
+    const result = computePredictions();
+    for (const pred of result.predictions) {
+      if (pred.severity !== 'critical') continue;
+      const lastAlert = predictionAlerted.get(pred.metric) || 0;
+      if (Date.now() - lastAlert < 24 * 60 * 60 * 1000) continue; // max 1 alert per metric per day
+      predictionAlerted.set(pred.metric, Date.now());
+      sendTelegram(`🔮 <b>Predictive Alert — ${pred.metric.toUpperCase()}</b>\n${pred.message}\n\nBased on ${result.dataPoints} data points over 7 days (R²=${pred.r2})`);
+    }
+    console.log(`[CRON] Predictive alerts: ${result.predictions.length} predictions, ${result.predictions.filter(p => p.severity === 'critical').length} critical`);
+  } catch (err) { cronFail('Predictive alerts', err); }
+}));
+
+app.get('/api/predictions', asyncRoute((_req, res) => {
+  const result = computePredictions();
+  res.json(result);
+}));
+
+// === Feature: AI Cost Optimizer ===
+
+let cachedCostAnalysis = null;
+let lastCostAnalysisTime = 0;
+const COST_ANALYSIS_TTL = 60 * 60 * 1000; // 1 hour
+
+app.get('/api/cost-analysis', asyncRoute(async (_req, res) => {
+  const now = Date.now();
+  const force = _req.query.force === 'true';
+  if (!force && cachedCostAnalysis && (now - lastCostAnalysisTime) < COST_ANALYSIS_TTL) {
+    return res.json(cachedCostAnalysis);
+  }
+
+  // Collect per-container stats
+  const containers = await docker.listContainers();
+  const appMap = {};
+  for (const appDef of config.apps) {
+    if (appDef.containers) {
+      for (const cn of appDef.containers) { appMap[cn] = appDef.slug; }
+    }
+  }
+
+  const containerStats = [];
+  for (const c of containers) {
+    const name = c.Names?.[0]?.replace(/^\//, '') || c.Id.slice(0, 12);
+    try {
+      const s = await docker.getContainer(c.Id).stats({ stream: false });
+      const cpuDelta = s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage;
+      const systemDelta = s.cpu_stats.system_cpu_usage - s.precpu_stats.system_cpu_usage;
+      const cpuCount = s.cpu_stats.online_cpus || 1;
+      const cpu = systemDelta > 0 ? Math.round((cpuDelta / systemDelta) * cpuCount * 10000) / 100 : 0;
+      const memUsed = s.memory_stats.usage || 0;
+      const memLimit = s.memory_stats.limit || 0;
+      containerStats.push({ name, app: appMap[name] || null, cpu, memUsedMB: Math.round(memUsed / 1e6), memLimitMB: memLimit > 0 ? Math.round(memLimit / 1e6) : null });
+    } catch { /* skip */ }
+  }
+
+  // Aggregate per app
+  const appStats = {};
+  for (const cs of containerStats) {
+    const app = cs.app || '_untracked';
+    if (!appStats[app]) appStats[app] = { containers: [], totalCPU: 0, totalMemMB: 0 };
+    appStats[app].containers.push(cs);
+    appStats[app].totalCPU += cs.cpu;
+    appStats[app].totalMemMB += cs.memUsedMB;
+  }
+
+  // System totals
+  const memInfo = readFileSync('/proc/meminfo', 'utf8');
+  const memTotalKB = parseInt(memInfo.match(/MemTotal:\s+(\d+)/)?.[1] || '0');
+  const memAvailKB = parseInt(memInfo.match(/MemAvailable:\s+(\d+)/)?.[1] || '0');
+  const dfParts = getDiskParts();
+  const totalMemGB = Math.round(memTotalKB / 1024 / 1024 * 10) / 10;
+  const usedMemGB = Math.round((memTotalKB - memAvailKB) / 1024 / 1024 * 10) / 10;
+  const diskUsedGB = Math.round(parseInt(dfParts[2]) / 1e9 * 10) / 10;
+  const diskTotalGB = Math.round(parseInt(dfParts[1]) / 1e9 * 10) / 10;
+
+  // Revenue per app (from cached metrics)
+  const revenueData = {};
+  try {
+    const rows = db.prepare("SELECT app_slug, value FROM metrics_daily WHERE metric_type = 'mrr' AND date = (SELECT MAX(date) FROM metrics_daily WHERE metric_type = 'mrr')").all();
+    for (const r of rows) revenueData[r.app_slug] = r.value;
+  } catch { /* no revenue data */ }
+
+  // Build summary for AI
+  const summary = {
+    system: { totalMemGB, usedMemGB, memPct: Math.round((1 - memAvailKB / memTotalKB) * 100), diskUsedGB, diskTotalGB, diskPct: Math.round(diskUsedGB / diskTotalGB * 100), containerCount: containers.length },
+    apps: Object.entries(appStats).map(([slug, s]) => ({
+      slug, cpu: Math.round(s.totalCPU * 100) / 100, memMB: s.totalMemMB, containers: s.containers.length,
+      mrrEUR: revenueData[slug] ? Math.round(revenueData[slug] / 100) : 0,
+    })).sort((a, b) => b.memMB - a.memMB),
+  };
+
+  // AI analysis (best-effort)
+  let aiRecommendations = '';
+  try {
+    const anthropicKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+    if (anthropicKey) {
+      const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
+        maxTokens: 600, timeout: TIMEOUT_AI,
+        system: 'You are a DevOps cost optimizer. Analyze resource usage and give 3-5 concrete, actionable recommendations. Be specific with numbers. Format as a numbered list.',
+        messages: [{ role: 'user', content: `Analyze this server resource usage and suggest optimizations:\n\n${JSON.stringify(summary, null, 2)}\n\nThe server costs ~€12/month (Hetzner CX32). Suggest right-sizing, cleanup, or savings.` }],
+      }));
+      aiRecommendations = ai.text;
+    }
+  } catch { /* AI unavailable */ }
+
+  cachedCostAnalysis = { ...summary, aiRecommendations, timestamp: new Date().toISOString() };
+  lastCostAnalysisTime = now;
+  res.json(cachedCostAnalysis);
+}));
+
+// === Feature: Automated Changelog Generator ===
+
+// Schema for deploy history
+db.exec(`
+  CREATE TABLE IF NOT EXISTS deploy_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    commits TEXT,
+    summary TEXT,
+    container_name TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_deploy_log_app ON deploy_log(app_slug, timestamp);
+`);
+
+// Detect deploys by watching for container recreate events (create after destroy)
+// This is called from the existing Docker event watcher when a container starts
+async function onContainerDeploy(containerName) {
+  // Map container to app
+  let appSlug = null, repoPath = null;
+  for (const appDef of config.apps) {
+    if (appDef.containers && appDef.containers.some(cn => containerName.includes(cn) || cn.includes(containerName))) {
+      appSlug = appDef.slug;
+      repoPath = appDef.repo;
+      break;
+    }
+  }
+  if (!appSlug || !repoPath) return;
+
+  // Check if we already logged a deploy for this app in the last 5 minutes (avoid duplicates from multi-container deploys)
+  const recent = db.prepare("SELECT id FROM deploy_log WHERE app_slug = ? AND timestamp > datetime('now', '-5 minutes')").get(appSlug);
+  if (recent) return;
+
+  // Read recent git commits from the repo
+  let commits = [];
+  try {
+    const gitLog = execSync(
+      `cd "${repoPath}" && git log --oneline --no-decorate -10 2>/dev/null`,
+      { timeout: TIMEOUT_STANDARD }
+    ).toString().trim();
+    commits = gitLog.split('\n').filter(Boolean).map(line => {
+      const [hash, ...rest] = line.split(' ');
+      return { hash, message: rest.join(' ') };
+    });
+  } catch { /* repo may not have git, or command fails */ }
+
+  // AI summary (best-effort)
+  let summary = '';
+  if (commits.length > 0) {
+    try {
+      const anthropicKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+      if (anthropicKey) {
+        const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
+          maxTokens: 150, timeout: TIMEOUT_STANDARD,
+          system: 'Generate a brief, user-facing changelog entry (2-3 bullet points) from these git commits. Focus on what changed for users, not implementation details. No markdown headers.',
+          messages: [{ role: 'user', content: commits.map(c => c.message).join('\n') }],
+        }));
+        summary = ai.text;
+      }
+    } catch { /* AI unavailable */ }
+  }
+
+  db.prepare('INSERT INTO deploy_log (app_slug, container_name, commits, summary) VALUES (?, ?, ?, ?)')
+    .run(appSlug, containerName, JSON.stringify(commits), summary);
+
+  console.log(`[CHANGELOG] Deploy detected: ${appSlug} (${commits.length} commits)`);
+}
+
+// API: Get deploy history
+app.get('/api/deploys', asyncRoute((_req, res) => {
+  const slug = _req.query.app;
+  const limit = parseInt(_req.query.limit) || 20;
+  const deploys = slug
+    ? db.prepare('SELECT * FROM deploy_log WHERE app_slug = ? ORDER BY timestamp DESC LIMIT ?').all(slug, limit)
+    : db.prepare('SELECT * FROM deploy_log ORDER BY timestamp DESC LIMIT ?').all(limit);
+  for (const d of deploys) {
+    try { d.commits = JSON.parse(d.commits); } catch { d.commits = []; }
+  }
+  res.json({ deploys });
 }));
 
 // =============================================
@@ -5724,6 +7241,7 @@ cron.schedule('30 2 * * *', async () => {
     db.prepare("DELETE FROM ops_scores WHERE timestamp < datetime('now', '-30 days')").run();
     db.prepare("DELETE FROM ops_baselines WHERE timestamp < datetime('now', '-90 days')").run();
     db.prepare("DELETE FROM ops_events WHERE timestamp < datetime('now', '-90 days')").run();
+    db.prepare("DELETE FROM notifications WHERE timestamp < datetime('now', '-30 days')").run();
   } catch (err) { cronFail('Baseline drift', err); }
 });
 
@@ -5766,6 +7284,18 @@ const NOISE_PATTERNS = [
   /^\[(?:OPS|CRON|HEALING|ERROR_SCAN|ERROR_WATCH|PERF|CLEANUP|MAINT|BACKUP|SSL|UPTIME|ANALYTICS|PROJECTS|ALERTS|ENV|AUDIT)\]\s/,
   /Failed to find Server Action/i
 ];
+
+// Refresh Docker image update checks every 6 hours
+cron.schedule('30 */6 * * *', guardedCron('image-updates', async () => {
+  try {
+    const result = await checkImageUpdates();
+    cachedImageUpdates = result;
+    lastImageUpdatesCheck = Date.now();
+    console.log(`[IMAGE-UPDATES] Refreshed: ${result.summary.updatesAvailable} updates available out of ${result.summary.total} images`);
+  } catch (err) {
+    console.error('[IMAGE-UPDATES] Cron failed:', err.message);
+  }
+}));
 
 cron.schedule('*/5 * * * *', guardedCron('error-ingest', async () => {
   try {
@@ -5823,7 +7353,7 @@ let eventWatcherBackoff = TIMEOUT_QUICK; // start at 5s, max 5min
 async function startEventWatcher() {
   try {
     if (eventStream) try { eventStream.destroy(); } catch (e) { console.error('[ERROR_WATCH] Stream destroy error:', e.message); }
-    eventStream = await docker.getEvents({ filters: { type: ['container'], event: ['die', 'oom', 'health_status'] } });
+    eventStream = await docker.getEvents({ filters: { type: ['container'], event: ['die', 'oom', 'health_status', 'start'] } });
     eventWatcherBackoff = TIMEOUT_QUICK; // reset on successful connect
 
     eventStream.on('data', async (chunk) => {
@@ -5855,6 +7385,9 @@ async function startEventWatcher() {
           }
         } else if (event.Action === 'health_status: unhealthy') {
           ingestError({ app: appSlug, message: `Container ${name} health check failed`, severity: 'warning', source: 'docker_event', container: name });
+        } else if (event.Action === 'start') {
+          // Detect deploy — container started (could be restart or fresh deploy)
+          onContainerDeploy(name).catch(err => console.error('[CHANGELOG] Deploy detection error:', err.message));
         }
       } catch (err) { console.error('[ERROR_WATCH] Event processing error:', err.message); }
     });
@@ -6589,6 +8122,60 @@ app.post('/api/marketing/crosspromo/auto-place', asyncRoute(async (req, res) => 
   }
   res.json({ placements, count: placements.length });
 }));
+
+// GET /api/perf — request duration metrics (last 5 minutes)
+app.get('/api/perf', (_req, res) => {
+  const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+  const recent = perfRing.filter(e => e && new Date(e.timestamp).getTime() > fiveMinAgo);
+  const durations = recent.map(e => e.durationMs).sort((a, b) => a - b);
+  const count = durations.length;
+  const avgMs = count > 0 ? Math.round(durations.reduce((s, d) => s + d, 0) / count) : 0;
+  const p95Ms = count > 0 ? durations[Math.floor(count * 0.95)] : 0;
+  const p99Ms = count > 0 ? durations[Math.floor(count * 0.99)] : 0;
+  const maxMs = count > 0 ? durations[count - 1] : 0;
+  res.json({
+    requests5m: { count, avgMs, p95Ms, p99Ms, maxMs },
+    slowRequests: slowRequests.slice(-10),
+  });
+});
+
+// --- Notification Center API ---
+app.get('/api/notifications', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const unreadOnly = req.query.unread === 'true';
+  const category = req.query.category || null;
+
+  let sql = 'SELECT * FROM notifications';
+  const conditions = [];
+  const params = [];
+
+  if (unreadOnly) { conditions.push('read = 0'); }
+  if (category) { conditions.push('category = ?'); params.push(category); }
+
+  if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
+  sql += ' ORDER BY timestamp DESC LIMIT ?';
+  params.push(limit);
+
+  const rows = db.prepare(sql).all(...params);
+  res.json({ notifications: rows });
+});
+
+app.get('/api/notifications/count', (_req, res) => {
+  const { n } = db.prepare('SELECT COUNT(*) as n FROM notifications WHERE read = 0').get();
+  res.json({ unread: n });
+});
+
+app.post('/api/notifications/:id/read', (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid id' });
+  db.prepare('UPDATE notifications SET read = 1 WHERE id = ?').run(id);
+  res.json({ ok: true });
+});
+
+app.post('/api/notifications/read-all', (_req, res) => {
+  db.prepare('UPDATE notifications SET read = 1 WHERE read = 0').run();
+  res.json({ ok: true });
+});
 
 // Health check endpoint
 app.get('/health', (_req, res) => res.send('ok'));

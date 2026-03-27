@@ -69,6 +69,33 @@
     .header-btn.primary { border-color: rgba(34, 197, 94, 0.3); color: var(--green); box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
     .header-btn.primary:hover { background: rgba(34, 197, 94, 0.1); box-shadow: 0 2px 8px rgba(34,197,94,0.15); }
 
+    /* Notification Center */
+    .notif-btn-wrap { position: relative; display: inline-flex; }
+    .notif-badge { position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; border-radius: 8px; background: var(--red); color: #fff; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; padding: 0 4px; line-height: 1; pointer-events: none; }
+    .notif-badge:empty, .notif-badge[data-count="0"] { display: none; }
+    .notif-dropdown { display: none; position: absolute; top: calc(100% + 6px); right: 0; width: 380px; max-height: 480px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.4); z-index: 1000; overflow: hidden; backdrop-filter: blur(20px); }
+    .notif-dropdown.active { display: flex; flex-direction: column; }
+    .notif-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .notif-header-title { font-size: 13px; font-weight: 600; color: var(--text); }
+    .notif-mark-all { font-size: 11px; color: var(--blue); cursor: pointer; background: none; border: none; padding: 2px 6px; border-radius: 4px; }
+    .notif-mark-all:hover { background: rgba(59,130,246,0.1); }
+    .notif-list { overflow-y: auto; max-height: 420px; flex: 1; }
+    .notif-item { display: flex; gap: 10px; padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.03); cursor: pointer; transition: background 0.15s; }
+    .notif-item:hover { background: var(--surface2); }
+    .notif-item.unread { background: rgba(59,130,246,0.04); }
+    .notif-item.unread:hover { background: rgba(59,130,246,0.08); }
+    .notif-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+    .notif-dot.critical { background: var(--red); box-shadow: 0 0 6px rgba(239,68,68,0.4); }
+    .notif-dot.warning { background: var(--yellow); box-shadow: 0 0 6px rgba(245,158,11,0.4); }
+    .notif-dot.info { background: var(--blue); box-shadow: 0 0 6px rgba(59,130,246,0.3); }
+    .notif-content { flex: 1; min-width: 0; }
+    .notif-top { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+    .notif-cat { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.06); color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.3px; }
+    .notif-time { font-size: 10px; color: var(--text-muted); margin-left: auto; white-space: nowrap; }
+    .notif-title { font-size: 12px; color: var(--text); line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .notif-msg { font-size: 11px; color: var(--text-dim); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+    .notif-empty { padding: 32px 16px; text-align: center; color: var(--text-muted); font-size: 12px; }
+
     /* System metrics bar */
     .system-bar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 16px 32px; border-bottom: 1px solid var(--border); background: var(--surface); position:relative; z-index:1; }
     .metric { padding: 12px; border-radius: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.04); transition: all 0.2s; }
@@ -185,6 +212,10 @@
     .container-detail-name { font-size: 13px; font-weight: 500; font-family: var(--font-mono); display: flex; align-items: center; gap: 6px; }
     .container-detail-uptime { font-size: 11px; color: var(--text-muted); }
     .container-detail-stats { display: flex; gap: 16px; font-size: 12px; color: var(--text-dim); }
+    .detail-sparklines { display: flex; gap: 16px; margin-top: 8px; padding: 6px 0; }
+    .detail-sparkline-item { display: flex; align-items: center; gap: 6px; cursor: default; }
+    .detail-sparkline-item .spark-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
+    .detail-sparkline-item svg { display: block; }
     .stat-label { color: var(--text-muted); margin-right: 3px; }
 
     .btn { font-size: 12px; padding: 7px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text-dim); cursor: pointer; transition: all var(--duration-fast) var(--ease-out); font-family: var(--font-sans); }
@@ -725,6 +756,77 @@
     .add-app-form label { font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.04em; }
     .add-app-form input, .add-app-form select { width: 100%; padding: 6px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; }
     .add-app-form input:focus, .add-app-form select:focus { outline: none; border-color: var(--blue); }
+
+    /* App Config Wizard */
+    .app-wizard-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); z-index: 2000; align-items: center; justify-content: center; }
+    .app-wizard-overlay.active { display: flex; }
+    .app-wizard-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 560px; max-width: 95vw; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.4); }
+    .app-wizard-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .app-wizard-steps { display: flex; align-items: center; justify-content: center; gap: 0; padding: 16px 20px 8px; }
+    .wizard-step-indicator { display: flex; align-items: center; gap: 6px; opacity: 0.4; transition: opacity 0.2s; }
+    .wizard-step-indicator.active, .wizard-step-indicator.completed { opacity: 1; }
+    .wizard-step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--surface2); border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--text-muted); }
+    .wizard-step-indicator.active .wizard-step-num { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .wizard-step-indicator.completed .wizard-step-num { background: var(--green); border-color: var(--green); color: #000; }
+    .wizard-step-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+    .wizard-step-indicator.active .wizard-step-label { color: var(--text); }
+    .wizard-step-connector { width: 32px; height: 2px; background: var(--border); margin: 0 4px; }
+    .wizard-step-content { padding: 20px; min-height: 180px; }
+    .wizard-step-content .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .wizard-step-content label { font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500; }
+    .wizard-step-content input, .wizard-step-content select, .wizard-step-content textarea { width: 100%; padding: 7px 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px; box-sizing: border-box; }
+    .wizard-step-content input:focus, .wizard-step-content select:focus, .wizard-step-content textarea:focus { outline: none; border-color: var(--blue); }
+    .wizard-step-content .slug-preview { font-size: 11px; color: var(--text-muted); margin-top: 2px; font-family: monospace; }
+    .wizard-errors { padding: 0 20px 8px; color: var(--red); font-size: 12px; }
+    .wizard-errors ul { margin: 0; padding-left: 18px; }
+    .wizard-errors li { margin-bottom: 2px; }
+    .wizard-footer { display: flex; align-items: center; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid var(--border); }
+    .wizard-review-section { margin-bottom: 12px; }
+    .wizard-review-section h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 6px; font-weight: 600; }
+    .wizard-review-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border); }
+    .wizard-review-row:last-child { border-bottom: none; }
+    .wizard-review-key { color: var(--text-muted); }
+    .wizard-review-val { color: var(--text); font-weight: 500; font-family: monospace; }
+    .wizard-success { text-align: center; padding: 24px 0; }
+    .wizard-success .checkmark { font-size: 40px; color: var(--green); margin-bottom: 8px; }
+
+    /* API Playground */
+    .playground-panel { padding: 20px 32px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .playground-layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; }
+    .playground-sidebar { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+    .playground-main { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-height: 300px; }
+    .pg-category { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 600; margin: 10px 0 4px; }
+    .pg-category:first-child { margin-top: 0; }
+    .pg-route-item { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-bottom: 2px; transition: background 0.15s; }
+    .pg-route-item:hover { background: var(--surface3); }
+    .pg-route-item.active { background: rgba(6,182,212,0.1); border: 1px solid rgba(6,182,212,0.3); }
+    .pg-method-sm { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 3px; font-family: var(--font-mono); min-width: 36px; text-align: center; display: inline-block; }
+    .pg-method-sm.get { background: rgba(34,197,94,0.15); color: var(--green); }
+    .pg-method-sm.post { background: rgba(59,130,246,0.15); color: var(--blue); }
+    .pg-method-sm.put { background: rgba(234,179,8,0.15); color: var(--yellow); }
+    .pg-method-sm.patch { background: rgba(234,179,8,0.15); color: var(--yellow); }
+    .pg-method-sm.delete { background: rgba(239,68,68,0.15); color: var(--red); }
+    .pg-route-path { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pg-method-badge { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 4px; font-family: var(--font-mono); }
+    .pg-method-badge.get { background: rgba(34,197,94,0.15); color: var(--green); }
+    .pg-method-badge.post { background: rgba(59,130,246,0.15); color: var(--blue); }
+    .pg-method-badge.put { background: rgba(234,179,8,0.15); color: var(--yellow); }
+    .pg-method-badge.patch { background: rgba(234,179,8,0.15); color: var(--yellow); }
+    .pg-method-badge.delete { background: rgba(239,68,68,0.15); color: var(--red); }
+    .pg-status-badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; font-family: var(--font-mono); }
+    .pg-status-badge.s2xx { background: rgba(34,197,94,0.15); color: var(--green); }
+    .pg-status-badge.s3xx { background: rgba(59,130,246,0.15); color: var(--blue); }
+    .pg-status-badge.s4xx { background: rgba(234,179,8,0.15); color: var(--yellow); }
+    .pg-status-badge.s5xx { background: rgba(239,68,68,0.15); color: var(--red); }
+    .pg-json-key { color: #7dd3fc; }
+    .pg-json-string { color: #86efac; }
+    .pg-json-number { color: #fbbf24; }
+    .pg-json-bool { color: #c084fc; }
+    .pg-json-null { color: #94a3b8; }
+    @media (max-width: 768px) {
+      .playground-layout { grid-template-columns: 1fr; }
+    }
+
     .healing-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface2); border-radius: 6px; margin-bottom: 4px; font-size: 12px; border: 1px solid var(--border); }
     .healing-badge { padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; text-transform: uppercase; }
     .healing-badge.executed { background: rgba(34,197,94,0.15); color: var(--green); }
@@ -952,10 +1054,12 @@
     /* Keyboard shortcuts help */
     .shortcuts-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9999; display: none; align-items: center; justify-content: center; }
     .shortcuts-overlay.active { display: flex; }
-    .shortcuts-grid { background: var(--surface); border-radius: 12px; padding: 24px; max-width: 520px; width: 90%; max-height: 80vh; overflow-y: auto; border: 1px solid var(--border); }
+    .shortcuts-grid { background: var(--surface); border-radius: 12px; padding: 24px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; border: 1px solid var(--border); }
     .shortcuts-grid h3 { margin: 0 0 16px; font-size: 16px; color: var(--text); }
-    .shortcuts-grid .shortcut-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
-    .shortcuts-grid .shortcut-key { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 8px; font-family: monospace; font-size: 11px; color: var(--text); min-width: 40px; text-align: center; }
+    .shortcuts-grid .shortcut-category { font-size: 11px; font-weight: 600; color: var(--blue); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 14px; margin-bottom: 4px; padding-top: 10px; border-top: 2px solid var(--border); }
+    .shortcuts-grid .shortcut-category:first-of-type { margin-top: 0; border-top: none; padding-top: 0; }
+    .shortcuts-grid .shortcut-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .shortcuts-grid .shortcut-key { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 8px; font-family: monospace; font-size: 11px; color: var(--text); min-width: 40px; text-align: center; white-space: nowrap; }
     .shortcuts-grid .shortcut-desc { color: var(--text-dim); }
     /* Custom confirm modal */
     .confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 10000; display: none; align-items: center; justify-content: center; }
@@ -991,6 +1095,19 @@
     /* Export button */
     .export-btn { font-size: 10px; padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text-dim); cursor: pointer; }
     .export-btn:hover { background: var(--surface3); color: var(--text); }
+    /* Context menu */
+    .ctx-menu { position: fixed; z-index: 100000; min-width: 220px; padding: 6px 0; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 12px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04); opacity: 0; transform: scale(0.96); transition: opacity 0.15s ease, transform 0.15s ease; pointer-events: none; }
+    .ctx-menu.visible { opacity: 1; transform: scale(1); pointer-events: auto; }
+    .ctx-menu-item { display: flex; align-items: center; gap: 10px; padding: 7px 14px; font-size: 13px; color: var(--text); cursor: pointer; transition: background 0.12s; user-select: none; }
+    .ctx-menu-item:hover { background: var(--surface2); }
+    .ctx-menu-item:first-child { border-radius: 8px 8px 0 0; }
+    .ctx-menu-item:last-child { border-radius: 0 0 8px 8px; }
+    .ctx-menu-icon { width: 18px; text-align: center; font-size: 14px; flex-shrink: 0; }
+    .ctx-menu-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ctx-menu-hint { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+    .ctx-menu-sep { height: 1px; margin: 4px 10px; background: var(--border); }
+    .ctx-menu-item.danger { color: var(--yellow); }
+    .ctx-menu-item.danger:hover { background: rgba(234,179,8,0.08); }
   </style>
 </head>
 <body>
@@ -1003,27 +1120,46 @@
   <div class="shortcuts-overlay" id="shortcutsOverlay" onclick="if(event.target===this)this.classList.remove('active')">
     <div class="shortcuts-grid">
       <h3>Keyboard Shortcuts</h3>
-      <div class="shortcut-row"><span class="shortcut-key">Ctrl+K</span><span class="shortcut-desc">Command Palette</span></div>
+
+      <div class="shortcut-category">Navigation</div>
+      <div class="shortcut-row"><span class="shortcut-key">1</span><span class="shortcut-desc">Home view</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">2</span><span class="shortcut-desc">Revenue view</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">3</span><span class="shortcut-desc">Analytics view</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">4</span><span class="shortcut-desc">Infrastructure view</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">5</span><span class="shortcut-desc">Security view</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">6</span><span class="shortcut-desc">Settings view</span></div>
+
+      <div class="shortcut-category">Actions</div>
+      <div class="shortcut-row"><span class="shortcut-key">Ctrl+K</span><span class="shortcut-desc">Command palette</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">?</span><span class="shortcut-desc">Command palette</span></div>
       <div class="shortcut-row"><span class="shortcut-key">/</span><span class="shortcut-desc">Focus search</span></div>
       <div class="shortcut-row"><span class="shortcut-key">r</span><span class="shortcut-desc">Refresh all data</span></div>
       <div class="shortcut-row"><span class="shortcut-key">Esc</span><span class="shortcut-desc">Close panel / modal</span></div>
-      <div class="shortcut-row" style="margin-top:8px;border-top:2px solid var(--border);padding-top:8px"><span class="shortcut-key">a</span><span class="shortcut-desc">Activity log</span></div>
-      <div class="shortcut-row"><span class="shortcut-key">s</span><span class="shortcut-desc">SSL certificates</span></div>
-      <div class="shortcut-row"><span class="shortcut-key">k</span><span class="shortcut-desc">API key health</span></div>
-      <div class="shortcut-row"><span class="shortcut-key">b</span><span class="shortcut-desc">Backups</span></div>
-      <div class="shortcut-row"><span class="shortcut-key">m</span><span class="shortcut-desc">Marketing manager</span></div>
+
+      <div class="shortcut-category">Panels</div>
+      <div class="shortcut-row"><span class="shortcut-key">a</span><span class="shortcut-desc">Activity log</span></div>
       <div class="shortcut-row"><span class="shortcut-key">d</span><span class="shortcut-desc">Morning briefing</span></div>
       <div class="shortcut-row"><span class="shortcut-key">h</span><span class="shortcut-desc">Auto-healing log</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">b</span><span class="shortcut-desc">Backups</span></div>
       <div class="shortcut-row"><span class="shortcut-key">e</span><span class="shortcut-desc">Error tracking</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">s</span><span class="shortcut-desc">SSL certificates</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">k</span><span class="shortcut-desc">API key health</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">m</span><span class="shortcut-desc">Marketing manager</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">n</span><span class="shortcut-desc">Notifications</span></div>
       <div class="shortcut-row"><span class="shortcut-key">o</span><span class="shortcut-desc">Ops dashboard</span></div>
       <div class="shortcut-row"><span class="shortcut-key">j</span><span class="shortcut-desc">Projects manager</span></div>
       <div class="shortcut-row"><span class="shortcut-key">Shift+S</span><span class="shortcut-desc">Security manager</span></div>
       <div class="shortcut-row"><span class="shortcut-key">Shift+L</span><span class="shortcut-desc">Audit log</span></div>
       <div class="shortcut-row"><span class="shortcut-key">Shift+P</span><span class="shortcut-desc">Status page</span></div>
+
+      <div class="shortcut-category">Marketing Tabs</div>
       <div class="shortcut-row"><span class="shortcut-key">x</span><span class="shortcut-desc">Cross-promotion tab</span></div>
       <div class="shortcut-row"><span class="shortcut-key">Shift+B</span><span class="shortcut-desc">Banners tab</span></div>
       <div class="shortcut-row"><span class="shortcut-key">p</span><span class="shortcut-desc">Playbook tab</span></div>
-      <div class="shortcut-row"><span class="shortcut-key">?</span><span class="shortcut-desc">This help</span></div>
+
+      <div class="shortcut-category">Modes</div>
+      <div class="shortcut-row"><span class="shortcut-key">Shift+A</span><span class="shortcut-desc">ADHD mode</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">Shift+Z</span><span class="shortcut-desc">Focus mode (selected app)</span></div>
     </div>
   </div>
 
@@ -1065,6 +1201,16 @@
     <div class="header-right">
       <input class="search-input" id="searchInput" type="text" placeholder="Search apps... (/)" oninput="filterApps(this.value)">
       <span class="last-updated" id="lastUpdated"><span class="refresh-dot"></span><span id="countdown"></span></span>
+      <span class="notif-btn-wrap" id="notifWrap">
+        <button class="header-btn" onclick="toggleNotifications()" id="notifBtn" title="Notifications (n)"><kbd>n</kbd>&#128276;<span class="notif-badge" id="notifBadge"></span></button>
+        <div class="notif-dropdown" id="notifDropdown">
+          <div class="notif-header">
+            <span class="notif-header-title">Notifications</span>
+            <button class="notif-mark-all" onclick="markAllNotificationsRead(event)">Mark all read</button>
+          </div>
+          <div class="notif-list" id="notifList"></div>
+        </div>
+      </span>
       <button class="header-btn" onclick="toggleBriefing()" id="briefingBtn"><kbd>d</kbd>Briefing</button>
       <button class="header-btn" onclick="toggleOps()" id="opsBtn"><kbd>o</kbd>Ops <span id="worryBadge" class="worry-badge" style="display:none"></span></button>
       <button class="header-btn" onclick="toggleErrors()" id="errorsBtn"><kbd>e</kbd>Errors <span id="errCountBadge" style="font-size:9px;padding:1px 5px;border-radius:3px;margin-left:4px;background:rgba(239,68,68,0.15);color:var(--red);display:none"></span></button>
@@ -1572,6 +1718,33 @@
       <div class="activity-list" id="activityList"></div>
     </div>
 
+    <div id="containerMapPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Container Network Map</span>
+        <button class="btn" onclick="fetchContainerGraph(true)">Refresh</button>
+      </div>
+      <div id="containerMapContent" style="min-height:100px"><span style="font-size:12px;color:var(--text-muted)">Loading container graph...</span></div>
+    </div>
+
+    <div id="uptimeTimelinePanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Uptime Timeline (24h)</span>
+        <button class="btn" onclick="fetchUptimeTimeline(true)">Refresh</button>
+      </div>
+      <div id="uptimeTimelineContent" style="min-height:60px"><span style="font-size:12px;color:var(--text-muted)">Loading uptime data...</span></div>
+    </div>
+
+    <div id="logSearchPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Log Search</span>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <input id="logSearchInput" type="text" placeholder="Search across all container logs..." style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text);outline:none" onkeydown="if(event.key==='Enter')searchLogs()">
+        <button class="btn" onclick="searchLogs()">Search</button>
+      </div>
+      <div id="logSearchResults" style="max-height:300px;overflow-y:auto"></div>
+    </div>
+
     <div id="sslPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
       <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:8px;font-weight:600">SSL Certificates</div>
       <div id="sslList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px"></div>
@@ -1590,6 +1763,39 @@
         <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Database Backups</span>
       </div>
       <div class="key-health-grid" id="backupGrid"></div>
+    </div>
+
+    <div id="predictionsPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Predictive Alerts</span>
+        <button class="btn" onclick="fetchPredictions()">Refresh</button>
+      </div>
+      <div id="predictionsList"></div>
+    </div>
+
+    <div id="costPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Cost Optimizer</span>
+        <button class="btn" onclick="fetchCostAnalysis(true)">Analyze</button>
+      </div>
+      <div id="costContent"><span style="font-size:12px;color:var(--text-muted)">Press "Analyze" to run AI cost optimization analysis.</span></div>
+    </div>
+
+    <div id="deploysPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Deploy History</span>
+        <button class="btn" onclick="fetchDeploys()">Refresh</button>
+      </div>
+      <div id="deploysList"></div>
+    </div>
+
+    <div id="imageUpdatesPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Image Updates</span>
+        <button class="btn" onclick="fetchImageUpdates(true)">Check for Updates</button>
+      </div>
+      <div id="imageUpdatesSummary" style="display:flex;gap:8px;margin-bottom:8px"></div>
+      <div id="imageUpdatesList"></div>
     </div>
 
     <div id="healingPanel" class="healing-panel view-panel">
@@ -1673,6 +1879,7 @@
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Settings</span>
         <div style="display:flex;gap:6px">
+          <button class="btn" onclick="openAppWizard()" style="background:var(--green);color:#000;font-weight:600">+ Add New App</button>
           <button class="btn" onclick="loadSettings()">Refresh</button>
         </div>
       </div>
@@ -1693,6 +1900,19 @@
           <span style="font-size:10px;color:var(--text-muted)">API keys &amp; service connections</span>
         </div>
         <div id="integrationsPanel"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div>
+      </div>
+      <div class="integrations-section" style="margin-top:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleEnvDiff()">
+          <h3>Env Comparison <span id="envDiffBadge" style="font-size:11px;font-weight:400;color:var(--text-muted)"></span></h3>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:10px;color:var(--text-muted)">Compare .env files across apps</span>
+            <span id="envDiffToggle" style="font-size:14px;color:var(--text-muted);transition:transform 0.2s">&#9654;</span>
+          </div>
+        </div>
+        <div id="envDiffPanel" style="display:none">
+          <div id="envDiffWarnings" style="margin-bottom:12px"></div>
+          <div id="envDiffTable" style="overflow-x:auto"><span style="color:var(--text-muted);font-size:12px">Click to load...</span></div>
+        </div>
       </div>
       <div id="addAppForm" class="add-app-form">
         <h3 style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text)">Add New App</h3>
@@ -1718,6 +1938,34 @@
         </div>
         <div id="addAppError" style="color:var(--red);font-size:12px;margin-top:6px;display:none"></div>
       </div>
+      <!-- App Config Wizard -->
+      <div id="appWizardOverlay" class="app-wizard-overlay">
+        <div class="app-wizard-box">
+          <div class="app-wizard-header">
+            <span style="font-size:14px;font-weight:600;color:var(--text)">Add New App</span>
+            <button class="btn" onclick="closeAppWizard()" style="font-size:16px;padding:2px 8px;line-height:1">&times;</button>
+          </div>
+          <div class="app-wizard-steps">
+            <div class="wizard-step-indicator active" data-step="1"><span class="wizard-step-num">1</span><span class="wizard-step-label">Basics</span></div>
+            <div class="wizard-step-connector"></div>
+            <div class="wizard-step-indicator" data-step="2"><span class="wizard-step-num">2</span><span class="wizard-step-label">Infrastructure</span></div>
+            <div class="wizard-step-connector"></div>
+            <div class="wizard-step-indicator" data-step="3"><span class="wizard-step-num">3</span><span class="wizard-step-label">Paths</span></div>
+            <div class="wizard-step-connector"></div>
+            <div class="wizard-step-indicator" data-step="4"><span class="wizard-step-num">4</span><span class="wizard-step-label">Review</span></div>
+          </div>
+          <div id="wizardStepContent" class="wizard-step-content">
+            <!-- Steps rendered by JS -->
+          </div>
+          <div id="wizardErrors" class="wizard-errors" style="display:none"></div>
+          <div class="wizard-footer">
+            <button class="btn" id="wizardBackBtn" onclick="wizardBack()" style="display:none">Back</button>
+            <div style="flex:1"></div>
+            <span id="wizardStepLabel" style="font-size:11px;color:var(--text-muted)">Step 1 of 4</span>
+            <button class="btn" id="wizardNextBtn" onclick="wizardNext()" style="background:var(--blue);color:#fff;font-weight:600">Next</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div id="projectsPanel" class="projects-panel view-panel">
@@ -1735,6 +1983,63 @@
       <div id="proj-tasks" class="proj-tab-content"><div id="projTasksContent"></div></div>
       <div id="proj-roadmap" class="proj-tab-content"><div id="projRoadmapContent"></div></div>
       <div id="proj-insights" class="proj-tab-content"><div id="projInsightsContent"></div></div>
+    </div>
+
+    <div id="playgroundPanel" class="playground-panel view-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <span style="font-size:14px;font-weight:600">API Playground</span>
+        <button class="btn" onclick="loadPlaygroundRoutes()" style="font-size:11px;color:var(--purple)">Refresh</button>
+      </div>
+      <p style="font-size:11px;color:var(--text-muted);margin-bottom:12px">Interactive API explorer — select a route, configure parameters, and send requests.</p>
+      <div class="playground-layout">
+        <div class="playground-sidebar">
+          <input type="text" id="playgroundFilter" placeholder="Filter routes..." oninput="filterPlaygroundRoutes()" style="width:100%;padding:6px 10px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);margin-bottom:8px;box-sizing:border-box">
+          <div id="playgroundRouteList" style="max-height:480px;overflow-y:auto"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div>
+        </div>
+        <div class="playground-main">
+          <div id="playgroundRequest" style="display:none">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+              <span id="pgMethodBadge" class="pg-method-badge"></span>
+              <span id="pgPath" style="font-size:13px;font-weight:500;color:var(--text);font-family:monospace"></span>
+            </div>
+            <div id="pgParamsSection" style="display:none;margin-bottom:12px">
+              <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;display:block;margin-bottom:4px">URL Parameters</label>
+              <div id="pgParams"></div>
+            </div>
+            <div id="pgQuerySection" style="margin-bottom:12px">
+              <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;display:block;margin-bottom:4px">Query Parameters</label>
+              <div id="pgQueryParams">
+                <div class="pg-query-row" style="display:flex;gap:6px;margin-bottom:4px">
+                  <input type="text" class="pg-query-key" placeholder="key" style="flex:1;padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:monospace">
+                  <input type="text" class="pg-query-val" placeholder="value" style="flex:1;padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:monospace">
+                  <button class="btn" onclick="addPlaygroundQueryRow()" style="padding:4px 8px;font-size:11px">+</button>
+                </div>
+              </div>
+            </div>
+            <div id="pgBodySection" style="display:none;margin-bottom:12px">
+              <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;display:block;margin-bottom:4px">Request Body (JSON)</label>
+              <textarea id="pgBody" rows="4" style="width:100%;padding:8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:monospace;resize:vertical;box-sizing:border-box" placeholder='{"key": "value"}'></textarea>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+              <button class="btn" onclick="sendPlaygroundRequest()" style="background:var(--green);color:#000;font-weight:600;padding:6px 16px">Send</button>
+              <button class="btn" onclick="copyPlaygroundCurl()" style="font-size:11px">Copy cURL</button>
+              <span id="pgResponseTime" style="font-size:11px;color:var(--text-muted)"></span>
+            </div>
+            <div id="pgCurlSection" style="display:none;margin-bottom:12px">
+              <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600;display:block;margin-bottom:4px">cURL Command</label>
+              <pre id="pgCurl" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;font-size:11px;color:var(--text-muted);white-space:pre-wrap;word-break:break-all;margin:0"></pre>
+            </div>
+            <div id="pgResponse" style="display:none">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <label style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:600">Response</label>
+                <span id="pgStatusBadge" class="pg-status-badge"></span>
+              </div>
+              <pre id="pgResponseBody" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;font-size:12px;color:var(--text);max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0;line-height:1.5"></pre>
+            </div>
+          </div>
+          <div id="playgroundEmpty" style="display:flex;align-items:center;justify-content:center;min-height:200px;color:var(--text-muted);font-size:13px">Select a route from the sidebar to get started</div>
+        </div>
+      </div>
     </div>
   </div><!-- /view-settings -->
 
@@ -2041,7 +2346,11 @@
           fetchKeyHealth();
           fetchBackups();
           fetchHealingLog();
+          fetchPredictions();
           fetchActivity();
+          fetchContainerGraph();
+          fetchUptimeTimeline();
+          fetchImageUpdates();
           break;
         case 'security':
           if (!securityData) fetchSecurityStatus();
@@ -2123,12 +2432,23 @@
       }
     }
 
-    function svgSparkline(data, w, h, color) {
+    function svgSparkline(data, w, h, color, opts) {
       if (!data || data.length < 2) return '';
+      const { fill = false, labels = null, unit = '' } = opts || {};
       const max = Math.max(...data, 1);
       const step = w / (data.length - 1);
-      const pts = data.map((v, i) => `${(i * step).toFixed(1)},${(h - (v / max) * h * 0.85).toFixed(1)}`).join(' ');
-      return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" fill="none"><polyline points="${pts}" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`;
+      const coords = data.map((v, i) => [parseFloat((i * step).toFixed(1)), parseFloat((h - (v / max) * h * 0.85).toFixed(1))]);
+      const pts = coords.map(c => `${c[0]},${c[1]}`).join(' ');
+      let svg = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" fill="none" class="sparkline-svg"`;
+      if (labels) svg += ` data-spark-labels='${JSON.stringify(labels)}' data-spark-unit="${unit}"`;
+      svg += `>`;
+      if (fill) {
+        const fillPts = `0,${h} ${pts} ${w},${h}`;
+        svg += `<polygon points="${fillPts}" fill="${color}" opacity="0.12"/>`;
+      }
+      svg += `<polyline points="${pts}" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`;
+      svg += `</svg>`;
+      return svg;
     }
 
     function renderApps(apps) {
@@ -2179,7 +2499,7 @@
             }
           }
 
-          html += `<div class="app-card ${cardClass}" data-slug="${app.slug || slugify(app.name)}" onclick="openDetail('${escapeHtml(app.name)}')">
+          html += `<div class="app-card ${cardClass}" data-slug="${app.slug || slugify(app.name)}" data-domain="${escapeHtml(app.domain || '')}" data-appname="${escapeHtml(app.name)}" onclick="openDetail('${escapeHtml(app.name)}')">
             <div class="app-card-header">
               <span class="app-name"><span class="status-dot ${h}" data-label="${h}"></span>${app.name}</span>
               <div class="app-badges">
@@ -2243,8 +2563,8 @@
             }
             if (cpuAll.length >= 2) {
               html += `<div class="app-sparklines">`;
-              html += `<div class="app-sparkline"><span class="spark-label">CPU</span>${svgSparkline(cpuAll, 50, 16, '#3b82f6')}</div>`;
-              if (memAll.length >= 2) html += `<div class="app-sparkline"><span class="spark-label">MEM</span>${svgSparkline(memAll, 50, 16, '#8b5cf6')}</div>`;
+              html += `<div class="app-sparkline" title="CPU: ${cpuAll[cpuAll.length-1]?.toFixed(1)}% (latest)"><span class="spark-label">CPU</span>${svgSparkline(cpuAll, 50, 16, '#3b82f6', { fill: true, labels: cpuAll, unit: '%' })}</div>`;
+              if (memAll.length >= 2) html += `<div class="app-sparkline" title="MEM: ${memAll[memAll.length-1]?.toFixed(0)} MB (latest)"><span class="spark-label">MEM</span>${svgSparkline(memAll, 50, 16, '#8b5cf6', { fill: true, labels: memAll, unit: ' MB' })}</div>`;
               html += `</div>`;
             }
           }
@@ -2310,6 +2630,18 @@
         for (const c of app.containerStatuses) {
           const s = statsData[c.name] || {};
           const memPct = s.memoryLimit > 0 ? Math.round((s.memory / s.memoryLimit) * 100) : 0;
+          const sd = sparklineData[c.name];
+          let sparkHtml = '';
+          if (sd) {
+            const cpuArr = sd.cpu || [];
+            const memArr = (sd.memory || []).map(m => m / (1024 * 1024));
+            if (cpuArr.length >= 2 || memArr.length >= 2) {
+              sparkHtml = `<div class="detail-sparklines">`;
+              if (cpuArr.length >= 2) sparkHtml += `<div class="detail-sparkline-item" title="CPU 24h: min ${Math.min(...cpuArr).toFixed(1)}%, max ${Math.max(...cpuArr).toFixed(1)}%, latest ${cpuArr[cpuArr.length-1]?.toFixed(1)}%"><span class="spark-label">CPU 24h</span>${svgSparkline(cpuArr, 120, 24, '#3b82f6', { fill: true, labels: cpuArr, unit: '%' })}</div>`;
+              if (memArr.length >= 2) sparkHtml += `<div class="detail-sparkline-item" title="Memory 24h: min ${Math.min(...memArr).toFixed(0)} MB, max ${Math.max(...memArr).toFixed(0)} MB, latest ${memArr[memArr.length-1]?.toFixed(0)} MB"><span class="spark-label">MEM 24h</span>${svgSparkline(memArr, 120, 24, '#8b5cf6', { fill: true, labels: memArr, unit: ' MB' })}</div>`;
+              sparkHtml += `</div>`;
+            }
+          }
           overview += `<div class="container-detail">
             <div class="container-detail-header">
               <span class="container-detail-name"><span class="status-dot ${c.health}"></span>${c.name}</span>
@@ -2320,6 +2652,7 @@
               <span><span class="stat-label">RAM</span>${s.memory ? fmt(s.memory) : '--'}${s.memoryLimit && s.memoryLimit < 1e12 ? ' / ' + fmt(s.memoryLimit) + ' (' + memPct + '%)' : ''}</span>
               <span><span class="stat-label">Net</span>${s.netRx ? fmt(s.netRx) + ' in / ' + fmt(s.netTx) + ' out' : '--'}</span>
             </div>
+            ${sparkHtml}
             <div class="btn-row">
               <button class="btn" onclick="viewLogs('${escapeHtml(c.name)}')">View Logs</button>
               <button class="btn" onclick="viewLogs('${escapeHtml(c.name)}', 200)">Last 200 lines</button>
@@ -3984,6 +4317,124 @@
       return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    // ── Context Menu for App Cards ──
+    (function initContextMenu() {
+      // Create menu element once
+      const menu = document.createElement('div');
+      menu.className = 'ctx-menu';
+      menu.id = 'appCtxMenu';
+      document.body.appendChild(menu);
+
+      let ctxSlug = '', ctxDomain = '', ctxAppName = '';
+
+      function hideMenu() { menu.classList.remove('visible'); }
+
+      function showMenu(x, y) {
+        menu.style.left = '0px';
+        menu.style.top = '0px';
+        menu.classList.add('visible');
+        const rect = menu.getBoundingClientRect();
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const mx = x + rect.width > vw ? vw - rect.width - 8 : x;
+        const my = y + rect.height > vh ? vh - rect.height - 8 : y;
+        menu.style.left = Math.max(8, mx) + 'px';
+        menu.style.top = Math.max(8, my) + 'px';
+      }
+
+      function buildMenu() {
+        const hasContainers = appData.find(a => (a.slug || slugify(a.name)) === ctxSlug)?.containerStatuses?.length > 0;
+        const items = [
+          { icon: '\uD83C\uDF10', label: 'Open ' + ctxDomain, action: () => window.open('https://' + ctxDomain, '_blank') },
+          { icon: '\uD83D\uDCCB', label: 'View Logs', hint: '', action: () => { openDetail(ctxAppName); }, enabled: hasContainers },
+          { icon: '\u26A0\uFE0F', label: 'Restart All Containers', cls: 'danger', action: () => restartAllContainers(), enabled: hasContainers },
+          { icon: '\uD83D\uDD11', label: 'View Environment', action: () => { openDetail(ctxAppName).then(() => { const envBtn = document.querySelector('.modal-tab:nth-child(2)'); if (envBtn) envBtn.click(); }); } },
+          { icon: '\uD83D\uDD0D', label: 'Run SEO Audit', action: () => runCtxSeoAudit() },
+          { icon: '\uD83D\uDCCE', label: 'Copy Domain', action: () => copyDomain() },
+          { sep: true },
+          { icon: '\uD83D\uDCC8', label: 'View in Plausible', action: () => window.open('https://plausible.theadhdmind.org/' + ctxDomain, '_blank') },
+          { icon: '\uD83D\uDD0E', label: 'View in GSC', action: () => window.open('https://search.google.com/search-console?resource_id=sc-domain:' + ctxDomain, '_blank') }
+        ];
+
+        menu.innerHTML = items.map(item => {
+          if (item.sep) return '<div class="ctx-menu-sep"></div>';
+          if (item.enabled === false) return '';
+          const cls = 'ctx-menu-item' + (item.cls ? ' ' + item.cls : '');
+          return `<div class="${cls}" data-action="${escapeHtml(item.label)}">
+            <span class="ctx-menu-icon">${item.icon}</span>
+            <span class="ctx-menu-label">${escapeHtml(item.label)}</span>
+            ${item.hint ? '<span class="ctx-menu-hint">' + escapeHtml(item.hint) + '</span>' : ''}
+          </div>`;
+        }).join('');
+
+        // Bind click handlers
+        const menuItems = menu.querySelectorAll('.ctx-menu-item');
+        let idx = 0;
+        for (const item of items) {
+          if (item.sep || item.enabled === false) continue;
+          const el = menuItems[idx++];
+          if (el && item.action) el.addEventListener('click', () => { hideMenu(); item.action(); });
+        }
+      }
+
+      async function restartAllContainers() {
+        const app = appData.find(a => (a.slug || slugify(a.name)) === ctxSlug);
+        if (!app?.containerStatuses?.length) return;
+        const names = app.containerStatuses.map(c => c.name).join(', ');
+        if (!confirm('Restart all containers for ' + app.name + '?\n\n' + names)) return;
+        for (const c of app.containerStatuses) {
+          try {
+            await apiFetch('/api/containers/' + c.name + '/restart', { method: 'POST' });
+          } catch (e) { /* continue */ }
+        }
+        showToast('Restarted all containers for ' + app.name, 'success');
+        setTimeout(() => fetchAll(), 3000);
+      }
+
+      async function runCtxSeoAudit() {
+        showToast('Running SEO audit for ' + ctxDomain + '...', 'info');
+        try {
+          const res = await apiFetch('/api/marketing/seo?url=' + encodeURIComponent(ctxDomain) + '&force=true');
+          const data = await res.json();
+          if (data && data.score != null) {
+            showToast('SEO score for ' + ctxDomain + ': ' + data.score + '/100', data.score >= 80 ? 'success' : 'warning');
+          } else {
+            showToast('SEO audit complete for ' + ctxDomain, 'success');
+          }
+        } catch (err) {
+          showToast('SEO audit failed: ' + err.message, 'error');
+        }
+      }
+
+      function copyDomain() {
+        navigator.clipboard.writeText(ctxDomain).then(() => {
+          showToast('Copied: ' + ctxDomain, 'success');
+        }).catch(() => {
+          showToast('Failed to copy domain', 'error');
+        });
+      }
+
+      // Event delegation on document for app cards
+      document.addEventListener('contextmenu', function(e) {
+        const card = e.target.closest('.app-card');
+        if (!card) { hideMenu(); return; }
+        e.preventDefault();
+        ctxSlug = card.dataset.slug || '';
+        ctxDomain = card.dataset.domain || '';
+        ctxAppName = card.dataset.appname || '';
+        if (!ctxDomain) return;
+        buildMenu();
+        showMenu(e.clientX, e.clientY);
+      });
+
+      document.addEventListener('click', function(e) {
+        if (!menu.contains(e.target)) hideMenu();
+      });
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') hideMenu();
+      });
+      window.addEventListener('scroll', hideMenu, true);
+    })();
+
     function showToast(message, type = 'info', persistent = false) {
       const container = document.getElementById('toastContainer');
       const icons = { success: '\u2713', error: '\u2717', info: '\u2139', warning: '\u26A0' };
@@ -4051,11 +4502,22 @@
         if (info.error) return `<div style="font-size:12px;padding:6px 10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)"><span style="color:var(--red)">${domain}</span> <span style="color:var(--text-muted)">unreachable</span></div>`;
         const color = info.daysLeft <= 7 ? 'var(--red)' : info.daysLeft <= 30 ? 'var(--yellow)' : 'var(--green)';
         const barW = Math.min(100, Math.round((info.daysLeft / 90) * 100));
+        const renewBtn = info.daysLeft <= 30 ? `<button class="btn" onclick="renewSSL('${escapeHtml(domain)}')" style="font-size:9px;padding:1px 6px;margin-left:4px">Renew</button>` : '';
         return `<div style="font-size:12px;padding:6px 10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">
-          <div style="display:flex;justify-content:space-between;margin-bottom:3px"><span>${domain}</span><span style="color:${color};font-weight:600">${info.daysLeft}d</span></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px"><span>${domain}</span><span style="display:flex;align-items:center"><span style="color:${color};font-weight:600">${info.daysLeft}d</span>${renewBtn}</span></div>
           <div style="height:2px;background:var(--surface3);border-radius:1px"><div style="width:${barW}%;height:100%;background:${color};border-radius:1px"></div></div>
         </div>`;
       }).join('');
+    }
+
+    async function renewSSL(domain) {
+      if (!confirm(`Renew SSL certificate for ${domain}?`)) return;
+      try {
+        const res = await apiFetch('/api/ssl/renew', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ domain }) });
+        const data = await res.json();
+        if (data.ok) { showToast(`SSL renewed for ${domain}`); cachedSSL = null; setTimeout(() => { sslData = {}; apiFetch('/api/ssl').then(r => r.json()).then(d => { sslData = d; renderSSLPanel(); }); }, 2000); }
+        else showToast(`Renewal failed: ${data.error}`, 'error');
+      } catch (e) { showToast('Renewal failed: ' + e.message, 'error'); }
     }
 
     function closeModal() {
@@ -4199,6 +4661,13 @@
           { type: 'command', cmd: 'seo', label: 'SEO Audit', description: 'Open SEO audit tab', shortcut: '' },
           { type: 'command', cmd: 'backups', label: 'Backup Status', description: 'Database backup panel', shortcut: 'b' },
           { type: 'command', cmd: 'errors', label: 'Error Tracker', description: 'App errors and performance', shortcut: 'e' },
+          { type: 'command', cmd: 'predictions', label: 'Predictive Alerts', description: 'Resource trend predictions', shortcut: '' },
+          { type: 'command', cmd: 'cost', label: 'Cost Optimizer', description: 'AI resource optimization analysis', shortcut: '' },
+          { type: 'command', cmd: 'deploys', label: 'Deploy History', description: 'Recent deployments with changelogs', shortcut: '' },
+          { type: 'command', cmd: 'playground', label: 'API Playground', description: 'Interactive API explorer', shortcut: '' },
+          { type: 'command', cmd: 'addapp', label: 'Add New App', description: 'Config wizard for new apps', shortcut: '' },
+          { type: 'command', cmd: 'envdiff', label: 'Env Comparison', description: 'Compare .env files across apps', shortcut: '' },
+          { type: 'command', cmd: 'logsearch', label: 'Log Search', description: 'Search across all container logs', shortcut: '/' },
         ];
         renderCmdResults();
         return;
@@ -4207,6 +4676,10 @@
         const res = await apiFetch('/api/command/search?q=' + encodeURIComponent(query));
         const data = await res.json();
         cmdResults = data.results || [];
+        // Add "Ask AI" option when there's a query with few or no matches
+        if (query.length >= 3) {
+          cmdResults.push({ type: 'ai', label: 'Ask AI', description: `"${query}"`, query });
+        }
         cmdSelectedIdx = 0;
         renderCmdResults();
       } catch {}
@@ -4219,8 +4692,8 @@
         return;
       }
       container.innerHTML = cmdResults.map((r, i) => {
-        const iconClass = r.type === 'app' ? 'app' : r.type === 'action' ? 'action' : 'command';
-        const icon = r.type === 'app' ? '&#9679;' : r.type === 'action' ? '&#9654;' : '&#8984;';
+        const iconClass = r.type === 'app' ? 'app' : r.type === 'action' ? 'action' : r.type === 'ai' ? 'action' : 'command';
+        const icon = r.type === 'app' ? '&#9679;' : r.type === 'action' ? '&#9654;' : r.type === 'ai' ? '&#10024;' : '&#8984;';
         const name = escapeHtml(r.name || r.label || r.cmd);
         const desc = escapeHtml(r.description || r.domain || '');
         const shortcut = r.shortcut ? `<span class="cmd-item-shortcut">${escapeHtml(r.shortcut)}</span>` : '';
@@ -4232,10 +4705,66 @@
       }).join('');
     }
 
+    async function executeAiCommand(query) {
+      showToast('Asking AI...', 'info');
+      try {
+        const res = await apiPost('/api/ai/command', { query });
+        const data = await res.json();
+        if (!res.ok) {
+          showToast(data.error || 'AI command failed', 'error', true);
+          return;
+        }
+        if (data.action === 'blocked') {
+          showToast(data.summary, 'warning', true);
+        } else if (data.action === 'unknown' || data.action === 'error') {
+          showToast(data.summary, 'warning', true);
+        } else if (data.action === 'restart') {
+          showToast(data.summary, 'success', true);
+          fetchAll();
+        } else if (data.action === 'logs') {
+          // Show logs in a persistent toast with preformatted text
+          const logLines = (data.result && data.result.logs) ? data.result.logs.split('\n').slice(-15).join('\n') : data.summary;
+          showAiResultOverlay('Logs: ' + (data.target || ''), logLines);
+        } else if (data.action === 'explain') {
+          showToast(data.summary, 'info', true);
+        } else if (data.action === 'status') {
+          showToast(data.summary, 'info', true);
+        } else {
+          showToast(data.summary || 'Done', 'info', true);
+        }
+      } catch (err) {
+        showToast('AI command failed: ' + err.message, 'error', true);
+      }
+    }
+
+    function showAiResultOverlay(title, content) {
+      // Remove any existing AI overlay
+      const existing = document.getElementById('aiResultOverlay');
+      if (existing) existing.remove();
+
+      const overlay = document.createElement('div');
+      overlay.id = 'aiResultOverlay';
+      overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+      overlay.innerHTML = `<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:16px;padding:24px;max-width:640px;width:90%;max-height:70vh;overflow:auto;box-shadow:0 16px 64px rgba(0,0,0,0.5)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h3 style="margin:0;font-size:14px;color:var(--text)">${escapeHtml(title)}</h3>
+          <button onclick="document.getElementById('aiResultOverlay').remove()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px">&times;</button>
+        </div>
+        <pre style="margin:0;font-size:11px;line-height:1.5;color:var(--text-muted);white-space:pre-wrap;word-break:break-all;font-family:'SF Mono',Monaco,Consolas,monospace">${escapeHtml(content)}</pre>
+      </div>`;
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+      document.body.appendChild(overlay);
+    }
+
     function executeCmdResult(idx) {
       const r = cmdResults[idx];
       if (!r) return;
       closeCommandPalette();
+
+      if (r.type === 'ai') {
+        executeAiCommand(r.query);
+        return;
+      }
 
       if (r.type === 'app') {
         openDetail(r.name);
@@ -4275,9 +4804,20 @@
           status: () => toggleStatusPage(),
           audit: () => toggleAudit(),
           shortcuts: () => toggleShortcutsHelp(),
+          predictions: () => { switchView('infra'); fetchPredictions(); },
+          cost: () => { switchView('infra'); fetchCostAnalysis(true); },
+          deploys: () => { switchView('infra'); fetchDeploys(); },
+          logsearch: () => { switchView('infra'); document.getElementById('logSearchInput').focus(); },
+          playground: () => { switchView('settings'); setTimeout(() => { document.getElementById('playgroundPanel').scrollIntoView({ behavior: 'smooth' }); loadPlaygroundRoutes(); }, 100); },
           'export errors': () => exportData('errors'),
           'export security': () => exportData('security'),
           'export tasks': () => exportData('tasks'),
+          addapp: () => { switchView('settings'); setTimeout(() => openAppWizard(), 100); },
+          envdiff: () => { switchView('settings'); setTimeout(() => { if (!envDiffOpen) toggleEnvDiff(); document.getElementById('envDiffPanel').scrollIntoView({ behavior: 'smooth' }); }, 100); },
+          notifications: () => toggleNotifications(),
+          containermap: () => { switchView('infra'); fetchContainerGraph(); },
+          uptime: () => { switchView('infra'); fetchUptimeTimeline(true); },
+          updates: () => { switchView('infra'); fetchImageUpdates(true); },
         };
         if (cmdMap[r.cmd]) cmdMap[r.cmd]();
       }
@@ -4299,6 +4839,529 @@
     document.getElementById('cmdOverlay').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) closeCommandPalette();
     });
+
+    // === Container Network Map ===
+    let cachedGraphData = null;
+    const graphAppColors = {};
+    const graphNetColors = {};
+    function graphColorForApp(app) {
+      if (!app) return '#6b7280';
+      if (graphAppColors[app]) return graphAppColors[app];
+      let h = 0; for (let i = 0; i < app.length; i++) h = (h * 31 + app.charCodeAt(i)) & 0xffffff;
+      graphAppColors[app] = `hsl(${h % 360}, 65%, 55%)`;
+      return graphAppColors[app];
+    }
+    function graphColorForNet(net) {
+      if (graphNetColors[net]) return graphNetColors[net];
+      let h = 0; for (let i = 0; i < net.length; i++) h = (h * 37 + net.charCodeAt(i)) & 0xffffff;
+      graphNetColors[net] = `hsl(${h % 360}, 40%, 50%)`;
+      return graphNetColors[net];
+    }
+
+    async function fetchContainerGraph(force = false) {
+      const el = document.getElementById('containerMapContent');
+      if (!force && cachedGraphData) { renderContainerGraph(cachedGraphData); return; }
+      el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Loading container graph...</span>';
+      try {
+        const res = await apiFetch('/api/containers/graph');
+        const data = await res.json();
+        cachedGraphData = data;
+        renderContainerGraph(data);
+      } catch (err) {
+        el.innerHTML = '<span style="font-size:12px;color:var(--red)">Failed to load container graph.</span>';
+      }
+    }
+
+    function renderContainerGraph(data) {
+      const el = document.getElementById('containerMapContent');
+      if (!data || !data.nodes || data.nodes.length === 0) {
+        el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">No containers found.</span>';
+        return;
+      }
+      const groups = {};
+      for (const node of data.nodes) {
+        const key = node.app || '__ungrouped__';
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(node);
+      }
+      const groupKeys = Object.keys(groups).sort((a, b) => a === '__ungrouped__' ? 1 : b === '__ungrouped__' ? -1 : a.localeCompare(b));
+      const COLS = Math.min(groupKeys.length, 4);
+      const GROUP_W = 200, GROUP_H = 180, PAD = 40;
+      const svgW = Math.min(COLS * (GROUP_W + PAD) + PAD, 900);
+      const rowCount = Math.ceil(groupKeys.length / COLS);
+      const svgH = Math.min(rowCount * (GROUP_H + PAD) + PAD + 30, 500);
+      const nodePositions = {};
+      groupKeys.forEach((gk, gi) => {
+        const col = gi % COLS, row = Math.floor(gi / COLS);
+        const cx = PAD + col * (GROUP_W + PAD) + GROUP_W / 2;
+        const cy = PAD + row * (GROUP_H + PAD) + GROUP_H / 2 + 15;
+        const members = groups[gk];
+        const r = Math.min(50, 20 + members.length * 8);
+        members.forEach((node, ni) => {
+          if (members.length === 1) { nodePositions[node.id] = { x: cx, y: cy, node }; }
+          else {
+            const angle = (2 * Math.PI * ni) / members.length - Math.PI / 2;
+            nodePositions[node.id] = { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle), node };
+          }
+        });
+      });
+      let svg = `<svg width="100%" viewBox="0 0 ${svgW} ${svgH}" style="max-height:480px;font-family:var(--font-mono);background:var(--surface2);border-radius:8px;border:1px solid var(--border)">`;
+      svg += '<defs><filter id="graphGlow"><feGaussianBlur stdDeviation="2" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>';
+      groupKeys.forEach((gk, gi) => {
+        const col = gi % COLS, row = Math.floor(gi / COLS);
+        const gx = PAD / 2 + col * (GROUP_W + PAD), gy = PAD / 2 + row * (GROUP_H + PAD) + 15;
+        const color = graphColorForApp(gk === '__ungrouped__' ? null : gk);
+        const label = gk === '__ungrouped__' ? 'Other' : gk;
+        svg += `<rect x="${gx}" y="${gy}" width="${GROUP_W}" height="${GROUP_H}" rx="10" fill="${color}" fill-opacity="0.06" stroke="${color}" stroke-opacity="0.2" stroke-width="1"/>`;
+        svg += `<text x="${gx + GROUP_W / 2}" y="${gy + 14}" text-anchor="middle" fill="${color}" font-size="10" font-weight="600" opacity="0.8">${escapeHtml(label)}</text>`;
+      });
+      for (const edge of data.edges) {
+        const s = nodePositions[edge.source], t = nodePositions[edge.target];
+        if (!s || !t) continue;
+        svg += `<line x1="${s.x}" y1="${s.y}" x2="${t.x}" y2="${t.y}" stroke="${graphColorForNet(edge.network)}" stroke-width="1.5" stroke-opacity="0.35" class="graph-edge" data-source="${escapeHtml(edge.source)}" data-target="${escapeHtml(edge.target)}" data-network="${escapeHtml(edge.network)}"/>`;
+      }
+      for (const [id, pos] of Object.entries(nodePositions)) {
+        const node = pos.node;
+        const color = graphColorForApp(node.app);
+        const borderColor = node.status === 'running' ? 'var(--green)' : node.status === 'exited' ? 'var(--red)' : 'var(--yellow)';
+        const shortName = id.length > 18 ? id.slice(0, 16) + '..' : id;
+        svg += `<g class="graph-node" data-id="${escapeHtml(id)}" style="cursor:pointer" onclick="graphNodeClick('${escapeHtml(id)}')" onmouseenter="graphNodeHover('${escapeHtml(id)}', true)" onmouseleave="graphNodeHover('${escapeHtml(id)}', false)">`;
+        svg += `<circle cx="${pos.x}" cy="${pos.y}" r="14" fill="${color}" fill-opacity="0.15" stroke="${borderColor}" stroke-width="2.5"/>`;
+        svg += `<circle cx="${pos.x}" cy="${pos.y}" r="5" fill="${color}"/>`;
+        svg += `<text x="${pos.x}" y="${pos.y + 24}" text-anchor="middle" fill="var(--text-muted)" font-size="8">${escapeHtml(shortName)}</text>`;
+        svg += '</g>';
+      }
+      svg += '<g id="graphTooltip" style="display:none;pointer-events:none"><rect rx="6" fill="var(--card-bg)" stroke="var(--border)" stroke-width="1" filter="url(#graphGlow)"/><text fill="var(--text)" font-size="10"></text></g>';
+      svg += '</svg>';
+      const nets = data.networks.filter(n => n !== 'bridge' && n !== 'none').slice(0, 8);
+      let legend = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px">';
+      for (const net of nets) {
+        legend += `<span style="font-size:10px;color:var(--text-muted);display:flex;align-items:center;gap:3px"><span style="width:12px;height:3px;border-radius:2px;background:${graphColorForNet(net)};display:inline-block"></span>${escapeHtml(net)}</span>`;
+      }
+      legend += '</div>';
+      el.innerHTML = svg + legend;
+    }
+
+    function graphNodeHover(id, enter) {
+      const svg = document.querySelector('#containerMapContent svg');
+      if (!svg) return;
+      const edges = svg.querySelectorAll('.graph-edge');
+      const nodes = svg.querySelectorAll('.graph-node');
+      if (enter) {
+        edges.forEach(e => {
+          const connected = e.dataset.source === id || e.dataset.target === id;
+          e.style.strokeOpacity = connected ? '0.9' : '0.08';
+          e.style.strokeWidth = connected ? '2.5' : '1';
+        });
+        nodes.forEach(n => {
+          if (n.dataset.id === id) return;
+          const connected = Array.from(edges).some(e =>
+            (e.dataset.source === id && e.dataset.target === n.dataset.id) ||
+            (e.dataset.target === id && e.dataset.source === n.dataset.id)
+          );
+          n.style.opacity = connected ? '1' : '0.3';
+        });
+        const node = cachedGraphData?.nodes?.find(n => n.id === id);
+        if (node) {
+          const tt = svg.querySelector('#graphTooltip');
+          const pos = svg.querySelector(`.graph-node[data-id="${CSS.escape(id)}"] circle`);
+          if (tt && pos) {
+            const cx = parseFloat(pos.getAttribute('cx'));
+            const cy = parseFloat(pos.getAttribute('cy'));
+            const lines = [`${node.id} [${node.status}]`, `Networks: ${node.networks.join(', ')}`];
+            if (node.app) lines.push(`App: ${node.app}`);
+            const ttText = tt.querySelector('text');
+            ttText.innerHTML = lines.map((l, i) => `<tspan x="${cx + 22}" dy="${i === 0 ? 0 : 13}">${escapeHtml(l)}</tspan>`).join('');
+            const ttRect = tt.querySelector('rect');
+            const maxLen = Math.max(...lines.map(l => l.length));
+            ttRect.setAttribute('x', cx + 16);
+            ttRect.setAttribute('y', cy - 20);
+            ttRect.setAttribute('width', maxLen * 6 + 12);
+            ttRect.setAttribute('height', lines.length * 13 + 8);
+            ttText.setAttribute('x', cx + 22);
+            ttText.setAttribute('y', cy - 8);
+            tt.style.display = '';
+          }
+        }
+      } else {
+        edges.forEach(e => { e.style.strokeOpacity = '0.35'; e.style.strokeWidth = '1.5'; });
+        nodes.forEach(n => { n.style.opacity = '1'; });
+        const tt = svg.querySelector('#graphTooltip');
+        if (tt) tt.style.display = 'none';
+      }
+    }
+
+    function graphNodeClick(id) {
+      if (!cachedGraphData) return;
+      const node = cachedGraphData.nodes.find(n => n.id === id);
+      if (node && node.app) {
+        const appDef = (appData || []).find(a => (a.slug || slugify(a.name)) === node.app);
+        if (appDef) { openDetail(appDef.name); return; }
+      }
+      showToast(`Container: ${id}`, 'info');
+    }
+
+    // === Uptime Timeline ===
+    let cachedUptimeTimeline = null;
+
+    async function fetchUptimeTimeline(force = false) {
+      const el = document.getElementById('uptimeTimelineContent');
+      if (!el) return;
+      if (!force && cachedUptimeTimeline) { renderUptimeTimeline(cachedUptimeTimeline); return; }
+      el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Loading uptime data...</span>';
+      try {
+        const res = await apiFetch('/api/uptime/timeline');
+        const data = await res.json();
+        cachedUptimeTimeline = data;
+        renderUptimeTimeline(data);
+      } catch (err) {
+        el.innerHTML = '<span style="font-size:12px;color:var(--red)">Failed to load uptime timeline.</span>';
+      }
+    }
+
+    function renderUptimeTimeline(data) {
+      const el = document.getElementById('uptimeTimelineContent');
+      if (!data || !data.containers || Object.keys(data.containers).length === 0) {
+        el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">No container data available.</span>';
+        return;
+      }
+
+      const periodStart = new Date(data.period.start).getTime() / 1000;
+      const periodEnd = new Date(data.period.end).getTime() / 1000;
+      const totalSec = periodEnd - periodStart;
+
+      // Separate containers into those with issues and 100% uptime
+      const entries = Object.entries(data.containers);
+      const withIssues = entries.filter(([, c]) => c.uptimePercent < 100 || c.events.length > 0);
+      const perfect = entries.filter(([, c]) => c.uptimePercent >= 100 && c.events.length === 0);
+
+      // Sort by uptime ascending (worst first)
+      withIssues.sort((a, b) => a[1].uptimePercent - b[1].uptimePercent);
+
+      const BAR_H = 20;
+      const LABEL_W = 180;
+      const PCT_W = 60;
+      const BAR_W = 600;
+      const ROW_GAP = 4;
+      const HEADER_H = 24;
+      const rowCount = withIssues.length;
+      const svgH = HEADER_H + rowCount * (BAR_H + ROW_GAP) + 8;
+
+      let svg = `<svg width="100%" viewBox="0 0 ${LABEL_W + BAR_W + PCT_W + 20} ${svgH}" style="font-family:var(--font-mono);max-height:${Math.min(svgH, 500)}px">`;
+
+      // Time axis header
+      const hours = [0, 6, 12, 18, 24];
+      for (const h of hours) {
+        const x = LABEL_W + (h / 24) * BAR_W;
+        const startDate = new Date(data.period.start);
+        const labelDate = new Date(startDate.getTime() + h * 3600000);
+        const label = labelDate.getHours().toString().padStart(2, '0') + ':00';
+        svg += `<text x="${x}" y="12" text-anchor="middle" fill="var(--text-muted)" font-size="9">${label}</text>`;
+        svg += `<line x1="${x}" y1="16" x2="${x}" y2="${svgH}" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="2,3"/>`;
+      }
+
+      // Render each container row
+      withIssues.forEach(([name, container], idx) => {
+        const y = HEADER_H + idx * (BAR_H + ROW_GAP);
+        const displayName = name.length > 24 ? name.slice(0, 22) + '..' : name;
+
+        // Container label
+        svg += `<text x="${LABEL_W - 6}" y="${y + BAR_H / 2 + 4}" text-anchor="end" fill="var(--text-dim)" font-size="10">${escapeHtml(displayName)}</text>`;
+
+        // Build colored segments
+        const segments = [];
+        const evts = container.events;
+        let wasRunning;
+        if (evts.length === 0) {
+          wasRunning = container.currentStatus === 'running';
+        } else {
+          const firstAction = evts[0].action;
+          wasRunning = firstAction === 'stop' || firstAction === 'die' || firstAction === 'unhealthy';
+        }
+
+        let lastTime = periodStart;
+        for (const evt of evts) {
+          const evtTime = Math.max(evt.time, periodStart);
+          if (evtTime > lastTime) {
+            segments.push({ start: lastTime, end: evtTime, running: wasRunning });
+          }
+          lastTime = evtTime;
+          if (evt.action === 'start' || evt.action === 'restart' || evt.action === 'healthy') {
+            wasRunning = true;
+          } else if (evt.action === 'stop' || evt.action === 'die' || evt.action === 'unhealthy') {
+            wasRunning = false;
+          }
+        }
+        if (lastTime < periodEnd) {
+          segments.push({ start: lastTime, end: periodEnd, running: wasRunning });
+        }
+
+        // Draw segments
+        for (const seg of segments) {
+          const x1 = LABEL_W + ((seg.start - periodStart) / totalSec) * BAR_W;
+          const w = ((seg.end - seg.start) / totalSec) * BAR_W;
+          const color = seg.running ? 'var(--green)' : 'var(--red)';
+          const opacity = seg.running ? '0.6' : '0.8';
+          const startTime = new Date(seg.start * 1000).toLocaleTimeString();
+          const endTime = new Date(seg.end * 1000).toLocaleTimeString();
+          const stateLabel = seg.running ? 'Running' : 'Down';
+          svg += `<rect x="${x1}" y="${y}" width="${Math.max(w, 1)}" height="${BAR_H}" rx="2" fill="${color}" opacity="${opacity}"><title>${escapeHtml(name)}: ${stateLabel}\n${startTime} - ${endTime}</title></rect>`;
+        }
+
+        // If no segments at all (unknown state), draw gray bar
+        if (segments.length === 0) {
+          svg += `<rect x="${LABEL_W}" y="${y}" width="${BAR_W}" height="${BAR_H}" rx="2" fill="var(--text-muted)" opacity="0.2"><title>${escapeHtml(name)}: Unknown</title></rect>`;
+        }
+
+        // Event markers (small diamonds at transition points)
+        for (const evt of evts) {
+          const x = LABEL_W + ((Math.max(evt.time, periodStart) - periodStart) / totalSec) * BAR_W;
+          const markerY = y + BAR_H / 2;
+          const evtDate = new Date(evt.time * 1000).toLocaleString();
+          svg += `<polygon points="${x},${markerY - 4} ${x + 3},${markerY} ${x},${markerY + 4} ${x - 3},${markerY}" fill="var(--text)" opacity="0.9"><title>${evt.action} at ${evtDate}</title></polygon>`;
+        }
+
+        // Uptime percentage
+        const pctColor = container.uptimePercent >= 99.9 ? 'var(--green)' : container.uptimePercent >= 95 ? 'var(--yellow)' : 'var(--red)';
+        svg += `<text x="${LABEL_W + BAR_W + 8}" y="${y + BAR_H / 2 + 4}" fill="${pctColor}" font-size="10" font-weight="600">${container.uptimePercent}%</text>`;
+      });
+
+      svg += '</svg>';
+
+      // Collapsed perfect uptime section
+      let perfectHtml = '';
+      if (perfect.length > 0) {
+        perfectHtml = `<div style="margin-top:8px;padding:6px 10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;gap:8px;cursor:pointer" onclick="this.querySelector('.ut-expand').classList.toggle('open');this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+          <span style="color:var(--green);font-size:11px;font-weight:600">${perfect.length} container${perfect.length !== 1 ? 's' : ''}: 100% uptime</span>
+          <span class="ut-expand" style="font-size:10px;color:var(--text-muted);margin-left:auto;transition:transform 0.2s">&#9660;</span>
+        </div>
+        <div style="display:none;padding:4px 10px;font-size:10px;color:var(--text-muted);line-height:1.8">
+          ${perfect.map(([name]) => escapeHtml(name)).join(' &middot; ')}
+        </div>`;
+      }
+
+      // Legend
+      const legend = `<div style="display:flex;gap:14px;margin-top:6px;font-size:10px;color:var(--text-muted)">
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:8px;border-radius:2px;background:var(--green);opacity:0.6;display:inline-block"></span>Running</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:12px;height:8px;border-radius:2px;background:var(--red);opacity:0.8;display:inline-block"></span>Down</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:var(--text);clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);display:inline-block"></span>Event</span>
+      </div>`;
+
+      if (withIssues.length === 0 && perfect.length > 0) {
+        el.innerHTML = `<div style="font-size:12px;color:var(--green);margin-bottom:6px;font-weight:500">All ${perfect.length} containers at 100% uptime in the last 24 hours.</div>` + perfectHtml + legend;
+      } else {
+        el.innerHTML = svg + perfectHtml + legend;
+      }
+    }
+
+    // === Log Search ===
+    async function searchLogs() {
+      const q = document.getElementById('logSearchInput').value.trim();
+      const el = document.getElementById('logSearchResults');
+      if (!q || q.length < 2) { el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Enter at least 2 characters.</span>'; return; }
+      el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Searching...</span>';
+      try {
+        const res = await apiFetch('/api/logs/search?q=' + encodeURIComponent(q));
+        const data = await res.json();
+        if (!data.results?.length) { el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">No results found.</span>'; return; }
+        el.innerHTML = `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${data.count} matches</div>` +
+          data.results.map(r => {
+            const highlighted = escapeHtml(r.line).replace(new RegExp(escapeHtml(q), 'gi'), m => `<mark style="background:var(--yellow);color:var(--bg);padding:0 2px;border-radius:2px">${m}</mark>`);
+            return `<div style="font-size:11px;font-family:monospace;padding:3px 6px;border-left:2px solid var(--accent);margin-bottom:2px;background:var(--surface2);border-radius:0 4px 4px 0;line-height:1.4;word-break:break-all">
+              <span style="color:var(--text-dim);font-size:10px">${escapeHtml(r.container)}</span> ${highlighted}
+            </div>`;
+          }).join('');
+      } catch { el.innerHTML = '<span style="font-size:12px;color:var(--red)">Search failed.</span>'; }
+    }
+
+    // === Deploy History Panel ===
+    async function fetchDeploys() {
+      const el = document.getElementById('deploysList');
+      try {
+        const res = await apiFetch('/api/deploys?limit=15');
+        const data = await res.json();
+        if (!data.deploys?.length) {
+          el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px">No deploys detected yet. Deploy history is recorded automatically when containers restart.</div>';
+          return;
+        }
+        el.innerHTML = data.deploys.map(d => {
+          const time = new Date(d.timestamp + 'Z').toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+          const commits = (d.commits || []).slice(0, 3).map(c => `<span style="color:var(--accent)">${escapeHtml(c.hash?.slice(0, 7) || '')}</span> ${escapeHtml(c.message || '')}`).join('<br>');
+          const summary = d.summary ? `<div style="margin-top:4px;color:var(--text-dim);font-style:italic">${escapeHtml(d.summary)}</div>` : '';
+          return `<div style="padding:6px 8px;border-left:3px solid var(--accent);margin-bottom:6px;background:var(--surface2);border-radius:0 6px 6px 0;font-size:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px">
+              <span style="font-weight:500">${escapeHtml(d.app_slug)}</span>
+              <span style="color:var(--text-muted);font-size:10px">${time}</span>
+            </div>
+            ${commits ? `<div style="font-size:11px;line-height:1.5;font-family:monospace">${commits}</div>` : ''}
+            ${summary}
+          </div>`;
+        }).join('');
+      } catch {
+        el.innerHTML = '<span style="font-size:12px;color:var(--red)">Failed to load deploy history.</span>';
+      }
+    }
+
+    // === Predictive Alerts Panel ===
+    async function fetchPredictions() {
+      const list = document.getElementById('predictionsList');
+      try {
+        const res = await apiFetch('/api/predictions');
+        const data = await res.json();
+        if (data.status === 'insufficient_data') {
+          list.innerHTML = `<div style="font-size:12px;color:var(--text-muted);padding:8px">Collecting data... ${data.dataPoints} snapshots so far (need 6+). Predictions available after ~6 hours of uptime.</div>`;
+          return;
+        }
+        if (!data.predictions.length) {
+          list.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px">All clear — no resource thresholds projected to be hit within 7 days.</div>';
+          return;
+        }
+        list.innerHTML = data.predictions.map(p => {
+          const icon = p.metric === 'disk' ? '💾' : '🧠';
+          const color = p.severity === 'critical' ? 'var(--red)' : 'var(--yellow)';
+          const days = Math.round(p.hoursToThreshold / 24 * 10) / 10;
+          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-left:3px solid ${color};margin-bottom:4px;background:var(--surface2);border-radius:0 6px 6px 0;font-size:12px">
+            <span>${icon}</span>
+            <span style="flex:1">${escapeHtml(p.message)}</span>
+            <span style="color:var(--text-muted);font-size:10px;white-space:nowrap">R²=${p.r2}</span>
+          </div>`;
+        }).join('');
+      } catch {
+        list.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px">Failed to load predictions.</div>';
+      }
+    }
+
+    // === Cost Optimizer Panel ===
+    async function fetchCostAnalysis(force = false) {
+      const el = document.getElementById('costContent');
+      el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Analyzing resource usage across all containers...</span>';
+      try {
+        const res = await apiFetch('/api/cost-analysis' + (force ? '?force=true' : ''));
+        const data = await res.json();
+
+        // Build per-app table
+        const appRows = (data.apps || []).filter(a => a.slug !== '_untracked').map(a => {
+          const revenue = a.mrrEUR > 0 ? `€${a.mrrEUR}/mo` : '<span style="color:var(--text-muted)">—</span>';
+          return `<tr>
+            <td style="padding:3px 8px;font-weight:500">${escapeHtml(a.slug)}</td>
+            <td style="padding:3px 8px;text-align:right">${a.containers}</td>
+            <td style="padding:3px 8px;text-align:right">${a.cpu}%</td>
+            <td style="padding:3px 8px;text-align:right">${a.memMB} MB</td>
+            <td style="padding:3px 8px;text-align:right">${revenue}</td>
+          </tr>`;
+        }).join('');
+
+        const sys = data.system || {};
+        const aiSection = data.aiRecommendations
+          ? `<div style="margin-top:12px;padding:10px;background:var(--surface2);border-radius:6px;border-left:3px solid var(--accent)">
+              <div style="font-size:11px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;font-weight:600">AI Recommendations</div>
+              <div style="font-size:12px;line-height:1.6;white-space:pre-wrap">${escapeHtml(data.aiRecommendations)}</div>
+            </div>`
+          : '';
+
+        el.innerHTML = `
+          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;font-size:12px">
+            <span>Server: <b>${sys.usedMemGB}/${sys.totalMemGB} GB RAM</b> (${sys.memPct}%)</span>
+            <span>Disk: <b>${sys.diskUsedGB}/${sys.diskTotalGB} GB</b> (${sys.diskPct}%)</span>
+            <span>Containers: <b>${sys.containerCount}</b></span>
+            <span>Cost: <b>~€12/mo</b> (Hetzner CX32)</span>
+          </div>
+          <table style="width:100%;font-size:12px;border-collapse:collapse">
+            <thead><tr style="border-bottom:1px solid var(--border);color:var(--text-muted)">
+              <th style="padding:3px 8px;text-align:left">App</th>
+              <th style="padding:3px 8px;text-align:right">Containers</th>
+              <th style="padding:3px 8px;text-align:right">CPU</th>
+              <th style="padding:3px 8px;text-align:right">Memory</th>
+              <th style="padding:3px 8px;text-align:right">MRR</th>
+            </tr></thead>
+            <tbody>${appRows}</tbody>
+          </table>
+          ${aiSection}`;
+      } catch {
+        el.innerHTML = '<span style="font-size:12px;color:var(--red)">Failed to load cost analysis.</span>';
+      }
+    }
+
+    // === Image Updates Panel ===
+    let imageUpdatesData = null;
+
+    async function fetchImageUpdates(force = false) {
+      const summaryEl = document.getElementById('imageUpdatesSummary');
+      const listEl = document.getElementById('imageUpdatesList');
+      listEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Checking for image updates... (this may take a moment)</span>';
+      summaryEl.innerHTML = '';
+      try {
+        const res = await apiFetch(`/api/images/updates${force ? '?force=true' : ''}`);
+        imageUpdatesData = await res.json();
+        renderImageUpdates();
+      } catch (err) {
+        listEl.innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${escapeHtml(err.message)}</span>`;
+      }
+    }
+
+    function renderImageUpdates() {
+      const summaryEl = document.getElementById('imageUpdatesSummary');
+      const listEl = document.getElementById('imageUpdatesList');
+      if (!imageUpdatesData || !imageUpdatesData.images) {
+        listEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">No image data available. Click "Check for Updates" to scan.</span>';
+        return;
+      }
+
+      const s = imageUpdatesData.summary;
+      summaryEl.innerHTML = `
+        ${s.upToDate > 0 ? `<span style="font-size:11px;padding:2px 10px;border-radius:10px;background:var(--green);color:#000;font-weight:600">${s.upToDate} up to date</span>` : ''}
+        ${s.updatesAvailable > 0 ? `<span style="font-size:11px;padding:2px 10px;border-radius:10px;background:var(--orange);color:#000;font-weight:600">${s.updatesAvailable} updates available</span>` : ''}
+        ${s.skipped > 0 ? `<span style="font-size:11px;padding:2px 10px;border-radius:10px;background:var(--surface2);color:var(--text-muted);font-weight:600">${s.skipped} skipped</span>` : ''}
+        ${s.error > 0 ? `<span style="font-size:11px;padding:2px 10px;border-radius:10px;background:var(--red);color:#fff;font-weight:600">${s.error} failed</span>` : ''}
+      `;
+
+      if (imageUpdatesData.checkedAt) {
+        summaryEl.innerHTML += `<span style="font-size:10px;color:var(--text-muted);margin-left:auto">Checked: ${new Date(imageUpdatesData.checkedAt).toLocaleString()}</span>`;
+      }
+
+      // Separate updates from the rest
+      const updates = imageUpdatesData.images.filter(i => i.status === 'update_available');
+      const others = imageUpdatesData.images.filter(i => i.status !== 'update_available');
+
+      let html = '';
+
+      if (updates.length > 0) {
+        html += '<div style="margin-bottom:8px">';
+        for (const img of updates) {
+          html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;background:rgba(255,165,0,0.08);margin-bottom:4px;border:1px solid rgba(255,165,0,0.2)">
+            <span style="color:var(--orange);font-size:14px;min-width:18px" title="Update available">&#8593;</span>
+            <span style="font-weight:600;font-size:12px;color:var(--text);min-width:120px">${escapeHtml(img.container)}</span>
+            <span style="font-size:11px;color:var(--text-dim);flex:1;font-family:monospace">${escapeHtml(img.image)}</span>
+            <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--orange);color:#000;font-weight:600">pull available</span>
+          </div>`;
+        }
+        html += '</div>';
+      }
+
+      if (others.length > 0) {
+        html += `<details style="margin-top:4px">
+          <summary style="font-size:11px;color:var(--text-muted);cursor:pointer;user-select:none;padding:4px 0">${others.length} other images (up to date / skipped)</summary>
+          <div style="margin-top:4px">`;
+        for (const img of others) {
+          const color = img.status === 'up_to_date' ? 'var(--green)' : img.status === 'skipped' ? 'var(--text-muted)' : 'var(--red)';
+          const icon = img.status === 'up_to_date' ? '&#10003;' : img.status === 'skipped' ? '&#8212;' : '&#10007;';
+          const label = img.status === 'skipped' ? (img.reason || 'skipped') : img.status.replace(/_/g, ' ');
+          html += `<div style="display:flex;align-items:center;gap:8px;padding:4px 8px;font-size:11px;color:var(--text-dim);border-bottom:1px solid var(--border)">
+            <span style="color:${color};min-width:18px">${icon}</span>
+            <span style="min-width:120px">${escapeHtml(img.container)}</span>
+            <span style="flex:1;font-family:monospace;font-size:10px">${escapeHtml(img.image)}</span>
+            <span style="font-size:10px;color:${color}">${escapeHtml(label)}</span>
+          </div>`;
+        }
+        html += '</div></details>';
+      }
+
+      if (imageUpdatesData.images.length === 0) {
+        html = '<span style="color:var(--text-muted);font-size:12px">No running containers found.</span>';
+      }
+
+      listEl.innerHTML = html;
+    }
 
     // === Auto-Healing Panel ===
     let healingData = null;
@@ -4762,6 +5825,103 @@
       }
     }
 
+    // --- Env Diff / Comparison ---
+    let envDiffLoaded = false;
+    let envDiffOpen = false;
+
+    function toggleEnvDiff() {
+      envDiffOpen = !envDiffOpen;
+      const panel = document.getElementById('envDiffPanel');
+      const toggle = document.getElementById('envDiffToggle');
+      panel.style.display = envDiffOpen ? 'block' : 'none';
+      toggle.style.transform = envDiffOpen ? 'rotate(90deg)' : '';
+      if (envDiffOpen && !envDiffLoaded) loadEnvDiff();
+    }
+
+    async function loadEnvDiff() {
+      const tableEl = document.getElementById('envDiffTable');
+      const warningsEl = document.getElementById('envDiffWarnings');
+      const badgeEl = document.getElementById('envDiffBadge');
+      tableEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Loading...</span>';
+      warningsEl.innerHTML = '';
+      try {
+        const res = await apiFetch('/api/env/diff');
+        if (!res.ok) throw new Error('Failed to load');
+        const data = await res.json();
+        envDiffLoaded = true;
+
+        // Warnings
+        if (data.warnings.length > 0) {
+          badgeEl.textContent = `(${data.warnings.length} warning${data.warnings.length !== 1 ? 's' : ''})`;
+          badgeEl.style.color = 'var(--yellow)';
+          let whtml = '';
+          for (const w of data.warnings) {
+            if (w.type === 'missing') {
+              whtml += `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;margin-bottom:2px;background:rgba(255,85,85,0.08);border-radius:4px;font-size:12px"><span style="color:var(--red);font-weight:600">MISSING</span> <code style="color:var(--text)">${escapeHtml(w.key)}</code> <span style="color:var(--text-muted)">not set in</span> <span style="color:var(--text);font-weight:500">${escapeHtml(w.app)}</span></div>`;
+            } else if (w.type === 'inconsistent') {
+              whtml += `<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;margin-bottom:2px;background:rgba(255,212,59,0.08);border-radius:4px;font-size:12px"><span style="color:var(--yellow);font-weight:600">INCONSISTENT</span> <code style="color:var(--text)">${escapeHtml(w.key)}</code> <span style="color:var(--text-muted)">differs across</span> <span style="color:var(--text);font-weight:500">${w.apps.map(a => escapeHtml(a)).join(', ')}</span></div>`;
+            }
+          }
+          warningsEl.innerHTML = whtml;
+        } else {
+          badgeEl.textContent = '(no warnings)';
+          badgeEl.style.color = 'var(--green)';
+        }
+
+        // Table
+        if (data.apps.length === 0) {
+          tableEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">No apps with .env files configured.</span>';
+          return;
+        }
+
+        const keyNames = Object.keys(data.keys);
+        if (keyNames.length === 0) {
+          tableEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">No env variables found.</span>';
+          return;
+        }
+
+        // Build warning lookup for quick styling
+        const warningMap = {};
+        for (const w of data.warnings) {
+          if (w.type === 'missing') {
+            warningMap[w.key + '::' + w.app] = 'missing';
+          } else if (w.type === 'inconsistent') {
+            for (const a of w.apps) {
+              warningMap[w.key + '::' + a] = 'inconsistent';
+            }
+          }
+        }
+
+        let thtml = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--text-muted);font-size:11px;position:sticky;left:0;background:var(--surface2);z-index:1">Key</th>';
+        for (const slug of data.apps) {
+          thtml += `<th style="text-align:center;padding:6px 8px;border-bottom:2px solid var(--border);color:var(--text-muted);font-size:11px;white-space:nowrap">${escapeHtml(slug)}</th>`;
+        }
+        thtml += '</tr></thead><tbody>';
+
+        for (const key of keyNames) {
+          thtml += `<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border);font-family:monospace;font-size:11px;white-space:nowrap;position:sticky;left:0;background:var(--surface2);z-index:1">${escapeHtml(key)}</td>`;
+          for (const slug of data.apps) {
+            const val = data.keys[key][slug] || '[n/a]';
+            const warnType = warningMap[key + '::' + slug];
+            let bg = 'transparent';
+            let color = 'var(--text-muted)';
+            if (val === '[missing]') { bg = 'rgba(255,85,85,0.12)'; color = 'var(--red)'; }
+            else if (val === '[set]') { bg = 'rgba(80,250,123,0.08)'; color = 'var(--green)'; }
+            else if (val === '[empty]') { bg = 'rgba(255,212,59,0.08)'; color = 'var(--yellow)'; }
+            else if (warnType === 'inconsistent') { bg = 'rgba(255,212,59,0.12)'; color = 'var(--yellow)'; }
+            else { color = 'var(--text)'; }
+            thtml += `<td style="padding:4px 8px;border-bottom:1px solid var(--border);text-align:center;font-size:11px;background:${bg};color:${color};white-space:nowrap" title="${escapeHtml(val)}">${escapeHtml(val.length > 30 ? val.substring(0, 27) + '...' : val)}</td>`;
+          }
+          thtml += '</tr>';
+        }
+        thtml += '</tbody></table>';
+        tableEl.innerHTML = thtml;
+      } catch (err) {
+        tableEl.innerHTML = '<span style="color:var(--red);font-size:12px">Failed to load env comparison</span>';
+        console.error('Env diff error:', err);
+      }
+    }
+
     function editIntegrationKey(key, label) {
       const row = document.getElementById('int-' + key);
       if (!row) return;
@@ -4805,7 +5965,7 @@
     }
 
     function addDiscovered(name, containers) {
-      showAddAppForm(name, containers);
+      openAppWizard(name, containers);
     }
 
     async function submitAddApp() {
@@ -4846,6 +6006,515 @@
         loadSettings();
         fetchAll();
       } catch {}
+    }
+
+    // --- App Config Wizard ---
+    let wizardStep = 1;
+    const wizardData = { name: '', type: 'saas', description: '', tech: '', domain: '', port: '', health: '/health', containers: '', repo: '', envFile: '', composeFile: '' };
+
+    function wizardSlugify(name) {
+      return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    }
+
+    function openAppWizard(prefillName, prefillContainers) {
+      wizardStep = 1;
+      Object.keys(wizardData).forEach(k => wizardData[k] = k === 'type' ? 'saas' : k === 'health' ? '/health' : '');
+      if (prefillName) wizardData.name = prefillName;
+      if (prefillContainers) wizardData.containers = prefillContainers.join(', ');
+      renderWizardStep();
+      document.getElementById('appWizardOverlay').classList.add('active');
+    }
+
+    function closeAppWizard() {
+      document.getElementById('appWizardOverlay').classList.remove('active');
+    }
+
+    function renderWizardStep() {
+      const content = document.getElementById('wizardStepContent');
+      const errEl = document.getElementById('wizardErrors');
+      errEl.style.display = 'none';
+
+      // Update step indicators
+      document.querySelectorAll('.wizard-step-indicator').forEach(el => {
+        const s = parseInt(el.dataset.step);
+        el.classList.toggle('active', s === wizardStep);
+        el.classList.toggle('completed', s < wizardStep);
+      });
+
+      // Update footer
+      document.getElementById('wizardBackBtn').style.display = wizardStep > 1 ? '' : 'none';
+      document.getElementById('wizardStepLabel').textContent = `Step ${wizardStep} of 4`;
+      const nextBtn = document.getElementById('wizardNextBtn');
+      if (wizardStep === 4) {
+        nextBtn.textContent = 'Create App';
+        nextBtn.style.background = 'var(--green)';
+        nextBtn.style.color = '#000';
+      } else {
+        nextBtn.textContent = 'Next';
+        nextBtn.style.background = 'var(--blue)';
+        nextBtn.style.color = '#fff';
+      }
+
+      if (wizardStep === 1) {
+        content.innerHTML = `
+          <div class="form-row">
+            <div>
+              <label>App Name *</label>
+              <input type="text" id="wz_name" value="${escapeHtml(wizardData.name)}" placeholder="My New App" oninput="wizardData.name=this.value;document.getElementById('wz_slug').textContent='Slug: '+wizardSlugify(this.value)">
+              <div class="slug-preview" id="wz_slug">Slug: ${wizardSlugify(wizardData.name) || '...'}</div>
+            </div>
+            <div>
+              <label>Type</label>
+              <select id="wz_type" onchange="wizardData.type=this.value">
+                <option value="saas" ${wizardData.type === 'saas' ? 'selected' : ''}>SaaS</option>
+                <option value="tool" ${wizardData.type === 'tool' ? 'selected' : ''}>Tool</option>
+                <option value="static" ${wizardData.type === 'static' ? 'selected' : ''}>Static</option>
+                <option value="infra" ${wizardData.type === 'infra' ? 'selected' : ''}>Infra</option>
+                <option value="redirect" ${wizardData.type === 'redirect' ? 'selected' : ''}>Redirect</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div style="grid-column:1/-1">
+              <label>Description</label>
+              <input type="text" id="wz_desc" value="${escapeHtml(wizardData.description)}" placeholder="What does this app do?" oninput="wizardData.description=this.value">
+            </div>
+          </div>
+          <div class="form-row">
+            <div style="grid-column:1/-1">
+              <label>Tech Stack</label>
+              <input type="text" id="wz_tech" value="${escapeHtml(wizardData.tech)}" placeholder="e.g. Node.js + PostgreSQL + Redis" oninput="wizardData.tech=this.value">
+            </div>
+          </div>`;
+        setTimeout(() => document.getElementById('wz_name')?.focus(), 50);
+      } else if (wizardStep === 2) {
+        content.innerHTML = `
+          <div class="form-row">
+            <div>
+              <label>Domain</label>
+              <input type="text" id="wz_domain" value="${escapeHtml(wizardData.domain)}" placeholder="myapp.example.com" oninput="wizardData.domain=this.value">
+            </div>
+            <div>
+              <label>Port</label>
+              <input type="number" id="wz_port" value="${escapeHtml(wizardData.port)}" placeholder="3000" oninput="wizardData.port=this.value">
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label>Health Endpoint</label>
+              <input type="text" id="wz_health" value="${escapeHtml(wizardData.health)}" placeholder="/health" oninput="wizardData.health=this.value">
+            </div>
+            <div>
+              <label>Containers (comma-separated)</label>
+              <input type="text" id="wz_containers" value="${escapeHtml(wizardData.containers)}" placeholder="myapp-web-1, myapp-db-1" oninput="wizardData.containers=this.value">
+            </div>
+          </div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:4px">Domain and port are validated against existing apps. DNS is checked if a domain is provided.</p>`;
+      } else if (wizardStep === 3) {
+        content.innerHTML = `
+          <div class="form-row">
+            <div style="grid-column:1/-1">
+              <label>Repository Path on Server</label>
+              <input type="text" id="wz_repo" value="${escapeHtml(wizardData.repo)}" placeholder="/home/deploy/myapp" oninput="wizardData.repo=this.value">
+            </div>
+          </div>
+          <div class="form-row">
+            <div>
+              <label>Env File Path</label>
+              <input type="text" id="wz_envFile" value="${escapeHtml(wizardData.envFile)}" placeholder="/home/deploy/myapp/.env" oninput="wizardData.envFile=this.value">
+            </div>
+            <div>
+              <label>Compose File Path</label>
+              <input type="text" id="wz_composeFile" value="${escapeHtml(wizardData.composeFile)}" placeholder="/home/deploy/myapp/docker-compose.yml" oninput="wizardData.composeFile=this.value">
+            </div>
+          </div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:4px">All path fields are optional. They enable env management and container recreation from the dashboard.</p>`;
+      } else if (wizardStep === 4) {
+        const slug = wizardSlugify(wizardData.name);
+        const containers = wizardData.containers ? wizardData.containers.split(',').map(c => c.trim()).filter(Boolean) : [];
+        const reviewRow = (key, val) => val ? `<div class="wizard-review-row"><span class="wizard-review-key">${escapeHtml(key)}</span><span class="wizard-review-val">${escapeHtml(val)}</span></div>` : '';
+        content.innerHTML = `
+          <div class="wizard-review-section">
+            <h4>Basics</h4>
+            ${reviewRow('Name', wizardData.name)}
+            ${reviewRow('Slug', slug)}
+            ${reviewRow('Type', wizardData.type)}
+            ${reviewRow('Description', wizardData.description)}
+            ${reviewRow('Tech', wizardData.tech)}
+          </div>
+          <div class="wizard-review-section">
+            <h4>Infrastructure</h4>
+            ${reviewRow('Domain', wizardData.domain)}
+            ${reviewRow('Port', wizardData.port)}
+            ${reviewRow('Health', wizardData.health)}
+            ${reviewRow('Containers', containers.join(', '))}
+          </div>
+          <div class="wizard-review-section">
+            <h4>Paths</h4>
+            ${reviewRow('Repo', wizardData.repo)}
+            ${reviewRow('Env File', wizardData.envFile)}
+            ${reviewRow('Compose File', wizardData.composeFile)}
+          </div>
+          ${!wizardData.domain && !wizardData.port && containers.length === 0 ? '<p style="font-size:11px;color:var(--yellow);margin-top:8px">No infrastructure details provided. You can add these later in app settings.</p>' : ''}`;
+      }
+    }
+
+    async function wizardNext() {
+      const errEl = document.getElementById('wizardErrors');
+      errEl.style.display = 'none';
+
+      if (wizardStep === 1) {
+        // Validate basics locally first, then via API
+        if (!wizardData.name.trim()) {
+          errEl.innerHTML = '<ul><li>App name is required</li></ul>';
+          errEl.style.display = 'block';
+          return;
+        }
+        const nextBtn = document.getElementById('wizardNextBtn');
+        nextBtn.disabled = true;
+        nextBtn.textContent = 'Validating...';
+        try {
+          const res = await apiPost('/api/config/apps/validate', { name: wizardData.name, step: 1 });
+          const data = await res.json();
+          if (!data.valid) {
+            errEl.innerHTML = '<ul>' + data.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>';
+            errEl.style.display = 'block';
+            nextBtn.disabled = false;
+            nextBtn.textContent = 'Next';
+            return;
+          }
+        } catch {
+          // If validation endpoint fails, proceed anyway (endpoint may not be deployed yet)
+        }
+        nextBtn.disabled = false;
+        nextBtn.textContent = 'Next';
+      }
+
+      if (wizardStep === 2) {
+        // Validate infrastructure via API
+        if (wizardData.port && (isNaN(Number(wizardData.port)) || Number(wizardData.port) < 1 || Number(wizardData.port) > 65535)) {
+          errEl.innerHTML = '<ul><li>Port must be a number between 1 and 65535</li></ul>';
+          errEl.style.display = 'block';
+          return;
+        }
+        if (wizardData.domain || wizardData.port) {
+          const nextBtn = document.getElementById('wizardNextBtn');
+          nextBtn.disabled = true;
+          nextBtn.textContent = 'Validating...';
+          try {
+            const res = await apiPost('/api/config/apps/validate', { domain: wizardData.domain, port: wizardData.port, step: 2 });
+            const data = await res.json();
+            if (!data.valid) {
+              errEl.innerHTML = '<ul>' + data.errors.map(e => `<li>${escapeHtml(e)}</li>`).join('') + '</ul>';
+              errEl.style.display = 'block';
+              nextBtn.disabled = false;
+              nextBtn.textContent = 'Next';
+              return;
+            }
+          } catch {}
+          nextBtn.disabled = false;
+          nextBtn.textContent = 'Next';
+        }
+      }
+
+      if (wizardStep === 4) {
+        // Submit the app
+        const nextBtn = document.getElementById('wizardNextBtn');
+        nextBtn.disabled = true;
+        nextBtn.textContent = 'Creating...';
+        const containers = wizardData.containers ? wizardData.containers.split(',').map(c => c.trim()).filter(Boolean) : [];
+        try {
+          const res = await apiPost('/api/config/apps', {
+            name: wizardData.name.trim(),
+            type: wizardData.type,
+            domain: wizardData.domain.trim(),
+            port: wizardData.port || null,
+            health: wizardData.health.trim() || '/health',
+            description: wizardData.description.trim(),
+            containers,
+            tech: wizardData.tech.trim(),
+            envFile: wizardData.envFile.trim(),
+            composeFile: wizardData.composeFile.trim(),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to create app');
+          // Show success
+          document.getElementById('wizardStepContent').innerHTML = `
+            <div class="wizard-success">
+              <div class="checkmark">&#10003;</div>
+              <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px">${escapeHtml(wizardData.name)} created</div>
+              <div style="font-size:12px;color:var(--text-muted)">The app has been added to your dashboard.</div>
+            </div>`;
+          document.getElementById('wizardErrors').style.display = 'none';
+          nextBtn.textContent = 'Done';
+          nextBtn.style.background = 'var(--green)';
+          nextBtn.style.color = '#000';
+          nextBtn.disabled = false;
+          nextBtn.onclick = () => { closeAppWizard(); loadSettings(); fetchAll(); };
+          document.getElementById('wizardBackBtn').style.display = 'none';
+          document.getElementById('wizardStepLabel').textContent = '';
+          // Mark all steps as completed
+          document.querySelectorAll('.wizard-step-indicator').forEach(el => {
+            el.classList.remove('active');
+            el.classList.add('completed');
+          });
+        } catch (err) {
+          errEl.innerHTML = '<ul><li>' + escapeHtml(err.message) + '</li></ul>';
+          errEl.style.display = 'block';
+          nextBtn.disabled = false;
+          nextBtn.textContent = 'Create App';
+        }
+        return;
+      }
+
+      wizardStep++;
+      renderWizardStep();
+    }
+
+    function wizardBack() {
+      if (wizardStep > 1) {
+        wizardStep--;
+        renderWizardStep();
+      }
+    }
+
+    // Close wizard on overlay click
+    document.getElementById('appWizardOverlay')?.addEventListener('click', function(e) {
+      if (e.target === this) closeAppWizard();
+    });
+
+    // Close wizard on Escape
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && document.getElementById('appWizardOverlay')?.classList.contains('active')) {
+        closeAppWizard();
+      }
+    });
+
+    // --- API Playground ---
+    let playgroundRoutes = null;
+    let playgroundSelectedRoute = null;
+
+    async function loadPlaygroundRoutes() {
+      try {
+        const res = await apiFetch('/api/playground/routes');
+        if (!res.ok) throw new Error('Failed to load routes');
+        const data = await res.json();
+        playgroundRoutes = data.routes;
+        renderPlaygroundRoutes();
+      } catch (err) {
+        document.getElementById('playgroundRouteList').innerHTML = '<span style="color:var(--red);font-size:12px">Failed to load routes</span>';
+      }
+    }
+
+    function renderPlaygroundRoutes(filter) {
+      if (!playgroundRoutes) return;
+      const q = (filter || '').toLowerCase();
+      let html = '';
+      for (const [category, routes] of Object.entries(playgroundRoutes)) {
+        const filtered = routes.filter(r => !q || r.path.toLowerCase().includes(q) || r.method.toLowerCase().includes(q) || category.toLowerCase().includes(q));
+        if (filtered.length === 0) continue;
+        html += `<div class="pg-category">${escapeHtml(category)} (${filtered.length})</div>`;
+        for (const r of filtered) {
+          const key = r.method + ' ' + r.path;
+          const selKey = playgroundSelectedRoute ? playgroundSelectedRoute.method + ' ' + playgroundSelectedRoute.path : '';
+          html += `<div class="pg-route-item${key === selKey ? ' active' : ''}" onclick="selectPlaygroundRoute('${escapeHtml(r.method)}','${escapeHtml(r.path)}')">
+            <span class="pg-method-sm ${r.method.toLowerCase()}">${r.method}</span>
+            <span class="pg-route-path" title="${escapeHtml(r.path)}">${escapeHtml(r.path)}</span>
+          </div>`;
+        }
+      }
+      document.getElementById('playgroundRouteList').innerHTML = html || '<span style="color:var(--text-muted);font-size:12px">No routes match filter</span>';
+    }
+
+    function filterPlaygroundRoutes() {
+      const q = document.getElementById('playgroundFilter').value;
+      renderPlaygroundRoutes(q);
+    }
+
+    function selectPlaygroundRoute(method, path) {
+      // Find route details
+      let route = null;
+      for (const routes of Object.values(playgroundRoutes)) {
+        route = routes.find(r => r.method === method && r.path === path);
+        if (route) break;
+      }
+      if (!route) return;
+      playgroundSelectedRoute = route;
+
+      document.getElementById('playgroundEmpty').style.display = 'none';
+      document.getElementById('playgroundRequest').style.display = 'block';
+      document.getElementById('pgResponse').style.display = 'none';
+      document.getElementById('pgCurlSection').style.display = 'none';
+      document.getElementById('pgResponseTime').textContent = '';
+
+      // Method badge
+      const badge = document.getElementById('pgMethodBadge');
+      badge.textContent = method;
+      badge.className = 'pg-method-badge ' + method.toLowerCase();
+
+      // Path
+      document.getElementById('pgPath').textContent = path;
+
+      // URL params
+      const paramsSection = document.getElementById('pgParamsSection');
+      const paramsDiv = document.getElementById('pgParams');
+      if (route.params && route.params.length > 0) {
+        paramsSection.style.display = 'block';
+        paramsDiv.innerHTML = route.params.map(p => `
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <label style="font-size:12px;color:var(--text-dim);font-family:var(--font-mono);min-width:80px">:${escapeHtml(p)}</label>
+            <input type="text" class="pg-param" data-param="${escapeHtml(p)}" placeholder="value" style="flex:1;padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:monospace">
+          </div>
+        `).join('');
+      } else {
+        paramsSection.style.display = 'none';
+        paramsDiv.innerHTML = '';
+      }
+
+      // Reset query params
+      document.getElementById('pgQueryParams').innerHTML = `
+        <div class="pg-query-row" style="display:flex;gap:6px;margin-bottom:4px">
+          <input type="text" class="pg-query-key" placeholder="key" style="flex:1;padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:monospace">
+          <input type="text" class="pg-query-val" placeholder="value" style="flex:1;padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:monospace">
+          <button class="btn" onclick="addPlaygroundQueryRow()" style="padding:4px 8px;font-size:11px">+</button>
+        </div>`;
+
+      // Body section (only for POST/PUT/PATCH)
+      const bodySection = document.getElementById('pgBodySection');
+      if (['POST', 'PUT', 'PATCH'].includes(method)) {
+        bodySection.style.display = 'block';
+        document.getElementById('pgBody').value = '';
+      } else {
+        bodySection.style.display = 'none';
+      }
+
+      // Re-render sidebar to update active state
+      const q = document.getElementById('playgroundFilter').value;
+      renderPlaygroundRoutes(q);
+    }
+
+    function addPlaygroundQueryRow() {
+      const container = document.getElementById('pgQueryParams');
+      const row = document.createElement('div');
+      row.className = 'pg-query-row';
+      row.style.cssText = 'display:flex;gap:6px;margin-bottom:4px';
+      row.innerHTML = `
+        <input type="text" class="pg-query-key" placeholder="key" style="flex:1;padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:monospace">
+        <input type="text" class="pg-query-val" placeholder="value" style="flex:1;padding:5px 8px;font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:monospace">
+        <button class="btn" onclick="this.parentElement.remove()" style="padding:4px 8px;font-size:11px;color:var(--red)">-</button>`;
+      container.appendChild(row);
+    }
+
+    function buildPlaygroundUrl() {
+      if (!playgroundSelectedRoute) return '';
+      let path = playgroundSelectedRoute.path;
+
+      // Replace URL params
+      document.querySelectorAll('.pg-param').forEach(input => {
+        const param = input.dataset.param;
+        const val = input.value.trim();
+        if (val) path = path.replace(':' + param, encodeURIComponent(val));
+      });
+
+      // Add query params
+      const queryParts = [];
+      document.querySelectorAll('.pg-query-row').forEach(row => {
+        const key = row.querySelector('.pg-query-key')?.value?.trim();
+        const val = row.querySelector('.pg-query-val')?.value?.trim();
+        if (key) queryParts.push(encodeURIComponent(key) + '=' + encodeURIComponent(val || ''));
+      });
+      if (queryParts.length) path += '?' + queryParts.join('&');
+      return path;
+    }
+
+    function buildPlaygroundCurl() {
+      if (!playgroundSelectedRoute) return '';
+      const url = window.location.origin + buildPlaygroundUrl();
+      const method = playgroundSelectedRoute.method;
+      let cmd = `curl -X ${method} '${url}'`;
+      cmd += ` \\\n  -H 'Cookie: <session>'`;
+      if (['POST', 'PUT', 'PATCH'].includes(method)) {
+        const body = document.getElementById('pgBody').value.trim();
+        cmd += ` \\\n  -H 'Content-Type: application/json'`;
+        if (body) cmd += ` \\\n  -d '${body}'`;
+      }
+      return cmd;
+    }
+
+    function copyPlaygroundCurl() {
+      const curl = buildPlaygroundCurl();
+      document.getElementById('pgCurl').textContent = curl;
+      document.getElementById('pgCurlSection').style.display = 'block';
+      navigator.clipboard.writeText(curl).then(() => showToast('cURL copied to clipboard', 'success'));
+    }
+
+    function syntaxHighlightJson(json) {
+      if (typeof json !== 'string') json = JSON.stringify(json, null, 2);
+      return escapeHtml(json).replace(
+        /("(?:\\.|[^"\\])*")\s*:/g,
+        '<span class="pg-json-key">$1</span>:'
+      ).replace(
+        /:\s*("(?:\\.|[^"\\])*")/g,
+        ': <span class="pg-json-string">$1</span>'
+      ).replace(
+        /:\s*(\d+\.?\d*)/g,
+        ': <span class="pg-json-number">$1</span>'
+      ).replace(
+        /:\s*(true|false)/g,
+        ': <span class="pg-json-bool">$1</span>'
+      ).replace(
+        /:\s*(null)/g,
+        ': <span class="pg-json-null">$1</span>'
+      );
+    }
+
+    async function sendPlaygroundRequest() {
+      if (!playgroundSelectedRoute) return;
+      const url = buildPlaygroundUrl();
+      const method = playgroundSelectedRoute.method;
+      const opts = { method };
+
+      if (['POST', 'PUT', 'PATCH'].includes(method)) {
+        const body = document.getElementById('pgBody').value.trim();
+        if (body) {
+          try { JSON.parse(body); } catch { showToast('Invalid JSON body', 'error'); return; }
+          opts.headers = { 'Content-Type': 'application/json' };
+          opts.body = body;
+        }
+      }
+
+      document.getElementById('pgResponseTime').textContent = 'Sending...';
+      const start = performance.now();
+      try {
+        const res = await apiFetch(url, opts);
+        const elapsed = Math.round(performance.now() - start);
+        document.getElementById('pgResponseTime').textContent = `${elapsed}ms`;
+
+        // Status badge
+        const statusBadge = document.getElementById('pgStatusBadge');
+        const statusClass = res.status < 300 ? 's2xx' : res.status < 400 ? 's3xx' : res.status < 500 ? 's4xx' : 's5xx';
+        statusBadge.textContent = res.status + ' ' + res.statusText;
+        statusBadge.className = 'pg-status-badge ' + statusClass;
+
+        // Response body
+        let bodyText;
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          const json = await res.json();
+          bodyText = syntaxHighlightJson(JSON.stringify(json, null, 2));
+        } else {
+          const text = await res.text();
+          bodyText = escapeHtml(text.slice(0, 5000));
+        }
+        document.getElementById('pgResponseBody').innerHTML = bodyText;
+        document.getElementById('pgResponse').style.display = 'block';
+      } catch (err) {
+        document.getElementById('pgResponseTime').textContent = 'Error';
+        document.getElementById('pgStatusBadge').textContent = 'Error';
+        document.getElementById('pgStatusBadge').className = 'pg-status-badge s5xx';
+        document.getElementById('pgResponseBody').textContent = err.message;
+        document.getElementById('pgResponse').style.display = 'block';
+      }
     }
 
     // --- Projects Manager ---
@@ -6032,6 +7701,7 @@
       if (e.key === 'j') toggleProjects();
       if (e.key === 'o') toggleOps();
       if (e.key === 'e') toggleErrors();
+      if (e.key === 'n') toggleNotifications();
       if (e.key === 'A') toggleADHDMode();
       if (e.key === 'x') { switchView('revenue'); setTimeout(() => switchMktTab('crosspromo', document.querySelector('.mkt-tab:nth-child(7)')), 100); }
       if (e.key === 'B') { switchView('revenue'); setTimeout(() => switchMktTab('banners', document.querySelector('.mkt-tab:nth-child(8)')), 100); }
@@ -6060,6 +7730,101 @@
       if (sc && sc.innerHTML) sc.style.display = '';
     });
     setInterval(tick, 1000);
+
+    // === Notification Center ===
+    function notifRelativeTime(ts) {
+      const now = new Date();
+      const d = new Date(ts + 'Z');
+      const diff = Math.floor((now - d) / 1000);
+      if (diff < 60) return 'just now';
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+      if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+
+    let notifOpen = false;
+
+    function toggleNotifications() {
+      const dd = document.getElementById('notifDropdown');
+      notifOpen = !notifOpen;
+      dd.classList.toggle('active', notifOpen);
+      if (notifOpen) fetchNotifications();
+    }
+
+    function closeNotifications() {
+      notifOpen = false;
+      document.getElementById('notifDropdown').classList.remove('active');
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (notifOpen && !document.getElementById('notifWrap').contains(e.target)) {
+        closeNotifications();
+      }
+    });
+
+    async function fetchNotifCount() {
+      try {
+        const res = await apiFetch('/api/notifications/count');
+        const data = await res.json();
+        const badge = document.getElementById('notifBadge');
+        const count = data.unread || 0;
+        badge.textContent = count > 99 ? '99+' : (count || '');
+        badge.setAttribute('data-count', count);
+      } catch { /* silent */ }
+    }
+
+    async function fetchNotifications() {
+      const list = document.getElementById('notifList');
+      try {
+        const res = await apiFetch('/api/notifications?limit=50');
+        const data = await res.json();
+        if (!data.notifications || !data.notifications.length) {
+          list.innerHTML = '<div class="notif-empty">No notifications yet</div>';
+          return;
+        }
+        list.innerHTML = data.notifications.map(n => {
+          const unread = n.read ? '' : ' unread';
+          const msg = n.message ? `<div class="notif-msg">${escapeHtml(n.message)}</div>` : '';
+          return `<div class="notif-item${unread}" onclick="markNotifRead(${n.id}, this)" data-id="${n.id}">
+            <div class="notif-dot ${escapeHtml(n.severity)}"></div>
+            <div class="notif-content">
+              <div class="notif-top">
+                <span class="notif-cat">${escapeHtml(n.category)}</span>
+                ${n.app_slug ? `<span class="notif-cat" style="background:rgba(34,197,94,0.1);color:var(--green)">${escapeHtml(n.app_slug)}</span>` : ''}
+                <span class="notif-time">${notifRelativeTime(n.timestamp)}</span>
+              </div>
+              <div class="notif-title">${escapeHtml(n.title)}</div>
+              ${msg}
+            </div>
+          </div>`;
+        }).join('');
+      } catch {
+        list.innerHTML = '<div class="notif-empty">Failed to load notifications</div>';
+      }
+    }
+
+    async function markNotifRead(id, el) {
+      if (el) el.classList.remove('unread');
+      try {
+        await apiFetch('/api/notifications/' + id + '/read', { method: 'POST' });
+        fetchNotifCount();
+      } catch { /* silent */ }
+    }
+
+    async function markAllNotificationsRead(e) {
+      if (e) e.stopPropagation();
+      try {
+        await apiFetch('/api/notifications/read-all', { method: 'POST' });
+        document.querySelectorAll('.notif-item.unread').forEach(el => el.classList.remove('unread'));
+        fetchNotifCount();
+      } catch { /* silent */ }
+    }
+
+    // Poll for unread count every 30 seconds
+    fetchNotifCount();
+    setInterval(fetchNotifCount, 30000);
 
     // Demo mode banner
     fetch('/api/auth/status').then(r=>r.json()).then(d=>{
