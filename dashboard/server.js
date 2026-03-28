@@ -9718,6 +9718,125 @@ app.get('/api/stripe/recent', asyncRoute(async (_req, res) => {
   });
 }));
 
+// --- Security Leaderboard ---
+
+app.get('/api/security/leaderboard', asyncRoute((_req, res) => {
+  const leaderboard = [];
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+    const reportCard = calculateAppReportCard(slug);
+    if (!reportCard) continue;
+
+    const secDim = reportCard.dimensions?.security || { score: 0, grade: 'N/A' };
+    const findings = db.prepare(
+      "SELECT severity, COUNT(*) as count FROM security_findings WHERE app_slug = ? AND status != 'dismissed' GROUP BY severity"
+    ).all(slug);
+
+    const findingCounts = {};
+    for (const f of findings) findingCounts[f.severity] = f.count;
+
+    // Trend: compare with 7 days ago
+    const prevScan = db.prepare(
+      "SELECT overall_score FROM security_scans WHERE timestamp < datetime('now', '-7 days') ORDER BY timestamp DESC LIMIT 1"
+    ).get();
+
+    leaderboard.push({
+      name: appDef.name,
+      slug,
+      domain: appDef.domain,
+      score: secDim.score,
+      grade: secDim.grade,
+      findings: findingCounts,
+      totalFindings: findings.reduce((s, f) => s + f.count, 0),
+      trend: prevScan ? (secDim.score > prevScan.overall_score ? 'up' : secDim.score < prevScan.overall_score ? 'down' : 'stable') : 'new',
+    });
+  }
+
+  leaderboard.sort((a, b) => b.score - a.score);
+
+  const avgScore = leaderboard.length > 0 ? Math.round(leaderboard.reduce((s, a) => s + a.score, 0) / leaderboard.length) : 0;
+
+  res.json({
+    leaderboard,
+    portfolioAvg: avgScore,
+    portfolioGrade: avgScore >= 90 ? 'A' : avgScore >= 80 ? 'B' : avgScore >= 70 ? 'C' : avgScore >= 60 ? 'D' : 'F',
+    timestamp: new Date().toISOString(),
+  });
+}));
+
+// --- Time-to-Revenue Tracker ---
+
+app.get('/api/time-to-revenue', asyncRoute((_req, res) => {
+  const results = [];
+
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+
+    // First deploy: earliest Docker event or container creation
+    let firstDeploy = null;
+    try {
+      const row = db.prepare(
+        "SELECT MIN(date) as first_date FROM metrics WHERE app_slug = ? AND metric = 'mrr' AND value > 0"
+      ).get(slug);
+      // Use first metric date as proxy for first activity
+      const firstActivity = db.prepare(
+        "SELECT MIN(date) as first_date FROM metrics WHERE app_slug = ?"
+      ).get(slug);
+      firstDeploy = firstActivity?.first_date || null;
+    } catch { /* no data */ }
+
+    // First revenue: earliest non-zero MRR
+    let firstRevenue = null;
+    try {
+      const row = db.prepare(
+        "SELECT MIN(date) as first_date FROM metrics WHERE app_slug = ? AND metric = 'mrr' AND value > 0"
+      ).get(slug);
+      firstRevenue = row?.first_date || null;
+    } catch { /* no data */ }
+
+    // Current MRR
+    const currentMRR = qLatestMetric.get(slug, 'mrr')?.value || 0;
+
+    if (firstDeploy || firstRevenue || currentMRR > 0) {
+      let daysToRevenue = null;
+      if (firstDeploy && firstRevenue) {
+        const d1 = new Date(firstDeploy);
+        const d2 = new Date(firstRevenue);
+        daysToRevenue = Math.max(0, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)));
+      }
+
+      results.push({
+        name: appDef.name,
+        slug,
+        firstDeploy,
+        firstRevenue,
+        daysToRevenue,
+        currentMRR: +(currentMRR / 100).toFixed(2),
+        status: currentMRR > 0 ? 'monetized' : firstDeploy ? 'pre-revenue' : 'no-data',
+      });
+    }
+  }
+
+  // Sort: monetized first (by fastest time-to-revenue), then pre-revenue
+  results.sort((a, b) => {
+    if (a.status === 'monetized' && b.status !== 'monetized') return -1;
+    if (b.status === 'monetized' && a.status !== 'monetized') return 1;
+    if (a.daysToRevenue != null && b.daysToRevenue != null) return a.daysToRevenue - b.daysToRevenue;
+    return 0;
+  });
+
+  const avgDays = results.filter(r => r.daysToRevenue != null);
+  const avgTimeToRevenue = avgDays.length > 0 ? Math.round(avgDays.reduce((s, r) => s + r.daysToRevenue, 0) / avgDays.length) : null;
+
+  res.json({
+    apps: results,
+    avgTimeToRevenue,
+    monetizedCount: results.filter(r => r.status === 'monetized').length,
+    totalApps: results.length,
+    timestamp: new Date().toISOString(),
+  });
+}));
+
 // --- Audit Log API ---
 
 app.get('/api/audit', asyncRoute((_req, res) => {

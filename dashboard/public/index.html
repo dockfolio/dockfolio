@@ -1859,6 +1859,15 @@
       <div id="mktPlaybookGrid" class="marketing-grid"></div>
     </div>
   </div>
+    <!-- Time-to-Revenue Tracker -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>Time-to-Revenue</h3>
+        <button class="btn" onclick="loadTimeToRevenue()" style="color:var(--cyan);font-size:11px">&#8635; Load</button>
+      </div>
+      <div id="timeToRevenueContent" style="font-size:12px;color:var(--text-muted)">Click Load to view</div>
+    </div>
+
     <!-- Stripe Payments Panel -->
     <div class="card" style="margin-top:16px">
       <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
@@ -2080,6 +2089,15 @@
       <div id="ops-keys" class="ops-tab-content"><div id="opsKeysContent"></div></div>
       <div id="ops-reportcards" class="ops-tab-content"><div id="opsReportCardsContent"></div></div>
       <div id="ops-timeline" class="ops-tab-content"><div id="opsTimelineContent"></div></div>
+    </div>
+
+    <!-- Security Leaderboard -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>Security Leaderboard</h3>
+        <button class="btn" onclick="loadSecurityLeaderboard()" style="color:var(--cyan);font-size:11px">&#8635; Load</button>
+      </div>
+      <div id="secLeaderboard" style="font-size:12px;color:var(--text-muted)">Click Load to view</div>
     </div>
   </div><!-- /view-security -->
 
@@ -4852,6 +4870,80 @@
     }
 
     function toggleMarketing() { switchView('revenue'); }
+
+    // --- Security Leaderboard ---
+    async function loadSecurityLeaderboard() {
+      const el = document.getElementById('secLeaderboard');
+      el.innerHTML = '<span style="color:var(--text-muted)">Loading...</span>';
+      try {
+        const res = await apiFetch('/api/security/leaderboard');
+        const data = await res.json();
+        if (!data.leaderboard || data.leaderboard.length === 0) {
+          el.innerHTML = '<span style="color:var(--text-muted)">No security data. Run a scan first.</span>';
+          return;
+        }
+        const gradeColor = g => g === 'A' ? 'var(--green)' : g === 'B' ? 'var(--cyan)' : g === 'C' ? 'var(--yellow)' : g === 'D' ? 'var(--orange)' : 'var(--red)';
+        let html = `<div style="display:flex;gap:16px;margin-bottom:12px">
+          <div style="text-align:center"><div style="font-size:28px;font-weight:700;color:${gradeColor(data.portfolioGrade)}">${data.portfolioGrade}</div><div style="font-size:10px;color:var(--text-muted)">Portfolio</div></div>
+          <div style="text-align:center"><div style="font-size:28px;font-weight:700">${data.portfolioAvg}</div><div style="font-size:10px;color:var(--text-muted)">Avg Score</div></div>
+        </div>`;
+        for (const app of data.leaderboard) {
+          const trendIcon = app.trend === 'up' ? '<span style="color:var(--green)">&#9650;</span>' : app.trend === 'down' ? '<span style="color:var(--red)">&#9660;</span>' : '';
+          const barWidth = Math.min(app.score, 100);
+          html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+            <span style="width:24px;text-align:center;font-weight:700;color:${gradeColor(app.grade)}">${app.grade}</span>
+            <div style="flex:1">
+              <div style="font-weight:500;font-size:13px">${escapeHtml(app.name)}</div>
+              <div style="height:4px;background:var(--bg-lighter);border-radius:2px;margin-top:2px">
+                <div style="height:100%;width:${barWidth}%;background:${gradeColor(app.grade)};border-radius:2px"></div>
+              </div>
+            </div>
+            <span style="font-size:12px;font-weight:600">${app.score}</span>
+            ${trendIcon}
+            <span style="font-size:10px;color:var(--text-muted)">${app.totalFindings} findings</span>
+          </div>`;
+        }
+        el.innerHTML = html;
+      } catch (err) {
+        el.innerHTML = '<span style="color:var(--red)">Failed to load leaderboard</span>';
+      }
+    }
+
+    // --- Time-to-Revenue Tracker ---
+    async function loadTimeToRevenue() {
+      const el = document.getElementById('timeToRevenueContent');
+      el.innerHTML = '<span style="color:var(--text-muted)">Loading...</span>';
+      try {
+        const res = await apiFetch('/api/time-to-revenue');
+        const data = await res.json();
+        if (!data.apps || data.apps.length === 0) {
+          el.innerHTML = '<span style="color:var(--text-muted)">No revenue data available yet</span>';
+          return;
+        }
+        let html = `<div style="display:flex;gap:16px;margin-bottom:12px">
+          <div style="text-align:center"><div style="font-size:24px;font-weight:700;color:var(--green)">${data.monetizedCount}</div><div style="font-size:10px;color:var(--text-muted)">Monetized</div></div>
+          <div style="text-align:center"><div style="font-size:24px;font-weight:700">${data.totalApps - data.monetizedCount}</div><div style="font-size:10px;color:var(--text-muted)">Pre-Revenue</div></div>
+          ${data.avgTimeToRevenue != null ? `<div style="text-align:center"><div style="font-size:24px;font-weight:700;color:var(--cyan)">${data.avgTimeToRevenue}d</div><div style="font-size:10px;color:var(--text-muted)">Avg Time</div></div>` : ''}
+        </div>`;
+        for (const app of data.apps) {
+          const statusColor = app.status === 'monetized' ? 'var(--green)' : 'var(--text-muted)';
+          const statusLabel = app.status === 'monetized' ? `${app.daysToRevenue != null ? app.daysToRevenue + ' days' : 'Active'}` : 'Pre-revenue';
+          html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+            <div>
+              <div style="font-weight:500;font-size:13px">${escapeHtml(app.name)}</div>
+              <div style="font-size:10px;color:var(--text-muted)">${app.firstDeploy || 'No data'}</div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:13px;color:${statusColor};font-weight:500">${statusLabel}</div>
+              ${app.currentMRR > 0 ? `<div style="font-size:11px;color:var(--green)">${app.currentMRR.toFixed(2)} EUR/mo</div>` : ''}
+            </div>
+          </div>`;
+        }
+        el.innerHTML = html;
+      } catch (err) {
+        el.innerHTML = '<span style="color:var(--red)">Failed to load data</span>';
+      }
+    }
 
     // --- Stripe Payments Panel ---
     async function loadStripeProducts() {
