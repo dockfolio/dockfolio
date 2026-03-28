@@ -317,6 +317,84 @@ describe('Authenticated endpoints', { skip: !AUTH_PASS ? 'No TEST_PASS set — s
     assert.equal(status, 200);
     assert.ok(Array.isArray(body) || typeof body === 'object', 'should return revenue tracking data');
   });
+
+  it('GET /api/logs/stats returns log volume stats', async () => {
+    const { status, body } = await json('/api/logs/stats');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.stats), 'should return stats array');
+    assert.ok(typeof body.total === 'number', 'should have total count');
+  });
+
+  it('GET /api/logs/search validates query parameter', async () => {
+    const { status, body } = await json('/api/logs/search?q=a');
+    assert.equal(status, 400);
+    assert.ok(body.error.includes('2 characters'), 'should require at least 2 chars');
+  });
+
+  it('GET /api/logs/patterns returns error patterns', async () => {
+    const { status, body } = await json('/api/logs/patterns?hours=1');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.patterns), 'should return patterns array');
+    assert.ok(typeof body.total_error_lines === 'number', 'should have total count');
+  });
+
+  it('GET /api/dns/validate returns DNS validation results', async () => {
+    const { status, body } = await json('/api/dns/validate');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.results), 'should return results array');
+    assert.ok(body.server_ip, 'should include server IP');
+  });
+
+  it('GET /api/dns/records requires domain parameter', async () => {
+    const { status, body } = await json('/api/dns/records');
+    assert.equal(status, 400);
+    assert.ok(body.error.includes('domain'), 'should require domain parameter');
+  });
+
+  it('GET /api/launch/status returns launch mode status', async () => {
+    const { status, body } = await json('/api/launch/status');
+    assert.equal(status, 200);
+    assert.ok(typeof body.active === 'boolean', 'should have active flag');
+  });
+
+  it('GET /api/troubleshoot/flows returns available flows', async () => {
+    const { status, body } = await json('/api/troubleshoot/flows');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.flows), 'should return flows array');
+    assert.ok(body.flows.length >= 4, 'should have at least 4 flows');
+    assert.ok(body.flows[0].id, 'flow should have id');
+    assert.ok(body.flows[0].name, 'flow should have name');
+  });
+
+  it('POST /api/troubleshoot validates flow parameter', async () => {
+    const res = await req('/api/troubleshoot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flow: 'invalid-flow' }),
+    });
+    assert.equal(res.status, 400);
+  });
+
+  it('GET /api/anomalies returns anomaly data', async () => {
+    const { status, body } = await json('/api/anomalies');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.anomalies), 'should return anomalies array');
+    assert.ok(body.timestamp, 'should include timestamp');
+  });
+
+  it('GET /api/cron/status returns cron job statuses', async () => {
+    const { status, body } = await json('/api/cron/status');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.jobs), 'should return jobs array');
+    assert.ok(typeof body.healthy === 'boolean', 'should have healthy flag');
+    assert.ok(body.jobs.length >= 9, 'should track at least 9 cron jobs');
+  });
+
+  it('GET /api/focus returns AI recommendations or error', async () => {
+    const { status, body } = await json('/api/focus');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.recommendations) || body.error, 'should return recommendations or error');
+  });
 });
 
 // ── Response headers ─────────────────────────────────────────────────
