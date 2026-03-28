@@ -269,7 +269,7 @@ function isSetupComplete() {
 }
 
 // --- Auth Middleware ---
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status', '/api/analytics/pixel.gif', '/api/analytics/track.js', '/api/analytics/event', '/api/webhooks'];
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status', '/status', '/api/status-page', '/api/analytics/pixel.gif', '/api/analytics/track.js', '/api/analytics/event', '/api/webhooks'];
 
 function authMiddleware(req, res, next) {
   // Normalize path to prevent traversal bypass (e.g. /api/crosspromo/../marketing/crosspromo)
@@ -9138,6 +9138,162 @@ Be concise and actionable. Focus on the most likely root cause.`;
     res.status(500).json({ error: err.message });
   }
 }));
+
+// --- Public Status Page ---
+
+app.get('/api/status-page', asyncRoute(async (_req, res) => {
+  const apps = [];
+  for (const appDef of config.apps) {
+    if (!appDef.domain) continue;
+    const slug = slugify(appDef.name);
+    const containers = appDef.containers || [];
+    let status = 'operational';
+    let statusText = 'Operational';
+
+    // Check container health
+    for (const cName of containers) {
+      try {
+        const container = docker.getContainer(cName);
+        const info = await container.inspect();
+        const state = info.State;
+        if (!state.Running) {
+          status = 'down';
+          statusText = 'Down';
+          break;
+        }
+        if (state.Health && state.Health.Status !== 'healthy') {
+          status = 'degraded';
+          statusText = 'Degraded';
+        }
+      } catch {
+        status = 'unknown';
+        statusText = 'Unknown';
+      }
+    }
+
+    // If no containers, check domain health
+    if (containers.length === 0 && appDef.domain) {
+      status = 'operational';
+      statusText = 'Static Site';
+    }
+
+    // Uptime percentage from history (last 30 days)
+    const uptimeRows = db.prepare(
+      "SELECT status FROM uptime_history WHERE app_slug = ? AND checked_at > datetime('now', '-30 days')"
+    ).all(slug);
+    const totalChecks = uptimeRows.length;
+    const upChecks = uptimeRows.filter(r => r.status === 'up' || r.status === 'healthy').length;
+    const uptimePct = totalChecks > 0 ? +(upChecks / totalChecks * 100).toFixed(2) : null;
+
+    // Recent incidents (last 7 days)
+    const incidents = db.prepare(
+      "SELECT condition, action_taken, result, timestamp FROM healing_log WHERE app_slug = ? AND timestamp > datetime('now', '-7 days') ORDER BY timestamp DESC LIMIT 5"
+    ).all(slug);
+
+    apps.push({
+      name: appDef.name,
+      slug,
+      domain: appDef.domain,
+      status,
+      statusText,
+      uptimePct,
+      incidents: incidents.map(i => ({
+        condition: i.condition,
+        action: i.action_taken,
+        result: i.result,
+        time: i.timestamp,
+      })),
+    });
+  }
+
+  res.json({
+    apps,
+    generatedAt: new Date().toISOString(),
+  });
+}));
+
+// Public status page — serves standalone HTML, no auth required
+app.get('/status', (_req, res) => {
+  res.send(generateStatusPageHTML());
+});
+
+function generateStatusPageHTML() {
+  const apps = [];
+  for (const appDef of config.apps) {
+    if (!appDef.domain) continue;
+    const slug = slugify(appDef.name);
+
+    const uptimeRows = db.prepare(
+      "SELECT status FROM uptime_history WHERE app_slug = ? AND checked_at > datetime('now', '-30 days')"
+    ).all(slug);
+    const totalChecks = uptimeRows.length;
+    const upChecks = uptimeRows.filter(r => r.status === 'up' || r.status === 'healthy').length;
+    const uptimePct = totalChecks > 0 ? (upChecks / totalChecks * 100).toFixed(2) : null;
+
+    const recentIncidents = db.prepare(
+      "SELECT condition, timestamp FROM healing_log WHERE app_slug = ? AND timestamp > datetime('now', '-7 days') ORDER BY timestamp DESC LIMIT 3"
+    ).all(slug);
+
+    apps.push({ name: appDef.name, domain: appDef.domain, uptimePct, incidents: recentIncidents });
+  }
+
+  const allOperational = apps.every(a => !a.incidents.length);
+  const overallStatus = allOperational ? 'All Systems Operational' : 'Some Systems Have Recent Incidents';
+  const overallColor = allOperational ? '#22c55e' : '#eab308';
+
+  let appRows = '';
+  for (const app of apps) {
+    const uptime = app.uptimePct ? `${app.uptimePct}%` : 'N/A';
+    const color = !app.uptimePct ? '#6b7280' : app.uptimePct >= 99.9 ? '#22c55e' : app.uptimePct >= 99 ? '#eab308' : '#ef4444';
+    const statusDot = app.incidents.length > 0 ? '#eab308' : '#22c55e';
+    appRows += `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1f2937">
+        <div>
+          <div style="font-weight:600;font-size:14px">${escapeHtml(app.name)}</div>
+          <div style="font-size:12px;color:#9ca3af">${escapeHtml(app.domain)}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:13px;color:${color};font-weight:500">${uptime}</span>
+          <span style="width:10px;height:10px;border-radius:50%;background:${statusDot};display:inline-block"></span>
+        </div>
+      </div>`;
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>System Status — Dockfolio</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+    .container{max-width:640px;margin:0 auto;padding:40px 20px}
+    .header{text-align:center;margin-bottom:32px}
+    .header h1{font-size:24px;font-weight:700;margin-bottom:8px}
+    .status-badge{display:inline-block;padding:6px 16px;border-radius:20px;font-size:14px;font-weight:600}
+    .card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px 20px;margin-bottom:16px}
+    .footer{text-align:center;margin-top:32px;font-size:12px;color:#64748b}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>System Status</h1>
+      <div class="status-badge" style="background:${overallColor}20;color:${overallColor}">${overallStatus}</div>
+    </div>
+    <div class="card">
+      <h2 style="font-size:14px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Services</h2>
+      ${appRows}
+    </div>
+    <div class="footer">
+      <p>Last updated: ${new Date().toISOString().replace('T', ' ').split('.')[0]} UTC</p>
+      <p style="margin-top:4px">Powered by <a href="https://github.com/Crelvo/appManager" style="color:#60a5fa;text-decoration:none">Dockfolio</a></p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
 
 // --- Real-Time Visitors Widget ---
 app.get('/api/realtime/visitors', asyncRoute(async (_req, res) => {
