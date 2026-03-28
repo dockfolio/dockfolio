@@ -2046,6 +2046,14 @@
       <div id="logSearchResults" style="font-size:12px;color:var(--text-muted)">Enter a search query to search across all container logs (last 24h).</div>
     </div>
 
+    <div id="hetznerPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Hetzner VM</span>
+        <button class="btn" onclick="fetchHetznerInfo()">Refresh</button>
+      </div>
+      <div id="hetznerContent" style="font-size:12px;color:var(--text-muted)">Click "Refresh" to load Hetzner VM info (requires API token in Settings).</div>
+    </div>
+
     <div id="cronPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Cron Jobs</span>
@@ -2125,6 +2133,20 @@
       </div>
       <div id="imageUpdatesSummary" style="display:flex;gap:8px;margin-bottom:8px"></div>
       <div id="imageUpdatesList"></div>
+    </div>
+
+    <div id="execPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Container Exec</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <select id="execContainer" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:11px;width:180px">
+          <option value="">Select container...</option>
+        </select>
+        <input type="text" id="execCmd" placeholder="e.g. ls -la /app, env, df -h" style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;font-family:monospace" onkeydown="if(event.key==='Enter')runExec()">
+        <button class="btn" onclick="runExec()">Run</button>
+      </div>
+      <div id="execOutput" style="font-size:11px;color:var(--text-muted)">Select a container and enter a command to execute.</div>
     </div>
 
     <div id="healingPanel" class="healing-panel view-panel">
@@ -3072,6 +3094,7 @@
           initDNSPanel();
           initTroubleshootPanel();
           fetchCronStatus();
+          initExecPanel();
           checkLaunchMode();
           break;
         case 'security':
@@ -3858,6 +3881,76 @@
         html += `<div style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:6px">Updated: ${new Date(depsData.timestamp).toLocaleTimeString()}</div>`;
       }
       el.innerHTML = html;
+    }
+
+    // --- Hetzner VM Info ---
+    async function fetchHetznerInfo() {
+      const el = document.getElementById('hetznerContent');
+      el.innerHTML = '<span style="color:var(--text-muted)">Loading Hetzner data...</span>';
+      try {
+        const res = await apiFetch('/api/hetzner/server');
+        const data = await res.json();
+        if (data.error) { el.innerHTML = `<span style="color:var(--text-muted)">${escapeHtml(data.error)}</span>`; return; }
+        if (!data.servers?.length) { el.innerHTML = '<span style="color:var(--text-muted)">No servers found.</span>'; return; }
+        let html = '';
+        for (const s of data.servers) {
+          const statusColor = s.status === 'running' ? 'var(--green)' : 'var(--red)';
+          html += `<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">`;
+          html += `<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:6px"></span><span style="font-weight:600">${escapeHtml(s.name)}</span></div>`;
+          html += `<div style="color:var(--text-muted)">${escapeHtml(s.serverType || '')}</div>`;
+          html += `<div style="color:var(--text-muted)">${s.cores} vCPU, ${s.memory} GB RAM, ${s.disk} GB disk</div>`;
+          html += `<div style="color:var(--text-muted)">${escapeHtml(s.datacenter || '')}</div>`;
+          html += `<div style="color:var(--text-muted)">${s.ip || ''}</div>`;
+          if (s.monthlyCost) html += `<div style="color:var(--green);font-weight:500">${s.monthlyCost} EUR/mo</div>`;
+          html += '</div>';
+        }
+        el.innerHTML = html;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
+    }
+
+    // --- Container Exec ---
+    let execInitialized = false;
+
+    function initExecPanel() {
+      if (execInitialized) return;
+      execInitialized = true;
+      const select = document.getElementById('execContainer');
+      if (!appData) return;
+      const added = new Set();
+      for (const app of appData) {
+        if (app.containers) {
+          for (const c of (Array.isArray(app.containers) ? app.containers : [app.containers])) {
+            if (c && !added.has(c)) {
+              const opt = document.createElement('option');
+              opt.value = c;
+              opt.textContent = c;
+              select.appendChild(opt);
+              added.add(c);
+            }
+          }
+        }
+      }
+    }
+
+    async function runExec() {
+      const container = document.getElementById('execContainer').value;
+      const cmd = document.getElementById('execCmd').value.trim();
+      const el = document.getElementById('execOutput');
+      if (!container) { el.innerHTML = '<span style="color:var(--yellow)">Select a container first.</span>'; return; }
+      if (!cmd) { el.innerHTML = '<span style="color:var(--yellow)">Enter a command.</span>'; return; }
+      el.innerHTML = '<span style="color:var(--text-muted)">Executing...</span>';
+      try {
+        const res = await apiFetch(`/api/containers/${encodeURIComponent(container)}/exec`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cmd }),
+        });
+        const data = await res.json();
+        if (data.error) { el.innerHTML = `<span style="color:var(--red)">${escapeHtml(data.error)}</span>`; return; }
+        const exitColor = data.exitCode === 0 ? 'var(--green)' : 'var(--red)';
+        el.innerHTML = `<div style="margin-bottom:4px"><span style="color:var(--text-muted)">Exit code:</span> <span style="color:${exitColor};font-weight:600">${data.exitCode}</span></div>` +
+          `<pre style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;font-family:monospace;color:var(--text);overflow-x:auto;max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin:0">${escapeHtml(data.output || '(no output)')}</pre>`;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
     }
 
     // --- Cron Job Status ---
@@ -6263,6 +6356,8 @@
           { type: 'command', cmd: 'launch', label: 'Launch Mode', description: 'Activate launch day monitoring for an app', shortcut: '' },
           { type: 'command', cmd: 'troubleshoot', label: 'Troubleshoot', description: 'Guided troubleshooting for common issues', shortcut: '' },
           { type: 'command', cmd: 'anomaly', label: 'Anomaly Narrative', description: 'AI explanation of current anomalies', shortcut: '' },
+          { type: 'command', cmd: 'exec', label: 'Container Exec', description: 'Run a command inside a container', shortcut: '' },
+          { type: 'command', cmd: 'emailstats', label: 'Email Analytics', description: 'Email delivery stats and Resend domain info', shortcut: '' },
         ];
         renderCmdResults();
         return;
@@ -6406,6 +6501,8 @@
           dns: () => { switchView('infra'); document.getElementById('dnsPanel').scrollIntoView({ behavior: 'smooth' }); },
           launch: () => { const slug = prompt('Enter app slug to launch:'); if (slug) startLaunchMode(slug.trim()); },
           troubleshoot: () => { switchView('infra'); document.getElementById('troubleshootPanel').scrollIntoView({ behavior: 'smooth' }); },
+          exec: () => { switchView('infra'); document.getElementById('execPanel').scrollIntoView({ behavior: 'smooth' }); document.getElementById('execCmd').focus(); },
+          emailstats: () => { switchView('revenue'); setTimeout(() => switchMktTab('emails', document.querySelector('.mkt-tab:nth-child(6)')), 100); },
           anomaly: () => { switchView('infra'); fetchAnomalyNarrative(); },
           playground: () => { switchView('settings'); setTimeout(() => { document.getElementById('playgroundPanel').scrollIntoView({ behavior: 'smooth' }); loadPlaygroundRoutes(); }, 100); },
           'export errors': () => exportData('errors'),

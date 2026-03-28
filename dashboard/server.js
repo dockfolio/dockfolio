@@ -1303,6 +1303,50 @@ app.post('/api/apps/:slug/restart', asyncRoute(async (req, res) => {
   res.json({ ok: true, app: req.params.slug, results });
 }));
 
+// POST /api/containers/:name/exec — Execute a command inside a container
+app.post('/api/containers/:name/exec', asyncRoute(async (req, res) => {
+  const { cmd } = req.body;
+  if (!cmd || typeof cmd !== 'string' || cmd.trim().length < 1) {
+    return res.status(400).json({ error: 'cmd is required' });
+  }
+
+  // Safety: block destructive commands
+  const BLOCKED = ['rm -rf /', 'mkfs', 'dd if=', ':(){', 'shutdown', 'reboot', 'halt', 'init 0', 'init 6'];
+  const lowerCmd = cmd.toLowerCase().trim();
+  if (BLOCKED.some(b => lowerCmd.includes(b))) {
+    return res.status(403).json({ error: 'This command is blocked for safety' });
+  }
+
+  const containers = await docker.listContainers({ all: true });
+  const target = containers.find(c => containerName(c) === req.params.name);
+  if (!target) return res.status(404).json({ error: 'Container not found' });
+  if (target.State !== 'running') return res.status(400).json({ error: 'Container is not running' });
+
+  const container = docker.getContainer(target.Id);
+  const exec = await container.exec({
+    Cmd: ['sh', '-c', cmd.trim()],
+    AttachStdout: true,
+    AttachStderr: true,
+  });
+
+  const stream = await exec.start({ Detach: false });
+  const chunks = [];
+  await new Promise((resolve) => {
+    stream.on('data', (chunk) => chunks.push(chunk));
+    stream.on('end', resolve);
+    setTimeout(() => { stream.destroy(); resolve(); }, 10000); // 10s timeout
+  });
+
+  const output = Buffer.concat(chunks).toString('utf8')
+    .split('\n').map(l => l.length > 8 ? l.slice(8) : l).join('\n')
+    .slice(0, 10000); // Cap output at 10KB
+
+  const inspect = await exec.inspect();
+  auditLog(req, 'container.exec', req.params.name, { cmd: cmd.slice(0, 200) });
+
+  res.json({ output, exitCode: inspect.ExitCode, container: req.params.name });
+}));
+
 // POST /api/apps/:slug/maintenance — toggle maintenance mode
 app.post('/api/apps/:slug/maintenance', asyncRoute((req, res) => {
   const appDef = config.apps.find(a => (a.slug || slugify(a.name)) === req.params.slug);
@@ -2727,6 +2771,51 @@ app.put('/api/config/apps/:slug', asyncRoute(async (req, res) => {
 
   saveConfig();
   res.json({ ok: true });
+}));
+
+// POST /api/config/apps/:slug/preview — Preview config changes before applying
+app.post('/api/config/apps/:slug/preview', asyncRoute(async (req, res) => {
+  const idx = config.apps.findIndex(a => slugify(a.name) === req.params.slug);
+  if (idx === -1) return res.status(404).json({ error: 'App not found' });
+
+  const current = { ...config.apps[idx] };
+  const changes = req.body;
+  const diff = [];
+  const impacts = [];
+
+  const FIELDS = ['name', 'type', 'domain', 'port', 'health', 'containers', 'description', 'tech', 'envFile', 'composeFile'];
+  for (const field of FIELDS) {
+    if (changes[field] === undefined) continue;
+    const oldVal = current[field];
+    const newVal = field === 'port' && changes[field] ? Number(changes[field]) : changes[field];
+    const oldStr = JSON.stringify(oldVal ?? null);
+    const newStr = JSON.stringify(newVal ?? null);
+    if (oldStr !== newStr) {
+      diff.push({ field, old: oldVal ?? null, new: newVal ?? null });
+
+      // Impact analysis
+      if (field === 'port') {
+        const conflict = config.apps.find(a => a !== current && a.port && Number(a.port) === Number(newVal));
+        if (conflict) impacts.push({ severity: 'error', message: `Port ${newVal} conflicts with ${conflict.name}` });
+        else impacts.push({ severity: 'info', message: `Port change requires nginx config update` });
+      }
+      if (field === 'domain') {
+        if (oldVal && newVal !== oldVal) impacts.push({ severity: 'warning', message: `Domain change: SSL cert + nginx config + DNS update needed` });
+        if (newVal && !oldVal) impacts.push({ severity: 'info', message: `New domain: needs DNS A record + SSL cert + nginx config` });
+      }
+      if (field === 'containers') {
+        const oldC = Array.isArray(oldVal) ? oldVal : [];
+        const newC = Array.isArray(newVal) ? newVal : [];
+        const removed = oldC.filter(c => !newC.includes(c));
+        if (removed.length > 0) impacts.push({ severity: 'warning', message: `Removing containers: ${removed.join(', ')} — these will no longer be monitored` });
+      }
+      if (field === 'name') {
+        impacts.push({ severity: 'info', message: `Slug will change from "${slugify(oldVal)}" to "${slugify(newVal)}"` });
+      }
+    }
+  }
+
+  res.json({ slug: req.params.slug, diff, impacts, hasChanges: diff.length > 0 });
 }));
 
 // DELETE /api/config/apps/:slug — remove an app
@@ -4614,6 +4703,74 @@ app.post('/api/marketing/emails/send-test', asyncRoute(async (req, res) => {
   const result = await sendEmail(to_email, template.subject, template.html, app_slug);
   console.log(`[EMAIL] Test email sent, messageId=${result.id}`);
   res.json({ ok: true, messageId: result.id });
+}));
+
+// GET /api/marketing/emails/analytics — Email delivery analytics from queue + Resend
+app.get('/api/marketing/emails/analytics', asyncRoute(async (_req, res) => {
+  // Aggregate from email_queue (local tracking)
+  const totalSent = db.prepare("SELECT COUNT(*) as n FROM email_queue WHERE status = 'sent'").get().n;
+  const totalPending = db.prepare("SELECT COUNT(*) as n FROM email_queue WHERE status = 'pending'").get().n;
+  const totalFailed = db.prepare("SELECT COUNT(*) as n FROM email_queue WHERE status = 'failed'").get().n;
+
+  // Per-app breakdown
+  const byApp = db.prepare(`
+    SELECT app_slug, status, COUNT(*) as count
+    FROM email_queue
+    GROUP BY app_slug, status
+    ORDER BY app_slug
+  `).all();
+
+  const appStats = {};
+  for (const row of byApp) {
+    if (!appStats[row.app_slug]) appStats[row.app_slug] = { sent: 0, pending: 0, failed: 0 };
+    appStats[row.app_slug][row.status] = (appStats[row.app_slug][row.status] || 0) + row.count;
+  }
+
+  // Daily send volume (last 30 days)
+  const dailyVolume = db.prepare(`
+    SELECT date(sent_at) as day, COUNT(*) as count
+    FROM email_queue
+    WHERE status = 'sent' AND sent_at >= datetime('now', '-30 days')
+    GROUP BY date(sent_at)
+    ORDER BY day ASC
+  `).all();
+
+  // Per-template breakdown
+  const byTemplate = db.prepare(`
+    SELECT template_key, COUNT(*) as count
+    FROM email_queue
+    WHERE status = 'sent'
+    GROUP BY template_key
+    ORDER BY count DESC
+    LIMIT 10
+  `).all();
+
+  // Try to get Resend domain stats (optional, requires full-access key)
+  let resendDomains = null;
+  try {
+    const resendKey = getSetting('RESEND_FULL_ACCESS_KEY') || getResendKey();
+    if (resendKey) {
+      const r = await fetch('https://api.resend.com/domains', {
+        headers: { Authorization: `Bearer ${resendKey}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        resendDomains = (data.data || []).map(d => ({
+          name: d.name, status: d.status, region: d.region, created: d.created_at,
+        }));
+      }
+    }
+  } catch { /* Resend API unavailable */ }
+
+  res.json({
+    totals: { sent: totalSent, pending: totalPending, failed: totalFailed },
+    byApp: appStats,
+    dailyVolume,
+    byTemplate,
+    resendDomains,
+    timestamp: new Date().toISOString(),
+  });
 }));
 
 // POST /api/marketing/emails/sequences — Create sequence
@@ -10624,6 +10781,63 @@ app.get('/api/logs/stats', asyncRoute(async (req, res) => {
   const total = db.prepare('SELECT COUNT(*) as count FROM container_logs').get().count;
 
   res.json({ stats, total });
+}));
+
+// === Feature: Hetzner Cloud API Integration ===
+
+// GET /api/hetzner/server — Get VM info from Hetzner Cloud API
+app.get('/api/hetzner/server', asyncRoute(async (_req, res) => {
+  const apiToken = getSetting('HETZNER_API_TOKEN') || process.env.HETZNER_API_TOKEN;
+  if (!apiToken) return res.status(503).json({ error: 'Hetzner API token not configured. Set HETZNER_API_TOKEN in Settings.' });
+
+  try {
+    const r = await fetch('https://api.hetzner.cloud/v1/servers', {
+      headers: { Authorization: `Bearer ${apiToken}` },
+      signal: AbortSignal.timeout(TIMEOUT_STANDARD),
+    });
+    if (!r.ok) return res.status(r.status).json({ error: `Hetzner API error: ${r.status}` });
+    const data = await r.json();
+    const servers = (data.servers || []).map(s => ({
+      id: s.id, name: s.name, status: s.status,
+      serverType: s.server_type?.description || s.server_type?.name,
+      cores: s.server_type?.cores, memory: s.server_type?.memory, disk: s.server_type?.disk,
+      datacenter: s.datacenter?.description || s.datacenter?.name,
+      ip: s.public_net?.ipv4?.ip,
+      created: s.created,
+      monthlyCost: s.server_type?.prices?.find(p => p.location === s.datacenter?.location?.name)?.price_monthly?.gross,
+    }));
+    res.json({ servers });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}));
+
+// GET /api/hetzner/metrics — Get VM metrics (CPU, disk, network) from Hetzner
+app.get('/api/hetzner/metrics', asyncRoute(async (req, res) => {
+  const apiToken = getSetting('HETZNER_API_TOKEN') || process.env.HETZNER_API_TOKEN;
+  if (!apiToken) return res.status(503).json({ error: 'Hetzner API token not configured' });
+
+  const serverId = req.query.server_id || getSetting('HETZNER_SERVER_ID');
+  if (!serverId) return res.status(400).json({ error: 'server_id required (set HETZNER_SERVER_ID in Settings)' });
+
+  const type = req.query.type || 'cpu';
+  const ALLOWED_TYPES = ['cpu', 'disk', 'network'];
+  if (!ALLOWED_TYPES.includes(type)) return res.status(400).json({ error: `type must be one of: ${ALLOWED_TYPES.join(', ')}` });
+
+  const end = new Date().toISOString();
+  const start = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const r = await fetch(`https://api.hetzner.cloud/v1/servers/${serverId}/metrics?type=${type}&start=${start}&end=${end}`, {
+      headers: { Authorization: `Bearer ${apiToken}` },
+      signal: AbortSignal.timeout(TIMEOUT_STANDARD),
+    });
+    if (!r.ok) return res.status(r.status).json({ error: `Hetzner metrics error: ${r.status}` });
+    const data = await r.json();
+    res.json({ type, metrics: data.metrics, start, end });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 }));
 
 // === Feature: Guided Troubleshooting ===
