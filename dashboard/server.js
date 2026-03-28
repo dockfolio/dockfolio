@@ -90,6 +90,7 @@ function createCircuitBreaker(name, { failThreshold = 3, resetMs = 600000 } = {}
 const cbStripe = createCircuitBreaker('stripe');
 const cbPlausible = createCircuitBreaker('plausible');
 const cbAnthropic = createCircuitBreaker('anthropic');
+const cbGitHub = createCircuitBreaker('github');
 
 // --- Cron Overlap Guard ---
 const cronRunning = new Map();
@@ -3113,6 +3114,15 @@ db.exec(`
     visitors INTEGER DEFAULT 0,
     pageviews INTEGER DEFAULT 0,
     UNIQUE(app_slug, hour)
+  );
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS github_cache (
+    app_slug TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (app_slug)
   );
 `);
 
@@ -10245,6 +10255,121 @@ Format as JSON array of tweet strings. Be genuine, share real numbers, mention s
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+}));
+
+// ========== GITHUB DEEP INTEGRATION ==========
+
+function parseGitHubRepo(repoField) {
+  if (!repoField) return null;
+  // Handle full URLs: https://github.com/owner/repo or git@github.com:owner/repo
+  const urlMatch = repoField.match(/github\.com[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?$/);
+  if (urlMatch) return `${urlMatch[1]}/${urlMatch[2]}`;
+  // Handle owner/repo format
+  if (/^[\w.-]+\/[\w.-]+$/.test(repoField)) return repoField;
+  return null;
+}
+
+async function fetchGitHubData(ownerRepo, token) {
+  const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'Dockfolio' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const ghFetch = (url) => fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_STANDARD) }).then(r => {
+    if (!r.ok) throw new Error(`GitHub API ${r.status}: ${r.statusText}`);
+    return r.json();
+  });
+
+  const [repoInfo, commits, pulls, actionsRuns] = await Promise.allSettled([
+    ghFetch(`https://api.github.com/repos/${ownerRepo}`),
+    ghFetch(`https://api.github.com/repos/${ownerRepo}/commits?per_page=5`),
+    ghFetch(`https://api.github.com/repos/${ownerRepo}/pulls?state=open&per_page=100`),
+    ghFetch(`https://api.github.com/repos/${ownerRepo}/actions/runs?per_page=1`),
+  ]);
+
+  return {
+    repo: ownerRepo,
+    openIssues: repoInfo.status === 'fulfilled' ? (repoInfo.value.open_issues_count || 0) : null,
+    defaultBranch: repoInfo.status === 'fulfilled' ? repoInfo.value.default_branch : 'main',
+    stars: repoInfo.status === 'fulfilled' ? repoInfo.value.stargazers_count : null,
+    commits: commits.status === 'fulfilled' ? commits.value.map(c => ({
+      sha: c.sha?.slice(0, 7),
+      message: c.commit?.message?.split('\n')[0]?.slice(0, 80),
+      author: c.commit?.author?.name,
+      date: c.commit?.author?.date,
+    })) : [],
+    openPRs: pulls.status === 'fulfilled' ? pulls.value.length : null,
+    ci: actionsRuns.status === 'fulfilled' && actionsRuns.value.workflow_runs?.length > 0 ? {
+      status: actionsRuns.value.workflow_runs[0].status,
+      conclusion: actionsRuns.value.workflow_runs[0].conclusion,
+      name: actionsRuns.value.workflow_runs[0].name,
+      updated: actionsRuns.value.workflow_runs[0].updated_at,
+    } : null,
+  };
+}
+
+const ghCacheGet = db.prepare('SELECT data_json, fetched_at FROM github_cache WHERE app_slug = ?');
+const ghCacheUpsert = db.prepare('INSERT OR REPLACE INTO github_cache (app_slug, data_json, fetched_at) VALUES (?, ?, datetime(\'now\'))');
+
+async function getGitHubForApp(slug, repoField, token) {
+  // Check cache (5 min TTL)
+  const cached = ghCacheGet.get(slug);
+  if (cached) {
+    const age = Date.now() - new Date(cached.fetched_at + 'Z').getTime();
+    if (age < 5 * 60 * 1000) return JSON.parse(cached.data_json);
+  }
+
+  const ownerRepo = parseGitHubRepo(repoField);
+  if (!ownerRepo) return null;
+
+  const data = await cbGitHub.call(() => fetchGitHubData(ownerRepo, token));
+  ghCacheUpsert.run(slug, JSON.stringify(data));
+  return data;
+}
+
+app.get('/api/github/summary', asyncRoute(async (_req, res) => {
+  const token = getSetting('GITHUB_TOKEN') || process.env.GITHUB_TOKEN;
+  const results = [];
+
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+    const ghRepo = parseGitHubRepo(appDef.repo);
+    if (!ghRepo) continue;
+
+    try {
+      const data = await getGitHubForApp(slug, appDef.repo, token);
+      if (data) results.push({ slug, name: appDef.name, ...data });
+    } catch (err) {
+      // Return cached data on error, or partial result
+      const cached = ghCacheGet.get(slug);
+      if (cached) {
+        results.push({ slug, name: appDef.name, ...JSON.parse(cached.data_json), stale: true });
+      } else {
+        results.push({ slug, name: appDef.name, repo: ghRepo, error: err.message });
+      }
+    }
+  }
+
+  res.json({ apps: results, hasToken: !!token, timestamp: new Date().toISOString() });
+}));
+
+app.get('/api/github/app/:slug', asyncRoute(async (req, res) => {
+  const token = getSetting('GITHUB_TOKEN') || process.env.GITHUB_TOKEN;
+  const appDef = config.apps.find(a => slugify(a.name) === req.params.slug);
+  if (!appDef) return res.status(404).json({ error: 'App not found' });
+
+  const ghRepo = parseGitHubRepo(appDef.repo);
+  if (!ghRepo) return res.status(404).json({ error: 'No GitHub repo configured for this app' });
+
+  try {
+    const data = await getGitHubForApp(req.params.slug, appDef.repo, token);
+    res.json({ slug: req.params.slug, name: appDef.name, ...data, hasToken: !!token });
+  } catch (err) {
+    const cached = ghCacheGet.get(req.params.slug);
+    if (cached) {
+      res.json({ slug: req.params.slug, name: appDef.name, ...JSON.parse(cached.data_json), stale: true, hasToken: !!token });
+    } else {
+      res.status(502).json({ error: err.message });
+    }
   }
 }));
 

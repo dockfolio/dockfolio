@@ -2025,6 +2025,14 @@
       <div id="deploysList"></div>
     </div>
 
+    <div id="githubPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">GitHub <kbd style="font-size:9px;background:var(--surface2);padding:1px 4px;border-radius:3px;margin-left:4px">g</kbd></span>
+        <button class="btn" onclick="fetchGitHub(true)">Refresh</button>
+      </div>
+      <div id="githubContent"><span style="font-size:12px;color:var(--text-muted)">Loading GitHub data...</span></div>
+    </div>
+
     <div id="imageUpdatesPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Image Updates</span>
@@ -2926,6 +2934,7 @@
           fetchContainerGraph();
           fetchUptimeTimeline();
           fetchImageUpdates();
+          fetchGitHub();
           break;
         case 'security':
           if (!securityData) fetchSecurityStatus();
@@ -6255,6 +6264,66 @@
       }
     }
 
+    // === GitHub Panel ===
+    let ghLoaded = false;
+    async function fetchGitHub(force = false) {
+      if (ghLoaded && !force) return;
+      const el = document.getElementById('githubContent');
+      try {
+        const res = await apiFetch('/api/github/summary');
+        const data = await res.json();
+        ghLoaded = true;
+        if (!data.apps?.length) {
+          el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px">No apps with GitHub repos configured. Add a <code>repo</code> field (owner/repo) to your config.yml app entries.</div>';
+          return;
+        }
+        const tokenNote = data.hasToken ? '' : '<div style="font-size:10px;color:var(--yellow);margin-bottom:6px">No GITHUB_TOKEN configured — using public API (60 req/hr limit).</div>';
+        const rows = data.apps.map(app => {
+          const lastCommit = app.commits?.[0];
+          const timeAgo = lastCommit?.date ? formatTimeAgo(new Date(lastCommit.date)) : '—';
+          const commitMsg = lastCommit?.message ? escapeHtml(lastCommit.message) : '—';
+          const commitSha = lastCommit?.sha || '';
+
+          let ciBadge = '<span style="color:var(--text-muted);font-size:10px">—</span>';
+          if (app.ci) {
+            if (app.ci.status === 'completed' && app.ci.conclusion === 'success') ciBadge = '<span style="color:var(--green);font-size:11px;font-weight:600">● pass</span>';
+            else if (app.ci.status === 'completed' && app.ci.conclusion === 'failure') ciBadge = '<span style="color:var(--red);font-size:11px;font-weight:600">● fail</span>';
+            else if (app.ci.status === 'in_progress') ciBadge = '<span style="color:var(--yellow);font-size:11px;font-weight:600">● running</span>';
+            else ciBadge = '<span style="color:var(--yellow);font-size:11px;font-weight:600">● ' + escapeHtml(app.ci.conclusion || app.ci.status) + '</span>';
+          }
+
+          const staleTag = app.stale ? ' <span style="color:var(--yellow);font-size:9px">(cached)</span>' : '';
+          const errorTag = app.error ? `<span style="color:var(--red);font-size:10px">${escapeHtml(app.error)}</span>` : '';
+
+          const issues = app.openIssues != null ? app.openIssues : '—';
+          const prs = app.openPRs != null ? app.openPRs : '—';
+
+          return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;background:var(--surface2);border-radius:6px;font-size:12px;border-left:3px solid var(--accent)">
+            <div style="min-width:110px;font-weight:500">${escapeHtml(app.name)}${staleTag}</div>
+            <div style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:monospace;font-size:11px" title="${escapeHtml(commitMsg)}">
+              ${commitSha ? `<span style="color:var(--accent)">${commitSha}</span> ` : ''}${errorTag || commitMsg}
+            </div>
+            <div style="color:var(--text-muted);font-size:10px;min-width:60px;text-align:right">${timeAgo}</div>
+            <div style="min-width:50px;text-align:center" title="Open issues"><span style="color:var(--yellow)">${issues}</span> <span style="font-size:9px;color:var(--text-muted)">iss</span></div>
+            <div style="min-width:45px;text-align:center" title="Open PRs"><span style="color:var(--blue,var(--accent))">${prs}</span> <span style="font-size:9px;color:var(--text-muted)">PR</span></div>
+            <div style="min-width:55px;text-align:center" title="CI status">${ciBadge}</div>
+          </div>`;
+        }).join('');
+        el.innerHTML = tokenNote + rows;
+      } catch {
+        el.innerHTML = '<span style="font-size:12px;color:var(--red)">Failed to load GitHub data.</span>';
+      }
+    }
+
+    function formatTimeAgo(date) {
+      const secs = Math.floor((Date.now() - date.getTime()) / 1000);
+      if (secs < 60) return 'just now';
+      if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+      if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+      if (secs < 604800) return Math.floor(secs / 86400) + 'd ago';
+      return Math.floor(secs / 604800) + 'w ago';
+    }
+
     // === Predictive Alerts Panel ===
     async function fetchPredictions() {
       const list = document.getElementById('predictionsList');
@@ -8912,6 +8981,7 @@
       if (e.key === 'j') toggleProjects();
       if (e.key === 'o') toggleOps();
       if (e.key === 'e') toggleErrors();
+      if (e.key === 'g') { switchView('infra'); fetchGitHub(true); }
       if (e.key === 'n') toggleNotifications();
       if (e.key === 'A') toggleADHDMode();
       if (e.key === 'x') { switchView('revenue'); setTimeout(() => switchMktTab('crosspromo', document.querySelector('.mkt-tab:nth-child(7)')), 100); }
