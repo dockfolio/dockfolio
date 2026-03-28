@@ -2046,6 +2046,14 @@
       <div id="logSearchResults" style="font-size:12px;color:var(--text-muted)">Enter a search query to search across all container logs (last 24h).</div>
     </div>
 
+    <div id="cronPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Cron Jobs</span>
+        <button class="btn" onclick="fetchCronStatus()">Refresh</button>
+      </div>
+      <div id="cronContent" style="font-size:12px;color:var(--text-muted)">Loading cron job status...</div>
+    </div>
+
     <div id="troubleshootPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Troubleshoot</span>
@@ -3063,6 +3071,7 @@
           fetchDependencies();
           initDNSPanel();
           initTroubleshootPanel();
+          fetchCronStatus();
           checkLaunchMode();
           break;
         case 'security':
@@ -3849,6 +3858,36 @@
         html += `<div style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:6px">Updated: ${new Date(depsData.timestamp).toLocaleTimeString()}</div>`;
       }
       el.innerHTML = html;
+    }
+
+    // --- Cron Job Status ---
+    async function fetchCronStatus() {
+      const el = document.getElementById('cronContent');
+      try {
+        const res = await apiFetch('/api/cron/status');
+        const data = await res.json();
+        if (!data.jobs?.length) { el.innerHTML = '<span style="color:var(--text-muted)">No cron jobs tracked.</span>'; return; }
+
+        let html = `<div style="margin-bottom:6px;color:${data.healthy ? 'var(--green)' : 'var(--red)'};font-weight:600">${data.healthy ? 'All jobs healthy' : data.overdueCount + ' job(s) overdue'}</div>`;
+        html += '<div style="display:grid;grid-template-columns:180px 120px 120px 80px;gap:1px">';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Job</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Schedule</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Last Run</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Status</div>';
+
+        for (const j of data.jobs) {
+          const statusColor = j.status === 'ok' ? 'var(--green)' : j.status === 'overdue' ? 'var(--red)' : 'var(--text-muted)';
+          const statusIcon = j.status === 'ok' ? '&#10003;' : j.status === 'overdue' ? '&#10007;' : '&#8722;';
+          const lastRun = j.lastRun ? new Date(j.lastRun + (j.lastRun.includes('Z') ? '' : 'Z')).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Never';
+          const rowBg = j.status === 'overdue' ? 'rgba(255,59,48,0.06)' : 'transparent';
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border);color:var(--text);background:${rowBg}">${escapeHtml(j.name)}</div>`;
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border);color:var(--text-muted);background:${rowBg}">${escapeHtml(j.schedule)}</div>`;
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border);color:var(--text-dim);font-size:11px;background:${rowBg}">${lastRun}</div>`;
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border);color:${statusColor};font-weight:600;background:${rowBg}">${statusIcon} ${j.status}</div>`;
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
     }
 
     // --- Troubleshooting ---
