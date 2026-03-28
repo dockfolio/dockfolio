@@ -67,6 +67,21 @@ describe('Public endpoints', () => {
     const ct = res.headers.get('content-type');
     assert.ok(ct.includes('javascript'), `Expected javascript content-type, got ${ct}`);
   });
+
+  it('GET /status returns public status page HTML', async () => {
+    const res = await req('/status');
+    assert.equal(res.status, 200);
+    const ct = res.headers.get('content-type');
+    assert.ok(ct.includes('text/html'), `Expected HTML content-type, got ${ct}`);
+    const text = await res.text();
+    assert.ok(text.includes('Status'), 'Status page should contain Status heading');
+  });
+
+  it('GET /api/status-page returns JSON status data', async () => {
+    const { status, body } = await json('/api/status-page');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.apps) || typeof body === 'object', 'should return status data');
+  });
 });
 
 // ── Auth enforcement ─────────────────────────────────────────────────
@@ -258,6 +273,49 @@ describe('Authenticated endpoints', { skip: !AUTH_PASS ? 'No TEST_PASS set — s
     const { status, body } = await json('/api/disk');
     assert.equal(status, 200);
     assert.ok(typeof body === 'object');
+  });
+
+  it('GET /api/audit returns audit log entries', async () => {
+    const { status, body } = await json('/api/audit');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.rows) || Array.isArray(body), 'should return audit entries');
+  });
+
+  it('GET /api/achievements returns achievements list', async () => {
+    const { status, body } = await json('/api/achievements');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body), 'should return array of achievements');
+    if (body.length > 0) {
+      assert.ok(body[0].id, 'achievement should have id');
+      assert.ok(body[0].name, 'achievement should have name');
+      assert.ok(typeof body[0].unlocked === 'boolean', 'achievement should have unlocked flag');
+    }
+  });
+
+  it('GET /api/security/leaderboard returns ranked apps', async () => {
+    const { status, body } = await json('/api/security/leaderboard');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body), 'should return array');
+  });
+
+  it('GET /api/alert-rules returns alert rules', async () => {
+    const { status, body } = await json('/api/alert-rules');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body), 'should return array of rules');
+  });
+
+  it('GET /api/build-in-public returns content or API key error', async () => {
+    const { status, body } = await json('/api/build-in-public');
+    assert.ok([200, 500].includes(status), `Expected 200 or 500, got ${status}`);
+    if (status === 200) {
+      assert.ok(body.thread || body.content, 'should return generated content');
+    }
+  });
+
+  it('GET /api/time-to-revenue returns tracker data', async () => {
+    const { status, body } = await json('/api/time-to-revenue');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body) || typeof body === 'object', 'should return revenue tracking data');
   });
 });
 

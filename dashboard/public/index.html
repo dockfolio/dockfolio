@@ -2845,7 +2845,7 @@
       const banner = document.getElementById('errorBanner');
       if (issues.length > 0) {
         document.getElementById('errorTitle').textContent = `${issues.length} issue${issues.length > 1 ? 's' : ''} detected`;
-        document.getElementById('errorDetail').innerHTML = issues.map(i => `&bull; ${i}`).join('<br>');
+        document.getElementById('errorDetail').innerHTML = issues.map(i => `&bull; ${escapeHtml(i)}`).join('<br>');
         banner.classList.add('visible');
       } else {
         banner.classList.remove('visible');
@@ -3366,7 +3366,7 @@
 
     async function loadEnvTab(slug) {
       try {
-        const res = await fetch(`/api/apps/${slug}/env`);
+        const res = await apiFetch(`/api/apps/${slug}/env`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
         envCache[slug] = data;
@@ -3425,7 +3425,7 @@
       }
       // Fetch revealed value
       try {
-        const res = await fetch(`/api/apps/${slug}/env?reveal=true`);
+        const res = await apiFetch(`/api/apps/${slug}/env?reveal=true`);
         const data = await res.json();
         const v = data.vars.find(v => v.key === key);
         if (v) {
@@ -3439,7 +3439,7 @@
 
     async function toggleRevealAll(slug) {
       try {
-        const res = await fetch(`/api/apps/${slug}/env?reveal=true`);
+        const res = await apiFetch(`/api/apps/${slug}/env?reveal=true`);
         const data = await res.json();
         envCache[slug] = data;
         for (const v of data.vars) {
@@ -3548,7 +3548,7 @@
         const panel = document.getElementById('keyHealthPanel');
         const grid = document.getElementById('keyHealthGrid');
         grid.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Checking API keys... (this may take a moment)</span>';
-        const res = await fetch(`/api/env/health${force ? '?force=true' : ''}`);
+        const res = await apiFetch(`/api/env/health${force ? '?force=true' : ''}`);
         const data = await res.json();
         keyHealthData = data;
         renderKeyHealth();
@@ -4007,7 +4007,7 @@
       try {
         const grid = document.getElementById('marketingGrid');
         grid.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Scanning all apps for SEO... (this takes a few seconds)</span>';
-        const res = await fetch(`/api/marketing/seo${force ? '?force=true' : ''}`);
+        const res = await apiFetch(`/api/marketing/seo${force ? '?force=true' : ''}`);
         mktSEOData = await res.json();
         renderMktSEO();
       } catch (err) {
@@ -4299,7 +4299,7 @@
         let url = '/api/marketing/content?';
         if (appFilter) url += 'app_slug=' + encodeURIComponent(appFilter) + '&';
         if (statusFilter) url += 'status=' + encodeURIComponent(statusFilter);
-        const res = await fetch(url);
+        const res = await apiFetch(url);
         if (res.ok) mktContentData = await res.json();
         populateContentAppFilter();
         renderMktContent();
@@ -4466,7 +4466,7 @@
         return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:8px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-weight:600;font-size:13px">${escapeHtml(c.name)}</div>
-            <span style="font-size:10px;color:${statusColor};text-transform:uppercase;font-weight:600">${c.status}</span>
+            <span style="font-size:10px;color:${statusColor};text-transform:uppercase;font-weight:600">${escapeHtml(c.status)}</span>
           </div>
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
             <strong>${escapeHtml(c.source_app)}</strong> shows banner for <strong>${escapeHtml(c.target_app)}</strong>
@@ -4626,10 +4626,10 @@
         return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:8px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="display:flex;align-items:center">${preview}<span style="font-weight:600;font-size:13px">${escapeHtml(b.name)}</span></div>
-            <span style="font-size:10px;color:${typeColor};text-transform:uppercase;font-weight:600">${b.type.replace('_', ' ')}</span>
+            <span style="font-size:10px;color:${typeColor};text-transform:uppercase;font-weight:600">${escapeHtml(b.type.replace('_', ' '))}</span>
           </div>
           <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
-            ${b.width}x${b.height} &mdash; ${activePl} active placement${activePl !== 1 ? 's' : ''}
+            ${escapeHtml(String(b.width))}x${escapeHtml(String(b.height))} &mdash; ${activePl} active placement${activePl !== 1 ? 's' : ''}
             ${b.click_url ? ` &mdash; <span style="color:var(--cyan)">${escapeHtml(b.click_url)}</span>` : ''}
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center">
@@ -4733,7 +4733,7 @@
       list.innerHTML = placements.map(p => {
         const sc = statusColors[p.status] || 'var(--text-muted)';
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
-          <div style="font-size:12px"><strong>${escapeHtml(p.app_slug)}</strong> <span style="color:${sc};font-size:10px;text-transform:uppercase">${p.status}</span> <span style="color:var(--text-muted);font-size:10px">w:${p.weight}</span></div>
+          <div style="font-size:12px"><strong>${escapeHtml(p.app_slug)}</strong> <span style="color:${sc};font-size:10px;text-transform:uppercase">${escapeHtml(p.status)}</span> <span style="color:var(--text-muted);font-size:10px">w:${p.weight}</span></div>
           <div style="display:flex;gap:4px;align-items:center">
             <span style="font-size:10px;color:var(--text-muted)">${p.views}v/${p.clicks}c</span>
             ${p.status === 'draft' ? `<button class="btn" onclick="updatePlacement(${p.id},'active')" style="color:var(--green);font-size:10px;padding:2px 6px">Activate</button>` : ''}
@@ -4857,7 +4857,7 @@
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div><span style="font-size:10px;color:${sColor};font-weight:600;text-transform:uppercase;margin-right:6px">${sLabel}</span><span style="font-weight:600;font-size:13px">${escapeHtml(e.title)}</span></div>
             <div style="display:flex;gap:4px;align-items:center">
-              <span style="font-size:10px;color:${stColor};text-transform:uppercase">${e.status}</span>
+              <span style="font-size:10px;color:${stColor};text-transform:uppercase">${escapeHtml(e.status)}</span>
               ${e.status === 'draft' ? `<button class="btn" onclick="updatePlaybookStatus(${e.id},'active')" style="color:var(--green);font-size:10px;padding:2px 6px">Activate</button>` : ''}
               ${e.status === 'active' ? `<button class="btn" onclick="updatePlaybookStatus(${e.id},'completed')" style="color:var(--cyan);font-size:10px;padding:2px 6px">Complete</button>` : ''}
               <button class="btn" onclick="deletePlaybookEntry(${e.id})" style="color:var(--red);font-size:10px;padding:2px 6px">Delete</button>
@@ -5160,7 +5160,7 @@
       const area = document.getElementById('logArea');
       area.innerHTML = `<div class="log-viewer" style="color:var(--text-muted)">Loading logs...</div>`;
       try {
-        const res = await fetch(`/api/containers/${containerName}/logs?lines=${lines}`);
+        const res = await apiFetch(`/api/containers/${containerName}/logs?lines=${lines}`);
         const text = await res.text();
         area.innerHTML = `
           <div class="log-viewer-header">
@@ -7859,7 +7859,7 @@
           if (projTaskFilter.status) url += `status=${projTaskFilter.status}&`;
           if (projTaskFilter.priority) url += `priority=${projTaskFilter.priority}&`;
         }
-        const res = await fetch(url);
+        const res = await apiFetch(url);
         projTasksData = await res.json();
         renderProjectTasks();
       } catch (err) {

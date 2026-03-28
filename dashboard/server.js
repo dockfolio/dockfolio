@@ -13,11 +13,11 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { monitorEventLoopDelay } from 'perf_hooks';
 import {
-  slugify, containerName, hashValue, todayString, percent, safeJSON,
+  slugify, containerName, hashValue, todayString, formatDateISO, percent, safeJSON,
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
   getMarketableApps, getAppsWithEnv, diskScore, securityScore, seoScore,
   parseId, asyncRoute, errorFingerprint, errorScore, rateLimit, toCsv,
-  isBot, callAnthropic
+  isBot, callAnthropic, htmlEscape
 } from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -39,6 +39,7 @@ const TIMEOUT_TLS      = 8_000;    // TLS certificate checks (8s)
 const RATE_WINDOW      = 60_000;   // Rate limit window (1min)
 const MS_PER_HOUR      = 3_600_000;
 const MS_PER_DAY       = 86_400_000;
+const STRIPE_API = 'https://api.stripe.com/v1';
 
 // --- Event Loop Lag Monitor ---
 const eventLoopHistogram = monitorEventLoopDelay({ resolution: 20 });
@@ -322,7 +323,8 @@ app.use((req, res, next) => {
       const user = req.user?.username || 'anonymous';
       const ip = req.ip || req.connection?.remoteAddress || '';
       const detail = req.body ? JSON.stringify(req.body).slice(0, 500) : null;
-      getInsertAudit().run(user, req.method, req.method, req.path, res.statusCode, ip, detail);
+      const action = `${req.method} ${req.path}`;
+      getInsertAudit().run(user, action, req.method, req.path, res.statusCode, ip, detail);
     } catch { /* best-effort */ }
     originalEnd.apply(res, args);
   };
@@ -385,9 +387,13 @@ app.get('/api/auth/status', (_req, res) => {
   res.json({ setupComplete: isSetupComplete(), demoMode: DEMO_MODE });
 });
 
-app.post('/api/auth/setup', (req, res) => {
+app.post('/api/auth/setup', asyncRoute(async (req, res) => {
   if (isSetupComplete()) {
     return res.status(400).json({ error: 'Setup already completed' });
+  }
+  const clientIp = req.ip || req.socket.remoteAddress;
+  if (!checkRateLimit(clientIp)) {
+    return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes.' });
   }
   const { username, password } = req.body;
   if (!username || !password || password.length < 8) {
@@ -398,9 +404,9 @@ app.post('/api/auth/setup', (req, res) => {
   const session = createSession(result.lastInsertRowid);
   res.cookie('session', session.token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: SESSION_TTL_DAYS * MS_PER_DAY });
   res.json({ success: true });
-});
+}));
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', asyncRoute(async (req, res) => {
   const clientIp = req.ip || req.socket.remoteAddress;
   if (!checkRateLimit(clientIp)) {
     return res.status(429).json({ error: 'Too many login attempts. Try again in 15 minutes.' });
@@ -416,16 +422,16 @@ app.post('/api/auth/login', (req, res) => {
   const session = createSession(user.id);
   res.cookie('session', session.token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: SESSION_TTL_DAYS * MS_PER_DAY });
   res.json({ success: true, username: user.username });
-});
+}));
 
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout', asyncRoute(async (req, res) => {
   const token = req.cookies?.session;
   if (token) {
     authDb.prepare('DELETE FROM sessions WHERE token = ?').run(token);
   }
   res.clearCookie('session');
   res.json({ success: true });
-});
+}));
 
 app.get('/api/auth/me', (req, res) => {
   res.json({ username: req.user.username, role: req.user.role });
@@ -886,7 +892,7 @@ app.get('/api/containers/:name/logs', asyncRoute(async (req, res) => {
   const logs = await container.logs({
     stdout: true,
     stderr: true,
-    tail: parseInt(req.query.lines) || 100,
+    tail: Math.min(parseInt(req.query.lines) || 100, 5000),
     timestamps: true,
   });
 
@@ -1181,9 +1187,7 @@ app.post('/api/containers/:name/diagnose', asyncRoute(async (req, res) => {
       })),
       env: (info.Config?.Env || []).map(e => {
         const [key] = e.split('=', 1);
-        const lower = key.toLowerCase();
-        const isSensitive = ['password', 'secret', 'key', 'token', 'api_key', 'apikey', 'auth', 'credential'].some(s => lower.includes(s));
-        return isSensitive ? `${key}=***` : e;
+        return SENSITIVE_PATTERN.test(key) ? `${key}=***` : e;
       }),
     };
     // Health check info
@@ -2297,7 +2301,7 @@ app.get('/api/env/diff', asyncRoute((req, res) => {
 }));
 
 // POST /api/apps/:slug/recreate — recreate container with new env
-app.post('/api/apps/:slug/recreate', (req, res) => {
+app.post('/api/apps/:slug/recreate', asyncRoute(async (req, res) => {
   try {
     const appDef = findAppBySlug(req.params.slug);
     if (!appDef) return res.status(404).json({ error: 'App not found' });
@@ -2314,7 +2318,7 @@ app.post('/api/apps/:slug/recreate', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.stderr?.toString() || err.message });
   }
-});
+}));
 
 // GET /api/env/health — validate API keys across all apps
 let cachedKeyHealth = null;
@@ -2326,7 +2330,7 @@ async function validateKey(type, value) {
     const opts = { method: 'GET', headers: {}, signal: AbortSignal.timeout(TIMEOUT_STANDARD) };
     let url;
     if (type === 'STRIPE_SECRET_KEY') {
-      url = 'https://api.stripe.com/v1/balance';
+      url = `${STRIPE_API}/balance`;
       opts.headers['Authorization'] = 'Basic ' + Buffer.from(value + ':').toString('base64');
     } else if (type === 'ANTHROPIC_API_KEY') {
       url = 'https://api.anthropic.com/v1/models';
@@ -2441,7 +2445,7 @@ app.get('/api/settings/keys', asyncRoute(async (req, res) => {
 }));
 
 // PUT /api/settings/keys — save integration keys
-app.put('/api/settings/keys', (req, res) => {
+app.put('/api/settings/keys', asyncRoute(async (req, res) => {
   const { keys } = req.body;
   if (!Array.isArray(keys)) return res.status(400).json({ error: 'keys must be an array' });
 
@@ -2459,7 +2463,7 @@ app.put('/api/settings/keys', (req, res) => {
   }
 
   res.json({ success: true, saved, deleted });
-});
+}));
 
 // GET /api/settings/favorites — get favorite app slugs
 app.get('/api/settings/favorites', (req, res) => {
@@ -2469,12 +2473,12 @@ app.get('/api/settings/favorites', (req, res) => {
 });
 
 // PUT /api/settings/favorites — save favorite app slugs
-app.put('/api/settings/favorites', (req, res) => {
+app.put('/api/settings/favorites', asyncRoute(async (req, res) => {
   const { favorites } = req.body;
   if (!Array.isArray(favorites)) return res.status(400).json({ error: 'favorites must be an array' });
   upsertSettingStmt.run('favorite_apps', JSON.stringify(favorites));
   res.json({ success: true, favorites });
-});
+}));
 
 // --- App Configuration Management ---
 
@@ -2507,7 +2511,7 @@ app.get('/api/config/apps', (_req, res) => {
 });
 
 // POST /api/config/apps — add a new app
-app.post('/api/config/apps', (req, res) => {
+app.post('/api/config/apps', asyncRoute(async (req, res) => {
   const { name, type, domain, port, health, containers, description, tech, envFile, composeFile } = req.body;
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'App name is required' });
@@ -2533,7 +2537,7 @@ app.post('/api/config/apps', (req, res) => {
   config.apps.push(newApp);
   saveConfig();
   res.json({ success: true, slug: slugify(newApp.name) });
-});
+}));
 
 // POST /api/config/apps/validate — validate a partial app config
 app.post('/api/config/apps/validate', asyncRoute(async (req, res) => {
@@ -2576,7 +2580,7 @@ app.post('/api/config/apps/validate', asyncRoute(async (req, res) => {
 }));
 
 // PUT /api/config/apps/:slug — update an app
-app.put('/api/config/apps/:slug', (req, res) => {
+app.put('/api/config/apps/:slug', asyncRoute(async (req, res) => {
   const idx = config.apps.findIndex(a => slugify(a.name) === req.params.slug);
   if (idx === -1) return res.status(404).json({ error: 'App not found' });
 
@@ -2595,16 +2599,16 @@ app.put('/api/config/apps/:slug', (req, res) => {
 
   saveConfig();
   res.json({ success: true });
-});
+}));
 
 // DELETE /api/config/apps/:slug — remove an app
-app.delete('/api/config/apps/:slug', (req, res) => {
+app.delete('/api/config/apps/:slug', asyncRoute(async (req, res) => {
   const idx = config.apps.findIndex(a => slugify(a.name) === req.params.slug);
   if (idx === -1) return res.status(404).json({ error: 'App not found' });
   config.apps.splice(idx, 1);
   saveConfig();
   res.json({ success: true });
-});
+}));
 
 // --- Marketing Manager: SQLite + Revenue + Analytics ---
 
@@ -3300,15 +3304,15 @@ async function fetchStripeData(secretKey) {
 
   try {
     const [balanceRes, chargesRes] = await Promise.all([
-      fetch('https://api.stripe.com/v1/balance', opts),
-      fetch('https://api.stripe.com/v1/charges?limit=10', opts),
+      fetch(`${STRIPE_API}/balance`, opts),
+      fetch(`${STRIPE_API}/charges?limit=10`, opts),
     ]);
 
     const balance = balanceRes.ok ? await balanceRes.json() : null;
     const charges = chargesRes.ok ? await chargesRes.json() : null;
 
     // Get MRR from active subscriptions
-    const subsRes = await fetch('https://api.stripe.com/v1/subscriptions?status=active&limit=100', opts);
+    const subsRes = await fetch(`${STRIPE_API}/subscriptions?status=active&limit=100`, opts);
     const subs = subsRes.ok ? await subsRes.json() : null;
 
     let mrr = 0;
@@ -3325,7 +3329,7 @@ async function fetchStripeData(secretKey) {
 
     // Revenue last 30 days
     const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 86400;
-    const revenueRes = await fetch(`https://api.stripe.com/v1/charges?limit=100&created[gte]=${thirtyDaysAgo}`, opts);
+    const revenueRes = await fetch(`${STRIPE_API}/charges?limit=100&created[gte]=${thirtyDaysAgo}`, opts);
     const revenueData = revenueRes.ok ? await revenueRes.json() : null;
 
     let revenue30d = 0;
@@ -3512,8 +3516,8 @@ app.get('/api/marketing/analytics', asyncRoute(async (req, res) => {
 
 // GET /api/marketing/trends — historical metric data from SQLite
 app.get('/api/marketing/trends', asyncRoute((req, res) => {
-  const days = parseInt(req.query.days) || 30;
-  const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString().slice(0, 10);
+  const days = Math.min(parseInt(req.query.days) || 30, 365);
+  const cutoff = formatDateISO(Date.now() - days * MS_PER_DAY);
 
   const rows = db.prepare(`
     SELECT app_slug, date, metric_type, value
@@ -3537,8 +3541,8 @@ app.get('/api/marketing/trends', asyncRoute((req, res) => {
 
 // GET /api/charts/revenue — MRR series per app, pre-formatted for Chart.js
 app.get('/api/charts/revenue', asyncRoute((req, res) => {
-  const days = parseInt(req.query.days) || 30;
-  const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString().slice(0, 10);
+  const days = Math.min(parseInt(req.query.days) || 30, 365);
+  const cutoff = formatDateISO(Date.now() - days * MS_PER_DAY);
   const rows = db.prepare(`
     SELECT app_slug, date, value FROM metrics_daily
     WHERE metric_type = 'mrr' AND date >= ?
@@ -3563,8 +3567,8 @@ app.get('/api/charts/revenue', asyncRoute((req, res) => {
 
 // GET /api/charts/traffic — visitors/pageviews per app per day
 app.get('/api/charts/traffic', asyncRoute((req, res) => {
-  const days = parseInt(req.query.days) || 30;
-  const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString().slice(0, 10);
+  const days = Math.min(parseInt(req.query.days) || 30, 365);
+  const cutoff = formatDateISO(Date.now() - days * MS_PER_DAY);
   const rows = db.prepare(`
     SELECT app_slug, date, visitors, pageviews FROM analytics_daily
     WHERE date >= ?
@@ -3589,8 +3593,8 @@ app.get('/api/charts/traffic', asyncRoute((req, res) => {
 
 // GET /api/charts/errors — error counts by severity per day
 app.get('/api/charts/errors', asyncRoute((req, res) => {
-  const days = parseInt(req.query.days) || 7;
-  const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString().slice(0, 10);
+  const days = Math.min(parseInt(req.query.days) || 7, 365);
+  const cutoff = formatDateISO(Date.now() - days * MS_PER_DAY);
   const rows = db.prepare(`
     SELECT date(timestamp) as day, severity, COUNT(*) as count
     FROM error_events
@@ -3614,7 +3618,7 @@ app.get('/api/charts/errors', asyncRoute((req, res) => {
 
 // GET /api/charts/latency — hourly p50/p95/p99 aggregates
 app.get('/api/charts/latency', asyncRoute((req, res) => {
-  const hours = parseInt(req.query.hours) || 168;
+  const hours = Math.min(parseInt(req.query.hours) || 168, 8760);
   const cutoff = new Date(Date.now() - hours * MS_PER_HOUR).toISOString().slice(0, 13);
   const rows = db.prepare(`
     SELECT hour, SUM(request_count) as requests,
@@ -3635,7 +3639,7 @@ app.get('/api/charts/latency', asyncRoute((req, res) => {
 
 // GET /api/charts/uptime — per-app status per hour (heatmap data)
 app.get('/api/charts/uptime', asyncRoute((req, res) => {
-  const days = parseInt(req.query.days) || 7;
+  const days = Math.min(parseInt(req.query.days) || 7, 365);
   const cutoff = new Date(Date.now() - days * MS_PER_DAY).toISOString();
   const rows = db.prepare(`
     SELECT app_slug, strftime('%Y-%m-%d %H:00', checked_at) as hour,
@@ -4024,7 +4028,7 @@ async function paginateStripe(secretKey, endpoint, extraParams = '', maxPages = 
   let pages = 0;
 
   do {
-    let url = `https://api.stripe.com/v1/${endpoint}?limit=100`;
+    let url = `${STRIPE_API}/${endpoint}?limit=100`;
     if (extraParams) url += '&' + extraParams;
     if (startingAfter) url += '&starting_after=' + startingAfter;
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MEDIUM) });
@@ -4339,7 +4343,10 @@ async function sendEmail(toEmail, subject, htmlBody, appSlug) {
 
   const appDef = findAppBySlug(appSlug);
   const fromName = appDef?.name || 'Dockfolio';
-  const fromDomain = process.env.EMAIL_FROM_DOMAIN || appDef?.domain || 'example.com';
+  const fromDomain = process.env.EMAIL_FROM_DOMAIN || appDef?.domain;
+  if (!fromDomain) {
+    throw new Error('No email domain configured (set EMAIL_FROM_DOMAIN or add domain to app config)');
+  }
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -5205,7 +5212,7 @@ const insertHealing = db.prepare(
 
 async function generateAlertExplanation(condition, containerName, appSlug) {
   try {
-    const anthropicKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+    const anthropicKey = getAnthropicKey();
     if (!anthropicKey) return '';
 
     // Try to fetch last 50 log lines from the container
@@ -5536,7 +5543,7 @@ app.get('/api/cost-analysis', asyncRoute(async (_req, res) => {
   // AI analysis (best-effort)
   let aiRecommendations = '';
   try {
-    const anthropicKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+    const anthropicKey = getAnthropicKey();
     if (anthropicKey) {
       const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
         maxTokens: 600, timeout: TIMEOUT_AI,
@@ -5602,7 +5609,7 @@ async function onContainerDeploy(containerName) {
   let summary = '';
   if (commits.length > 0) {
     try {
-      const anthropicKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+      const anthropicKey = getAnthropicKey();
       if (anthropicKey) {
         const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
           maxTokens: 150, timeout: TIMEOUT_STANDARD,
@@ -5962,6 +5969,7 @@ cron.schedule('0 5 * * 0', () => {
     const cutoff = new Date(Date.now() - 90 * MS_PER_DAY).toISOString();
     const old = db.prepare('SELECT id FROM security_scans WHERE timestamp < ?').all(cutoff);
     if (old.length > 0) {
+      // Safe: placeholders are generated from .map(() => '?') and values are parameterized via .run()
       const placeholders = old.map(() => '?').join(',');
       db.prepare(`DELETE FROM security_findings WHERE scan_id IN (${placeholders})`).run(...old.map(o => o.id));
       db.prepare('DELETE FROM security_scans WHERE timestamp < ?').run(cutoff);
@@ -6744,18 +6752,19 @@ app.get('/api/projects/overview', asyncRoute(async (req, res) => {
 app.put('/api/projects/meta/:slug', asyncRoute((req, res) => {
   const slug = req.params.slug;
   const { lifecycle, priority, revenue_goal_mrr, traffic_goal_mpv, user_goal, notes } = req.body;
+  const ALLOWED_PROJECT_META_FIELDS = ['lifecycle', 'priority', 'revenue_goal_mrr', 'traffic_goal_mpv', 'user_goal', 'notes'];
   const existing = db.prepare('SELECT id FROM project_meta WHERE app_slug = ?').get(slug);
   if (!existing) {
     db.prepare('INSERT INTO project_meta (app_slug, lifecycle, priority, revenue_goal_mrr, traffic_goal_mpv, user_goal, notes) VALUES (?, ?, ?, ?, ?, ?, ?)').run(slug, lifecycle || 'launched', priority || 2, revenue_goal_mrr || null, traffic_goal_mpv || null, user_goal || null, notes || null);
   } else {
     const fields = [];
     const values = [];
-    if (lifecycle !== undefined) { fields.push('lifecycle = ?'); values.push(lifecycle); }
-    if (priority !== undefined) { fields.push('priority = ?'); values.push(priority); }
-    if (revenue_goal_mrr !== undefined) { fields.push('revenue_goal_mrr = ?'); values.push(revenue_goal_mrr); }
-    if (traffic_goal_mpv !== undefined) { fields.push('traffic_goal_mpv = ?'); values.push(traffic_goal_mpv); }
-    if (user_goal !== undefined) { fields.push('user_goal = ?'); values.push(user_goal); }
-    if (notes !== undefined) { fields.push('notes = ?'); values.push(notes); }
+    if (lifecycle !== undefined && ALLOWED_PROJECT_META_FIELDS.includes('lifecycle')) { fields.push('lifecycle = ?'); values.push(lifecycle); }
+    if (priority !== undefined && ALLOWED_PROJECT_META_FIELDS.includes('priority')) { fields.push('priority = ?'); values.push(priority); }
+    if (revenue_goal_mrr !== undefined && ALLOWED_PROJECT_META_FIELDS.includes('revenue_goal_mrr')) { fields.push('revenue_goal_mrr = ?'); values.push(revenue_goal_mrr); }
+    if (traffic_goal_mpv !== undefined && ALLOWED_PROJECT_META_FIELDS.includes('traffic_goal_mpv')) { fields.push('traffic_goal_mpv = ?'); values.push(traffic_goal_mpv); }
+    if (user_goal !== undefined && ALLOWED_PROJECT_META_FIELDS.includes('user_goal')) { fields.push('user_goal = ?'); values.push(user_goal); }
+    if (notes !== undefined && ALLOWED_PROJECT_META_FIELDS.includes('notes')) { fields.push('notes = ?'); values.push(notes); }
     if (fields.length > 0) {
       fields.push("updated_at = datetime('now')");
       values.push(slug);
@@ -6790,16 +6799,17 @@ app.put('/api/projects/tasks/:id', asyncRoute((req, res) => {
   const id = parseId(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: 'Invalid task ID' });
   const { title, description, status, priority, due_date, reminder_at, tags, app_slug } = req.body;
+  const ALLOWED_TASK_FIELDS = ['title', 'description', 'status', 'priority', 'due_date', 'reminder_at', 'tags', 'app_slug'];
   const fields = [];
   const values = [];
-  if (title !== undefined) { fields.push('title = ?'); values.push(title); }
-  if (description !== undefined) { fields.push('description = ?'); values.push(description); }
-  if (status !== undefined) { fields.push('status = ?'); values.push(status); }
-  if (priority !== undefined) { fields.push('priority = ?'); values.push(priority); }
-  if (due_date !== undefined) { fields.push('due_date = ?'); values.push(due_date); }
-  if (reminder_at !== undefined) { fields.push('reminder_at = ?'); values.push(reminder_at); fields.push('reminder_sent = 0'); }
-  if (tags !== undefined) { fields.push('tags = ?'); values.push(JSON.stringify(tags)); }
-  if (app_slug !== undefined) { fields.push('app_slug = ?'); values.push(app_slug); }
+  if (title !== undefined && ALLOWED_TASK_FIELDS.includes('title')) { fields.push('title = ?'); values.push(title); }
+  if (description !== undefined && ALLOWED_TASK_FIELDS.includes('description')) { fields.push('description = ?'); values.push(description); }
+  if (status !== undefined && ALLOWED_TASK_FIELDS.includes('status')) { fields.push('status = ?'); values.push(status); }
+  if (priority !== undefined && ALLOWED_TASK_FIELDS.includes('priority')) { fields.push('priority = ?'); values.push(priority); }
+  if (due_date !== undefined && ALLOWED_TASK_FIELDS.includes('due_date')) { fields.push('due_date = ?'); values.push(due_date); }
+  if (reminder_at !== undefined && ALLOWED_TASK_FIELDS.includes('reminder_at')) { fields.push('reminder_at = ?'); values.push(reminder_at); fields.push('reminder_sent = 0'); }
+  if (tags !== undefined && ALLOWED_TASK_FIELDS.includes('tags')) { fields.push('tags = ?'); values.push(JSON.stringify(tags)); }
+  if (app_slug !== undefined && ALLOWED_TASK_FIELDS.includes('app_slug')) { fields.push('app_slug = ?'); values.push(app_slug); }
   if (fields.length === 0) return res.status(400).json({ error: 'No fields to update' });
   fields.push("updated_at = datetime('now')");
   values.push(id);
@@ -7838,14 +7848,14 @@ cron.schedule('*/5 * * * *', guardedCron('uptime', async () => {
 // --- Error Tracking API ---
 
 // Public: Accept error reports from apps
-app.post('/api/errors/ingest', rlErrorIngest, (req, res) => {
+app.post('/api/errors/ingest', rlErrorIngest, asyncRoute(async (req, res) => {
   const { app: appSlug, message, stack, severity, url, method, breadcrumbs, extra } = req.body;
   const result = ingestError({ app: appSlug, message, stack, severity, source: 'sdk', url, method, breadcrumbs, extra });
   res.status(result.ok ? 200 : 400).json(result);
-});
+}));
 
 // Public: Sentry SDK envelope compatibility
-app.post('/api/errors/envelope', rlErrorIngest, express.text({ type: '*/*', limit: '64kb' }), (req, res) => {
+app.post('/api/errors/envelope', rlErrorIngest, express.text({ type: '*/*', limit: '64kb' }), asyncRoute(async (req, res) => {
   try {
     const lines = (typeof req.body === 'string' ? req.body : '').split('\n').filter(Boolean);
     if (lines.length < 2) return res.status(400).json({ error: 'invalid envelope' });
@@ -7880,7 +7890,7 @@ app.post('/api/errors/envelope', rlErrorIngest, express.text({ type: '*/*', limi
   } catch (err) {
     res.status(400).json({ error: 'failed to parse envelope' });
   }
-});
+}));
 
 // Public: Lightweight browser error SDK
 app.get('/api/errors/sdk.js', (_req, res) => {
@@ -8267,7 +8277,7 @@ app.get('/api/analytics/track.js', rlPublicRead, (req, res) => {
 });
 
 // Public: POST-based tracker for SPAs
-app.post('/api/analytics/event', rlPublicRead, (req, res) => {
+app.post('/api/analytics/event', rlPublicRead, asyncRoute(async (req, res) => {
   const { app: appSlug, url, referrer } = req.body || {};
   if (!appSlug) return res.status(400).json({ error: 'app required' });
   const ua = req.headers['user-agent'] || '';
@@ -8279,13 +8289,13 @@ app.post('/api/analytics/event', rlPublicRead, (req, res) => {
       .run(appSlug, url || '/', referrer || null, ua.slice(0, 200), country, sessionId);
   } catch (err) { console.error('[ANALYTICS]', err.message); }
   res.json({ ok: true });
-});
+}));
 
 // Authenticated: analytics overview
 app.get('/api/analytics/overview', asyncRoute(async (req, res) => {
   const period = req.query.period || '30d';
   const days = period === '7d' ? 7 : period === '90d' ? 90 : 30;
-  const since = new Date(Date.now() - days * MS_PER_DAY).toISOString().slice(0, 10);
+  const since = formatDateISO(Date.now() - days * MS_PER_DAY);
   const rows = db.prepare('SELECT app_slug, SUM(visitors) as visitors, SUM(pageviews) as pageviews FROM analytics_daily WHERE date >= ? GROUP BY app_slug ORDER BY visitors DESC').all(since);
   const total = rows.reduce((s, r) => ({ visitors: s.visitors + (r.visitors || 0), pageviews: s.pageviews + (r.pageviews || 0) }), { visitors: 0, pageviews: 0 });
   res.json({ period, total, apps: rows });
@@ -8295,7 +8305,7 @@ app.get('/api/analytics/overview', asyncRoute(async (req, res) => {
 app.get('/api/analytics/:slug', asyncRoute(async (req, res) => {
   const slug = req.params.slug;
   const days = parseInt(req.query.days) || 30;
-  const since = new Date(Date.now() - days * MS_PER_DAY).toISOString().slice(0, 10);
+  const since = formatDateISO(Date.now() - days * MS_PER_DAY);
   const daily = db.prepare('SELECT * FROM analytics_daily WHERE app_slug = ? AND date >= ? ORDER BY date').all(slug, since);
   const latest = daily[daily.length - 1];
   res.json({ slug, days, daily, topPages: safeJSON(latest?.top_pages, []), topReferrers: safeJSON(latest?.top_referrers, []), countries: safeJSON(latest?.countries, {}) });
@@ -8377,7 +8387,7 @@ cron.schedule('30 1 * * *', () => {
 
 // ========== GITHUB WEBHOOK (auto-deploy) ==========
 
-app.post('/api/webhooks/github', (req, res) => {
+app.post('/api/webhooks/github', asyncRoute(async (req, res) => {
   const WEBHOOK_SECRET = getSetting('GITHUB_WEBHOOK_SECRET') || process.env.GITHUB_WEBHOOK_SECRET;
   if (!WEBHOOK_SECRET) return res.status(500).json({ error: 'Webhook secret not configured' });
   const sig = req.headers['x-hub-signature-256'];
@@ -8406,7 +8416,7 @@ app.post('/api/webhooks/github', (req, res) => {
   } else {
     res.json({ ok: true, event, skipped: true });
   }
-});
+}));
 
 function matchRepoToApp(repoFullName) {
   if (!repoFullName) return null;
@@ -8888,9 +8898,12 @@ cron.schedule('30 * * * *', guardedCron('cron-monitor', async () => {
 // --- Anomaly Detection (statistical z-scores on system metrics) ---
 app.get('/api/anomalies', asyncRoute((_req, res) => {
   const anomalies = [];
+  const ALLOWED_METRICS = ['cpu_percent', 'mem_used_bytes', 'load_1m', 'disk_used_bytes'];
   const metrics = ['cpu_percent', 'mem_used_bytes', 'load_1m', 'disk_used_bytes'];
 
   for (const metric of metrics) {
+    // Whitelist check to prevent SQL injection via dynamic column name
+    if (!ALLOWED_METRICS.includes(metric)) continue;
     // Get 7-day baseline
     const rows = db.prepare(`SELECT ${metric} as val FROM system_snapshots WHERE ts > datetime('now', '-7 days') ORDER BY ts ASC`).all();
     if (rows.length < 20) continue; // need enough data
@@ -9070,8 +9083,11 @@ cron.schedule('0 9 * * *', guardedCron('revenue-milestones', async () => {
 // Anomaly alert cron — every 30 minutes
 cron.schedule('*/30 * * * *', guardedCron('anomaly-check', async () => {
   try {
+    const ALLOWED_ANOMALY_METRICS = ['cpu_percent', 'mem_used_bytes', 'load_1m'];
     const metrics = ['cpu_percent', 'mem_used_bytes', 'load_1m'];
     for (const metric of metrics) {
+      // Whitelist check to prevent SQL injection via dynamic column name
+      if (!ALLOWED_ANOMALY_METRICS.includes(metric)) continue;
       const rows = db.prepare(`SELECT ${metric} as val FROM system_snapshots WHERE ts > datetime('now', '-7 days') ORDER BY ts ASC`).all();
       if (rows.length < 20) continue;
 
@@ -9098,7 +9114,7 @@ app.post('/api/incidents/analyze', asyncRoute(async (req, res) => {
   const { containerName, appSlug } = req.body;
   if (!containerName) return res.status(400).json({ error: 'containerName is required' });
 
-  const anthropicKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+  const anthropicKey = getAnthropicKey();
   if (!anthropicKey) return res.status(400).json({ error: 'No Anthropic API key configured' });
 
   // Gather context: logs, system metrics, healing history, uptime
@@ -9190,32 +9206,62 @@ Be concise and actionable. Focus on the most likely root cause.`;
 // --- Public Status Page ---
 
 app.get('/api/status-page', asyncRoute(async (_req, res) => {
+  // Batch DB queries to avoid N+1 per app
+  const allUptime = db.prepare("SELECT app_slug, status FROM uptime_history WHERE checked_at > datetime('now', '-30 days')").all();
+  const uptimeByApp = {};
+  for (const row of allUptime) {
+    if (!uptimeByApp[row.app_slug]) uptimeByApp[row.app_slug] = [];
+    uptimeByApp[row.app_slug].push(row);
+  }
+
+  const allIncidents = db.prepare("SELECT app_slug, condition, action_taken, result, timestamp FROM healing_log WHERE timestamp > datetime('now', '-7 days') ORDER BY timestamp DESC").all();
+  const incidentsByApp = {};
+  for (const row of allIncidents) {
+    if (!incidentsByApp[row.app_slug]) incidentsByApp[row.app_slug] = [];
+    incidentsByApp[row.app_slug].push(row);
+  }
+
+  // Collect all container names and inspect in parallel
+  const appDefs = config.apps.filter(a => a.domain);
+  const containerNames = new Set();
+  for (const appDef of appDefs) {
+    for (const cName of (appDef.containers || [])) containerNames.add(cName);
+  }
+  const inspectResults = {};
+  const inspectPromises = [...containerNames].map(async (cName) => {
+    try {
+      const info = await docker.getContainer(cName).inspect();
+      inspectResults[cName] = info;
+    } catch {
+      inspectResults[cName] = null;
+    }
+  });
+  await Promise.all(inspectPromises);
+
   const apps = [];
-  for (const appDef of config.apps) {
-    if (!appDef.domain) continue;
+  for (const appDef of appDefs) {
     const slug = slugify(appDef.name);
     const containers = appDef.containers || [];
     let status = 'operational';
     let statusText = 'Operational';
 
-    // Check container health
+    // Check container health from pre-fetched inspect results
     for (const cName of containers) {
-      try {
-        const container = docker.getContainer(cName);
-        const info = await container.inspect();
-        const state = info.State;
-        if (!state.Running) {
-          status = 'down';
-          statusText = 'Down';
-          break;
-        }
-        if (state.Health && state.Health.Status !== 'healthy') {
-          status = 'degraded';
-          statusText = 'Degraded';
-        }
-      } catch {
+      const info = inspectResults[cName];
+      if (!info) {
         status = 'unknown';
         statusText = 'Unknown';
+        continue;
+      }
+      const state = info.State;
+      if (!state.Running) {
+        status = 'down';
+        statusText = 'Down';
+        break;
+      }
+      if (state.Health && state.Health.Status !== 'healthy') {
+        status = 'degraded';
+        statusText = 'Degraded';
       }
     }
 
@@ -9225,18 +9271,14 @@ app.get('/api/status-page', asyncRoute(async (_req, res) => {
       statusText = 'Static Site';
     }
 
-    // Uptime percentage from history (last 30 days)
-    const uptimeRows = db.prepare(
-      "SELECT status FROM uptime_history WHERE app_slug = ? AND checked_at > datetime('now', '-30 days')"
-    ).all(slug);
+    // Uptime percentage from batched history
+    const uptimeRows = uptimeByApp[slug] || [];
     const totalChecks = uptimeRows.length;
     const upChecks = uptimeRows.filter(r => r.status === 'up' || r.status === 'healthy').length;
     const uptimePct = totalChecks > 0 ? +(upChecks / totalChecks * 100).toFixed(2) : null;
 
-    // Recent incidents (last 7 days)
-    const incidents = db.prepare(
-      "SELECT condition, action_taken, result, timestamp FROM healing_log WHERE app_slug = ? AND timestamp > datetime('now', '-7 days') ORDER BY timestamp DESC LIMIT 5"
-    ).all(slug);
+    // Recent incidents from batched healing log
+    const incidents = (incidentsByApp[slug] || []).slice(0, 5);
 
     apps.push({
       name: appDef.name,
@@ -9265,24 +9307,33 @@ app.get('/status', (_req, res) => {
   res.send(generateStatusPageHTML());
 });
 
-function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-
 function generateStatusPageHTML() {
+  // Batch queries to avoid N+1 per app
+  const allUptime = db.prepare("SELECT app_slug, status FROM uptime_history WHERE checked_at > datetime('now', '-30 days')").all();
+  const uptimeByApp = {};
+  for (const row of allUptime) {
+    if (!uptimeByApp[row.app_slug]) uptimeByApp[row.app_slug] = [];
+    uptimeByApp[row.app_slug].push(row);
+  }
+
+  const allIncidents = db.prepare("SELECT app_slug, condition, timestamp FROM healing_log WHERE timestamp > datetime('now', '-7 days') ORDER BY timestamp DESC").all();
+  const incidentsByApp = {};
+  for (const row of allIncidents) {
+    if (!incidentsByApp[row.app_slug]) incidentsByApp[row.app_slug] = [];
+    incidentsByApp[row.app_slug].push(row);
+  }
+
   const apps = [];
   for (const appDef of config.apps) {
     if (!appDef.domain) continue;
     const slug = slugify(appDef.name);
 
-    const uptimeRows = db.prepare(
-      "SELECT status FROM uptime_history WHERE app_slug = ? AND checked_at > datetime('now', '-30 days')"
-    ).all(slug);
+    const uptimeRows = uptimeByApp[slug] || [];
     const totalChecks = uptimeRows.length;
     const upChecks = uptimeRows.filter(r => r.status === 'up' || r.status === 'healthy').length;
     const uptimePct = totalChecks > 0 ? (upChecks / totalChecks * 100).toFixed(2) : null;
 
-    const recentIncidents = db.prepare(
-      "SELECT condition, timestamp FROM healing_log WHERE app_slug = ? AND timestamp > datetime('now', '-7 days') ORDER BY timestamp DESC LIMIT 3"
-    ).all(slug);
+    const recentIncidents = (incidentsByApp[slug] || []).slice(0, 3);
 
     apps.push({ name: appDef.name, domain: appDef.domain, uptimePct, incidents: recentIncidents });
   }
@@ -9299,8 +9350,8 @@ function generateStatusPageHTML() {
     appRows += `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1f2937">
         <div>
-          <div style="font-weight:600;font-size:14px">${esc(app.name)}</div>
-          <div style="font-size:12px;color:#9ca3af">${esc(app.domain)}</div>
+          <div style="font-weight:600;font-size:14px">${htmlEscape(app.name)}</div>
+          <div style="font-size:12px;color:#9ca3af">${htmlEscape(app.domain)}</div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <span style="font-size:13px;color:${color};font-weight:500">${uptime}</span>
@@ -9442,7 +9493,7 @@ app.get('/api/slo', asyncRoute((_req, res) => {
 
 // --- Solopreneur Focus Recommendations (AI-powered) ---
 app.get('/api/focus', asyncRoute(async (_req, res) => {
-  const apiKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+  const apiKey = getAnthropicKey();
   if (!apiKey) return res.json({ recommendations: [], error: 'No API key' });
 
   // Gather all app metrics for AI analysis
@@ -9503,20 +9554,21 @@ Based on effort-to-impact ratio, what 3 things should I focus on this week?`;
 
 // --- Stripe Checkout Management ---
 
+function getStripeKeyForApp(appSlug, appKeys) {
+  if (!appSlug) return null;
+  for (const appDef of config.apps) {
+    if (slugify(appDef.name) === appSlug) {
+      return appKeys.get(appDef.name);
+    }
+  }
+  return null;
+}
+
 // List Stripe products and prices for an app
 app.get('/api/stripe/products', asyncRoute(async (req, res) => {
   const { keys, appKeys } = getStripeKeys();
   const appSlug = req.query.app;
-  let secretKey = null;
-
-  if (appSlug) {
-    for (const appDef of config.apps) {
-      if (slugify(appDef.name) === appSlug) {
-        secretKey = appKeys.get(appDef.name);
-        break;
-      }
-    }
-  }
+  let secretKey = getStripeKeyForApp(appSlug, appKeys);
   if (!secretKey) secretKey = keys.keys().next().value;
   if (!secretKey) return res.json({ products: [], error: 'No Stripe key configured' });
 
@@ -9524,8 +9576,8 @@ app.get('/api/stripe/products', asyncRoute(async (req, res) => {
   const opts = { headers, signal: AbortSignal.timeout(TIMEOUT_STANDARD) };
 
   const [productsRes, pricesRes] = await Promise.all([
-    fetch('https://api.stripe.com/v1/products?active=true&limit=100', opts),
-    fetch('https://api.stripe.com/v1/prices?active=true&limit=100&expand[]=data.product', opts),
+    fetch(`${STRIPE_API}/products?active=true&limit=100`, opts),
+    fetch(`${STRIPE_API}/prices?active=true&limit=100&expand[]=data.product`, opts),
   ]);
 
   const products = productsRes.ok ? (await productsRes.json()).data : [];
@@ -9556,18 +9608,12 @@ app.get('/api/stripe/products', asyncRoute(async (req, res) => {
 app.post('/api/stripe/checkout', asyncRoute(async (req, res) => {
   const { priceId, mode, successUrl, cancelUrl, appSlug } = req.body;
   if (!priceId) return res.status(400).json({ error: 'priceId is required' });
+  if (!successUrl || !cancelUrl) {
+    return res.status(400).json({ error: 'success_url and cancel_url are required' });
+  }
 
   const { keys, appKeys } = getStripeKeys();
-  let secretKey = null;
-
-  if (appSlug) {
-    for (const appDef of config.apps) {
-      if (slugify(appDef.name) === appSlug) {
-        secretKey = appKeys.get(appDef.name);
-        break;
-      }
-    }
-  }
+  let secretKey = getStripeKeyForApp(appSlug, appKeys);
   if (!secretKey) secretKey = keys.keys().next().value;
   if (!secretKey) return res.status(400).json({ error: 'No Stripe key configured' });
 
@@ -9576,8 +9622,8 @@ app.post('/api/stripe/checkout', asyncRoute(async (req, res) => {
     'line_items[0][price]': priceId,
     'line_items[0][quantity]': '1',
     'mode': mode || 'payment',
-    'success_url': successUrl || 'https://example.com/success?session_id={CHECKOUT_SESSION_ID}',
-    'cancel_url': cancelUrl || 'https://example.com/cancel',
+    'success_url': successUrl,
+    'cancel_url': cancelUrl,
     'allow_promotion_codes': 'true',
     'tax_id_collection[enabled]': 'true',
   });
@@ -9588,7 +9634,7 @@ app.post('/api/stripe/checkout', asyncRoute(async (req, res) => {
     body.append('payment_method_types[]', 'sepa_debit');
   }
 
-  const sessionRes = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+  const sessionRes = await fetch(`${STRIPE_API}/checkout/sessions`, {
     method: 'POST',
     headers,
     body,
@@ -9613,21 +9659,12 @@ app.post('/api/stripe/checkout', asyncRoute(async (req, res) => {
 app.get('/api/stripe/payment-links', asyncRoute(async (req, res) => {
   const { keys, appKeys } = getStripeKeys();
   const appSlug = req.query.app;
-  let secretKey = null;
-
-  if (appSlug) {
-    for (const appDef of config.apps) {
-      if (slugify(appDef.name) === appSlug) {
-        secretKey = appKeys.get(appDef.name);
-        break;
-      }
-    }
-  }
+  let secretKey = getStripeKeyForApp(appSlug, appKeys);
   if (!secretKey) secretKey = keys.keys().next().value;
   if (!secretKey) return res.json({ links: [], error: 'No Stripe key configured' });
 
   const headers = stripeHeaders(secretKey);
-  const linksRes = await fetch('https://api.stripe.com/v1/payment_links?active=true&limit=100', {
+  const linksRes = await fetch(`${STRIPE_API}/payment_links?active=true&limit=100`, {
     headers,
     signal: AbortSignal.timeout(TIMEOUT_STANDARD),
   });
@@ -9655,16 +9692,7 @@ app.post('/api/stripe/payment-links', asyncRoute(async (req, res) => {
   if (!priceId) return res.status(400).json({ error: 'priceId is required' });
 
   const { keys, appKeys } = getStripeKeys();
-  let secretKey = null;
-
-  if (appSlug) {
-    for (const appDef of config.apps) {
-      if (slugify(appDef.name) === appSlug) {
-        secretKey = appKeys.get(appDef.name);
-        break;
-      }
-    }
-  }
+  let secretKey = getStripeKeyForApp(appSlug, appKeys);
   if (!secretKey) secretKey = keys.keys().next().value;
   if (!secretKey) return res.status(400).json({ error: 'No Stripe key configured' });
 
@@ -9681,7 +9709,7 @@ app.post('/api/stripe/payment-links', asyncRoute(async (req, res) => {
     body.append('after_completion[redirect][url]', req.body.afterCompletionUrl);
   }
 
-  const linkRes = await fetch('https://api.stripe.com/v1/payment_links', {
+  const linkRes = await fetch(`${STRIPE_API}/payment_links`, {
     method: 'POST',
     headers,
     body,
@@ -9708,7 +9736,7 @@ app.get('/api/stripe/recent', asyncRoute(async (_req, res) => {
   if (!secretKey) return res.json({ charges: [], error: 'No Stripe key configured' });
 
   const headers = stripeHeaders(secretKey);
-  const chargesRes = await fetch('https://api.stripe.com/v1/charges?limit=25', {
+  const chargesRes = await fetch(`${STRIPE_API}/charges?limit=25`, {
     headers,
     signal: AbortSignal.timeout(TIMEOUT_STANDARD),
   });
@@ -9868,7 +9896,7 @@ app.post('/api/whatif', asyncRoute(async (req, res) => {
   const { scenario } = req.body;
   if (!scenario) return res.status(400).json({ error: 'scenario is required' });
 
-  const anthropicKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+  const anthropicKey = getAnthropicKey();
   if (!anthropicKey) return res.status(400).json({ error: 'No Anthropic API key configured' });
 
   // Gather portfolio context
@@ -10166,7 +10194,7 @@ app.get('/api/achievements', asyncRoute((_req, res) => {
 // --- Build in Public Generator ---
 
 app.get('/api/build-in-public', asyncRoute(async (_req, res) => {
-  const anthropicKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+  const anthropicKey = getAnthropicKey();
   if (!anthropicKey) return res.status(400).json({ error: 'No Anthropic API key configured' });
 
   // Gather this week's activity

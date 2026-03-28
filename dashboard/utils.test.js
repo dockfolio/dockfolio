@@ -3,11 +3,11 @@ import { writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import {
-  slugify, containerName, hashValue, todayString, percent, safeJSON,
+  slugify, containerName, hashValue, todayString, formatDateISO, percent, safeJSON,
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
   getMarketableApps, diskScore, securityScore, seoScore,
   parseId, asyncRoute, errorFingerprint, errorScore, rateLimit, toCsv,
-  isBot, evaluateCondition
+  isBot, htmlEscape
 } from './utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -89,6 +89,21 @@ test('returns YYYY-MM-DD format', () => {
 
 test('returns 10 characters', () => {
   assert.equal(todayString().length, 10);
+});
+
+// --- formatDateISO ---
+console.log('\nformatDateISO()');
+
+test('formats timestamp to YYYY-MM-DD', () => {
+  assert.equal(formatDateISO(new Date('2026-03-28T15:30:00Z').getTime()), '2026-03-28');
+});
+
+test('formats Date object', () => {
+  assert.equal(formatDateISO(new Date('2025-01-01')), '2025-01-01');
+});
+
+test('returns 10 characters', () => {
+  assert.equal(formatDateISO(Date.now()).length, 10);
 });
 
 // --- percent ---
@@ -441,18 +456,16 @@ test('allows normal Chrome', () => { assert.equal(isBot('Mozilla/5.0 (Windows NT
 test('returns true for null', () => { assert.equal(isBot(null), true); });
 test('returns true for empty string', () => { assert.equal(isBot(''), true); });
 
-// --- evaluateCondition ---
-console.log('\nevaluateCondition()');
+// --- htmlEscape ---
+console.log('\nhtmlEscape()');
 
-test('greater than true', () => { assert.equal(evaluateCondition(50, '>', '40'), true); });
-test('greater than false', () => { assert.equal(evaluateCondition(30, '>', '40'), false); });
-test('less than', () => { assert.equal(evaluateCondition(10, '<', '20'), true); });
-test('greater or equal', () => { assert.equal(evaluateCondition(40, '>=', '40'), true); });
-test('less or equal', () => { assert.equal(evaluateCondition(39, '<=', '40'), true); });
-test('equals', () => { assert.equal(evaluateCondition(42, '==', '42'), true); });
-test('contains', () => { assert.equal(evaluateCondition('hello world', 'contains', 'world'), true); });
-test('contains miss', () => { assert.equal(evaluateCondition('hello', 'contains', 'xyz'), false); });
-test('unknown operator', () => { assert.equal(evaluateCondition(1, '~', '1'), false); });
+test('escapes angle brackets', () => { assert.equal(htmlEscape('<script>'), '&lt;script&gt;'); });
+test('escapes ampersands', () => { assert.equal(htmlEscape('a & b'), 'a &amp; b'); });
+test('escapes double quotes', () => { assert.equal(htmlEscape('"hello"'), '&quot;hello&quot;'); });
+test('handles null/undefined', () => { assert.equal(htmlEscape(null), ''); });
+test('handles empty string', () => { assert.equal(htmlEscape(''), ''); });
+test('passes through safe text', () => { assert.equal(htmlEscape('hello world'), 'hello world'); });
+test('escapes mixed content', () => { assert.equal(htmlEscape('<b>"A & B"</b>'), '&lt;b&gt;&quot;A &amp; B&quot;&lt;/b&gt;'); });
 
 // --- Summary ---
 console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed\n`);

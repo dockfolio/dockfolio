@@ -18,6 +18,10 @@ export function todayString() {
   return new Date().toISOString().slice(0, 10);
 }
 
+export function formatDateISO(date) {
+  return new Date(date).toISOString().slice(0, 10);
+}
+
 export function percent(used, total) {
   return total > 0 ? Math.round((used / total) * 100) : 0;
 }
@@ -202,16 +206,6 @@ export async function callAnthropic(apiKey, { model = 'claude-haiku-4-5-20251001
   };
 }
 
-// Evaluate alert condition (operator + threshold)
-export function evaluateCondition(value, operator, threshold) {
-  const t = parseFloat(threshold);
-  switch (operator) {
-    case '>': return value > t;
-    case '<': return value < t;
-    case '>=': return value >= t;
-    case '<=': return value <= t;
-    case '==': return value == t;
-    case 'contains': return String(value).includes(String(threshold));
-    default: return false;
-  }
+export function htmlEscape(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

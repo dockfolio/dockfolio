@@ -92,7 +92,7 @@ for (const item of data) {
 **Rule:** App configuration belongs in `config.yml`, not hardcoded in source.
 
 **In Practice:**
-- All 13 apps defined in `dashboard/config.yml`
+- All apps defined in `dashboard/config.yml`
 - Domains, ports, containers, health endpoints, env paths — all config
 - Add/edit apps via config or API, not by editing source code
 - SQLite databases for runtime state (sessions, metrics, marketing)
@@ -116,7 +116,7 @@ for (const item of data) {
 
 - 5 view containers: `view-home`, `view-marketing`, `view-infra`, `view-security`, `view-settings`
 - Only one view active at a time (`.view.active { display: block }`)
-- Panels inside views are always visible — no toggle stacking
+- Secondary panels toggle via keyboard shortcuts to reduce visual clutter
 - KPI row is shared across all views
 - Chart.js for visualizations, SVG for sparklines
 - Keyboard-driven: 1-6 for views, letter keys for shortcuts
