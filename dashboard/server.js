@@ -404,7 +404,7 @@ app.post('/api/auth/setup', asyncRoute(async (req, res) => {
   const result = authDb.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run(username.trim(), hash, 'admin');
   const session = createSession(result.lastInsertRowid);
   res.cookie('session', session.token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: SESSION_TTL_DAYS * MS_PER_DAY });
-  res.json({ success: true });
+  res.json({ ok: true });
 }));
 
 app.post('/api/auth/login', asyncRoute(async (req, res) => {
@@ -422,7 +422,7 @@ app.post('/api/auth/login', asyncRoute(async (req, res) => {
   }
   const session = createSession(user.id);
   res.cookie('session', session.token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: SESSION_TTL_DAYS * MS_PER_DAY });
-  res.json({ success: true, username: user.username });
+  res.json({ ok: true, username: user.username });
 }));
 
 app.post('/api/auth/logout', asyncRoute(async (req, res) => {
@@ -431,7 +431,7 @@ app.post('/api/auth/logout', asyncRoute(async (req, res) => {
     authDb.prepare('DELETE FROM sessions WHERE token = ?').run(token);
   }
   res.clearCookie('session');
-  res.json({ success: true });
+  res.json({ ok: true });
 }));
 
 app.get('/api/auth/me', (req, res) => {
@@ -1370,7 +1370,7 @@ app.get('/api/health', async (_req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
-    res.status(500).json({ status: 'error', error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1495,7 +1495,7 @@ app.post('/api/ssl/renew', asyncRoute(async (req, res) => {
       { timeout: 60_000 }
     ).toString();
     // Reload nginx after renewal
-    try { execSync('sudo nginx -c /home/deploy/nginx-configs/nginx.conf -s reload', { timeout: TIMEOUT_STANDARD }); } catch {}
+    try { execSync('sudo nginx -c /home/deploy/nginx-configs/nginx.conf -s reload', { timeout: TIMEOUT_STANDARD }); } catch (err) { console.error('[SSL] Nginx reload failed:', err.message); }
     // Bust SSL cache
     cachedSSL = null;
     lastSSLUpdate = 0;
@@ -2590,7 +2590,7 @@ app.put('/api/settings/keys', asyncRoute(async (req, res) => {
     }
   }
 
-  res.json({ success: true, saved, deleted });
+  res.json({ ok: true, saved, deleted });
 }));
 
 // GET /api/settings/favorites — get favorite app slugs
@@ -2605,7 +2605,7 @@ app.put('/api/settings/favorites', asyncRoute(async (req, res) => {
   const { favorites } = req.body;
   if (!Array.isArray(favorites)) return res.status(400).json({ error: 'favorites must be an array' });
   upsertSettingStmt.run('favorite_apps', JSON.stringify(favorites));
-  res.json({ success: true, favorites });
+  res.json({ ok: true, favorites });
 }));
 
 // --- App Configuration Management ---
@@ -2664,7 +2664,7 @@ app.post('/api/config/apps', asyncRoute(async (req, res) => {
 
   config.apps.push(newApp);
   saveConfig();
-  res.json({ success: true, slug: slugify(newApp.name) });
+  res.json({ ok: true, slug: slugify(newApp.name) });
 }));
 
 // POST /api/config/apps/validate — validate a partial app config
@@ -2726,7 +2726,7 @@ app.put('/api/config/apps/:slug', asyncRoute(async (req, res) => {
   if (composeFile !== undefined) app.composeFile = composeFile;
 
   saveConfig();
-  res.json({ success: true });
+  res.json({ ok: true });
 }));
 
 // DELETE /api/config/apps/:slug — remove an app
@@ -2735,7 +2735,7 @@ app.delete('/api/config/apps/:slug', asyncRoute(async (req, res) => {
   if (idx === -1) return res.status(404).json({ error: 'App not found' });
   config.apps.splice(idx, 1);
   saveConfig();
-  res.json({ success: true });
+  res.json({ ok: true });
 }));
 
 // --- Marketing Manager: SQLite + Revenue + Analytics ---
@@ -3219,6 +3219,39 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 `);
+
+// Log aggregation tables (FTS5 for full-text search across all containers)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS container_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    container_name TEXT NOT NULL,
+    app_slug TEXT,
+    stream TEXT NOT NULL DEFAULT 'stdout',
+    line TEXT NOT NULL,
+    logged_at TEXT NOT NULL,
+    ingested_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_container_logs_ts ON container_logs(logged_at);
+  CREATE INDEX IF NOT EXISTS idx_container_logs_app ON container_logs(app_slug, logged_at);
+  CREATE INDEX IF NOT EXISTS idx_container_logs_container ON container_logs(container_name, logged_at);
+`);
+
+// FTS5 virtual table for full-text search (separate exec — CREATE VIRTUAL TABLE can't be IF NOT EXISTS in all SQLite versions)
+try {
+  db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS container_logs_fts USING fts5(line, container_name, app_slug, content='container_logs', content_rowid='id')`);
+} catch { /* already exists */ }
+
+// Triggers to keep FTS index in sync
+try {
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS container_logs_ai AFTER INSERT ON container_logs BEGIN
+      INSERT INTO container_logs_fts(rowid, line, container_name, app_slug) VALUES (new.id, new.line, new.container_name, new.app_slug);
+    END;
+    CREATE TRIGGER IF NOT EXISTS container_logs_ad AFTER DELETE ON container_logs BEGIN
+      INSERT INTO container_logs_fts(container_logs_fts, rowid, line, container_name, app_slug) VALUES('delete', old.id, old.line, old.container_name, old.app_slug);
+    END;
+  `);
+} catch { /* already exists */ }
 
 // In-house analytics tables (replace Plausible dependency)
 db.exec(`
@@ -5074,6 +5107,106 @@ app.get('/api/playground/routes', (_req, res) => {
 });
 
 // POST /api/ai/command — Natural language container management
+
+async function aiCmdRestart(req, targetContainer, targetApp, query) {
+  if (!targetContainer) {
+    return { action: 'restart', target: targetApp, result: null, summary: 'Could not identify which container to restart. Please be more specific.' };
+  }
+  const containers = await docker.listContainers({ all: true });
+  const target = containers.find(c => containerName(c) === targetContainer);
+  if (!target) {
+    return { action: 'restart', target: targetContainer, result: null, summary: `Container "${targetContainer}" not found. Check the name and try again.` };
+  }
+  const container = docker.getContainer(target.Id);
+  await container.restart({ t: 10 });
+  auditLog(req, 'ai.container.restart', targetContainer, { query });
+  return { action: 'restart', target: targetContainer, result: { restarted: targetContainer }, summary: `Restarted container "${targetContainer}" successfully.` };
+}
+
+async function aiCmdLogs(targetContainer, targetApp) {
+  if (!targetContainer) {
+    return { action: 'logs', target: targetApp, result: null, summary: 'Could not identify which container to show logs for. Please specify a container name.' };
+  }
+  const containers = await docker.listContainers({ all: true });
+  const target = containers.find(c => containerName(c) === targetContainer);
+  if (!target) {
+    return { action: 'logs', target: targetContainer, result: null, summary: `Container "${targetContainer}" not found.` };
+  }
+  const container = docker.getContainer(target.Id);
+  const logs = await container.logs({ stdout: true, stderr: true, tail: 30, timestamps: true });
+  const clean = logs.toString('utf8').split('\n').map(line => line.length > 8 ? line.slice(8) : line).join('\n');
+  return { action: 'logs', target: targetContainer, result: { logs: clean, container: targetContainer }, summary: `Last 30 log lines from "${targetContainer}":\n${clean.split('\n').slice(-10).join('\n')}` };
+}
+
+async function aiCmdStatus(targetApp) {
+  if (targetApp) {
+    const appDef = findAppBySlug(targetApp);
+    if (!appDef) {
+      return { action: 'status', target: targetApp, result: null, summary: `App "${targetApp}" not found.` };
+    }
+    const containers = await docker.listContainers({ all: true });
+    const appContainers = (appDef.containers || []).map(name => {
+      const c = containers.find(ct => containerName(ct) === name);
+      return { name, state: c ? c.State : 'not found', status: c ? c.Status : 'N/A' };
+    });
+    const statusLines = appContainers.map(c => `  ${c.name}: ${c.state} (${c.status})`).join('\n');
+    return { action: 'status', target: targetApp, result: { app: appDef.name, containers: appContainers }, summary: `Status of ${appDef.name}:\n${statusLines}` };
+  }
+  const containers = await docker.listContainers({ all: true });
+  const running = containers.filter(c => c.State === 'running').length;
+  const total = containers.length;
+  return { action: 'status', target: null, result: { containers: { total, running, stopped: total - running } }, summary: `System status: ${running}/${total} containers running.` };
+}
+
+async function aiCmdExplain(anthropicKey, targetContainer, targetApp, query) {
+  const contextParts = [];
+
+  if (targetContainer) {
+    const containers = await docker.listContainers({ all: true });
+    const target = containers.find(c => containerName(c) === targetContainer);
+    if (target) {
+      const container = docker.getContainer(target.Id);
+      const [statsResult, logsResult] = await Promise.allSettled([
+        container.stats({ stream: false }),
+        container.logs({ stdout: true, stderr: true, tail: 20, timestamps: true }),
+      ]);
+      if (statsResult.status === 'fulfilled') {
+        const s = statsResult.value;
+        const cpuDelta = s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage;
+        const systemDelta = s.cpu_stats.system_cpu_usage - s.precpu_stats.system_cpu_usage;
+        const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * (s.cpu_stats.online_cpus || 1) * 100 : 0;
+        const memMB = Math.round((s.memory_stats.usage || 0) / 1024 / 1024);
+        const memLimitMB = Math.round((s.memory_stats.limit || 0) / 1024 / 1024);
+        contextParts.push(`Container stats for ${targetContainer}: CPU ${cpuPercent.toFixed(1)}%, Memory ${memMB}MB / ${memLimitMB}MB`);
+      }
+      if (logsResult.status === 'fulfilled') {
+        const clean = logsResult.value.toString('utf8').split('\n').map(l => l.length > 8 ? l.slice(8) : l).join('\n');
+        contextParts.push(`Recent logs:\n${clean}`);
+      }
+      contextParts.push(`Container state: ${target.State}, Status: ${target.Status}`);
+    }
+  }
+
+  if (targetApp) {
+    const appDef = findAppBySlug(targetApp);
+    if (appDef) {
+      contextParts.push(`App: ${appDef.name}, Domain: ${appDef.domain || 'none'}, Containers: ${(appDef.containers || []).join(', ')}`);
+    }
+  }
+
+  if (!contextParts.length) {
+    contextParts.push('No specific container or app context available.');
+  }
+
+  const explainResponse = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
+    model: 'claude-haiku-4-20250414', maxTokens: 512, timeout: TIMEOUT_AI,
+    system: 'You are a DevOps assistant. Analyze the provided container data and logs to explain what is happening. Be concise and actionable. 2-4 sentences max.',
+    messages: [{ role: 'user', content: `User question: ${query}\n\nContext:\n${contextParts.join('\n\n')}` }],
+  }));
+
+  return { action: 'explain', target: targetContainer || targetApp, result: { explanation: explainResponse.text }, summary: explainResponse.text };
+}
+
 app.post('/api/ai/command', asyncRoute(async (req, res) => {
   const { query } = req.body;
   if (!query || typeof query !== 'string' || query.trim().length < 3) {
@@ -5119,7 +5252,6 @@ Rules:
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MEDIUM);
 
   try {
-    // Step 1: Parse intent with AI
     const parsed = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
       model: 'claude-haiku-4-20250414', maxTokens: 256, timeout: TIMEOUT_MEDIUM,
       system: systemPrompt,
@@ -5133,7 +5265,6 @@ Rules:
       return res.json({ action: 'error', target: null, result: null, summary: 'Could not parse AI response. Try rephrasing your command.' });
     }
 
-    // Step 2: Validate action
     if (intent.action === 'blocked') {
       return res.json({ action: 'blocked', target: null, result: null, summary: intent.reason || 'This operation is not allowed via AI commands.' });
     }
@@ -5141,120 +5272,15 @@ Rules:
       return res.json({ action: 'unknown', target: null, result: null, summary: intent.reason || 'Could not understand the request. Try something like "restart promoforge worker" or "show lohncheck logs".' });
     }
 
-    // Step 3: Execute the action
-    let result = null;
-    let summary = '';
-    const targetContainer = intent.target_container;
-    const targetApp = intent.target_app;
+    const { target_container: targetContainer, target_app: targetApp } = intent;
+    const ACTION_HANDLERS = {
+      restart: () => aiCmdRestart(req, targetContainer, targetApp, query),
+      logs: () => aiCmdLogs(targetContainer, targetApp),
+      status: () => aiCmdStatus(targetApp),
+      explain: () => aiCmdExplain(anthropicKey, targetContainer, targetApp, query),
+    };
 
-    if (intent.action === 'restart') {
-      if (!targetContainer) {
-        return res.json({ action: 'restart', target: targetApp, result: null, summary: 'Could not identify which container to restart. Please be more specific.' });
-      }
-      const containers = await docker.listContainers({ all: true });
-      const target = containers.find(c => containerName(c) === targetContainer);
-      if (!target) {
-        return res.json({ action: 'restart', target: targetContainer, result: null, summary: `Container "${targetContainer}" not found. Check the name and try again.` });
-      }
-      const container = docker.getContainer(target.Id);
-      await container.restart({ t: 10 });
-      auditLog(req, 'ai.container.restart', targetContainer, { query });
-      result = { restarted: targetContainer };
-      summary = `Restarted container "${targetContainer}" successfully.`;
-    }
-
-    else if (intent.action === 'logs') {
-      if (!targetContainer) {
-        return res.json({ action: 'logs', target: targetApp, result: null, summary: 'Could not identify which container to show logs for. Please specify a container name.' });
-      }
-      const containers = await docker.listContainers({ all: true });
-      const target = containers.find(c => containerName(c) === targetContainer);
-      if (!target) {
-        return res.json({ action: 'logs', target: targetContainer, result: null, summary: `Container "${targetContainer}" not found.` });
-      }
-      const container = docker.getContainer(target.Id);
-      const logs = await container.logs({ stdout: true, stderr: true, tail: 30, timestamps: true });
-      const clean = logs.toString('utf8').split('\n').map(line => line.length > 8 ? line.slice(8) : line).join('\n');
-      result = { logs: clean, container: targetContainer };
-      summary = `Last 30 log lines from "${targetContainer}":\n${clean.split('\n').slice(-10).join('\n')}`;
-    }
-
-    else if (intent.action === 'status') {
-      if (targetApp) {
-        const appDef = findAppBySlug(targetApp);
-        if (!appDef) {
-          return res.json({ action: 'status', target: targetApp, result: null, summary: `App "${targetApp}" not found.` });
-        }
-        const containers = await docker.listContainers({ all: true });
-        const appContainers = (appDef.containers || []).map(name => {
-          const c = containers.find(ct => containerName(ct) === name);
-          return { name, state: c ? c.State : 'not found', status: c ? c.Status : 'N/A' };
-        });
-        result = { app: appDef.name, containers: appContainers };
-        const statusLines = appContainers.map(c => `  ${c.name}: ${c.state} (${c.status})`).join('\n');
-        summary = `Status of ${appDef.name}:\n${statusLines}`;
-      } else {
-        // System-wide status
-        const containers = await docker.listContainers({ all: true });
-        const running = containers.filter(c => c.State === 'running').length;
-        const total = containers.length;
-        result = { containers: { total, running, stopped: total - running } };
-        summary = `System status: ${running}/${total} containers running.`;
-      }
-    }
-
-    else if (intent.action === 'explain') {
-      // Gather context data for AI explanation
-      const contextParts = [];
-
-      if (targetContainer) {
-        const containers = await docker.listContainers({ all: true });
-        const target = containers.find(c => containerName(c) === targetContainer);
-        if (target) {
-          const container = docker.getContainer(target.Id);
-          const [statsResult, logsResult] = await Promise.allSettled([
-            container.stats({ stream: false }),
-            container.logs({ stdout: true, stderr: true, tail: 20, timestamps: true }),
-          ]);
-          if (statsResult.status === 'fulfilled') {
-            const s = statsResult.value;
-            const cpuDelta = s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage;
-            const systemDelta = s.cpu_stats.system_cpu_usage - s.precpu_stats.system_cpu_usage;
-            const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * (s.cpu_stats.online_cpus || 1) * 100 : 0;
-            const memMB = Math.round((s.memory_stats.usage || 0) / 1024 / 1024);
-            const memLimitMB = Math.round((s.memory_stats.limit || 0) / 1024 / 1024);
-            contextParts.push(`Container stats for ${targetContainer}: CPU ${cpuPercent.toFixed(1)}%, Memory ${memMB}MB / ${memLimitMB}MB`);
-          }
-          if (logsResult.status === 'fulfilled') {
-            const clean = logsResult.value.toString('utf8').split('\n').map(l => l.length > 8 ? l.slice(8) : l).join('\n');
-            contextParts.push(`Recent logs:\n${clean}`);
-          }
-          contextParts.push(`Container state: ${target.State}, Status: ${target.Status}`);
-        }
-      }
-
-      if (targetApp) {
-        const appDef = findAppBySlug(targetApp);
-        if (appDef) {
-          contextParts.push(`App: ${appDef.name}, Domain: ${appDef.domain || 'none'}, Containers: ${(appDef.containers || []).join(', ')}`);
-        }
-      }
-
-      if (!contextParts.length) {
-        contextParts.push('No specific container or app context available.');
-      }
-
-      const explainResponse = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
-        model: 'claude-haiku-4-20250414', maxTokens: 512, timeout: TIMEOUT_AI,
-        system: 'You are a DevOps assistant. Analyze the provided container data and logs to explain what is happening. Be concise and actionable. 2-4 sentences max.',
-        messages: [{ role: 'user', content: `User question: ${query}\n\nContext:\n${contextParts.join('\n\n')}` }],
-      }));
-
-      result = { explanation: explainResponse.text };
-      summary = explainResponse.text;
-    }
-
-    res.json({ action: intent.action, target: targetContainer || targetApp, result, summary });
+    res.json(await ACTION_HANDLERS[intent.action]());
   } catch (err) {
     if (err.name === 'AbortError') {
       return res.status(504).json({ error: 'AI command timed out. Try a simpler request.' });
@@ -10330,6 +10356,456 @@ cron.schedule('0 4 * * *', guardedCron('audit-cleanup', () => {
     const result = db.prepare("DELETE FROM audit_log WHERE created_at < datetime('now', '-90 days')").run();
     if (result.changes > 0) console.log(`[CRON] Audit log cleanup: removed ${result.changes} entries`);
   } catch (err) { cronFail('Audit cleanup', err); }
+}));
+
+// === Feature: Log Aggregation with Smart Search ===
+
+// Track last ingested timestamp per container to avoid duplicate lines
+const logIngestionState = new Map(); // container_name -> last_ingested_ts (unix seconds)
+
+const insertLogStmt = db.prepare('INSERT INTO container_logs (container_name, app_slug, stream, line, logged_at) VALUES (?, ?, ?, ?, ?)');
+const insertLogBatch = db.transaction((rows) => {
+  for (const row of rows) insertLogStmt.run(row.container_name, row.app_slug, row.stream, row.line, row.logged_at);
+});
+
+// Ingest logs from all running containers (every 5 minutes)
+cron.schedule('*/5 * * * *', guardedCron('log-ingest', async () => {
+  try {
+    const containers = await docker.listContainers({ filters: { status: ['running'] } });
+    let totalIngested = 0;
+
+    for (const c of containers) {
+      const name = containerName(c);
+      const resolved = resolveContainerApp(name);
+      const appSlug = resolved?.slug || null;
+      const since = logIngestionState.get(name) || Math.floor((Date.now() - 5 * 60 * 1000) / 1000);
+
+      try {
+        const container = docker.getContainer(c.Id);
+        const logs = await container.logs({ stdout: true, stderr: true, since, timestamps: true, tail: 500 });
+        const raw = logs.toString('utf8');
+        if (!raw.trim()) continue;
+
+        const rows = [];
+        for (const rawLine of raw.split('\n')) {
+          if (!rawLine || rawLine.length < 8) continue;
+          // Docker log lines have 8-byte header + optional timestamp
+          const line = rawLine.length > 8 ? rawLine.slice(8) : rawLine;
+          // Extract timestamp if present (ISO format at start of line)
+          const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)\s/);
+          const logged_at = tsMatch ? tsMatch[1] : new Date().toISOString();
+          const content = tsMatch ? line.slice(tsMatch[0].length) : line;
+          if (!content.trim()) continue;
+          rows.push({ container_name: name, app_slug: appSlug, stream: 'mixed', line: content.slice(0, 2000), logged_at });
+        }
+
+        if (rows.length > 0) {
+          insertLogBatch(rows);
+          totalIngested += rows.length;
+        }
+        logIngestionState.set(name, Math.floor(Date.now() / 1000));
+      } catch (err) {
+        console.error(`[LOG-INGEST] Failed for ${name}:`, err.message);
+      }
+    }
+
+    if (totalIngested > 0) console.log(`[LOG-INGEST] Ingested ${totalIngested} lines from ${containers.length} containers`);
+  } catch (err) { cronFail('Log ingestion', err); }
+}));
+
+// Log cleanup — daily, keep 24 hours
+cron.schedule('15 4 * * *', guardedCron('log-cleanup', () => {
+  try {
+    const result = db.prepare("DELETE FROM container_logs WHERE logged_at < datetime('now', '-24 hours')").run();
+    if (result.changes > 0) console.log(`[CRON] Log cleanup: removed ${result.changes} entries`);
+  } catch (err) { cronFail('Log cleanup', err); }
+}));
+
+// GET /api/logs/search — Full-text search across all container logs
+app.get('/api/logs/search', asyncRoute(async (req, res) => {
+  const { q, container, app: appSlug, stream, since, until } = req.query;
+  const limit = Math.min(parseInt(req.query.limit) || 200, 1000);
+  const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+
+  if (!q || q.trim().length < 2) {
+    return res.status(400).json({ error: 'Query must be at least 2 characters' });
+  }
+
+  // Use FTS5 for search
+  let sql = `SELECT cl.id, cl.container_name, cl.app_slug, cl.stream, cl.line, cl.logged_at
+    FROM container_logs_fts fts
+    JOIN container_logs cl ON cl.id = fts.rowid
+    WHERE container_logs_fts MATCH ?`;
+  const params = [q.trim()];
+
+  if (container) { sql += ' AND cl.container_name = ?'; params.push(container); }
+  if (appSlug) { sql += ' AND cl.app_slug = ?'; params.push(appSlug); }
+  if (stream) { sql += ' AND cl.stream = ?'; params.push(stream); }
+  if (since) { sql += ' AND cl.logged_at >= ?'; params.push(since); }
+  if (until) { sql += ' AND cl.logged_at <= ?'; params.push(until); }
+
+  sql += ' ORDER BY cl.logged_at DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+
+  try {
+    const results = db.prepare(sql).all(...params);
+
+    // Get total count for pagination
+    let countSql = `SELECT COUNT(*) as total FROM container_logs_fts fts JOIN container_logs cl ON cl.id = fts.rowid WHERE container_logs_fts MATCH ?`;
+    const countParams = [q.trim()];
+    if (container) { countSql += ' AND cl.container_name = ?'; countParams.push(container); }
+    if (appSlug) { countSql += ' AND cl.app_slug = ?'; countParams.push(appSlug); }
+    if (stream) { countSql += ' AND cl.stream = ?'; countParams.push(stream); }
+    if (since) { countSql += ' AND cl.logged_at >= ?'; countParams.push(since); }
+    if (until) { countSql += ' AND cl.logged_at <= ?'; countParams.push(until); }
+    const total = db.prepare(countSql).get(...countParams).total;
+
+    res.json({ results, total, limit, offset, query: q.trim() });
+  } catch (err) {
+    if (err.message.includes('fts5')) {
+      return res.status(400).json({ error: 'Invalid search query. Use simple keywords or "quoted phrases".' });
+    }
+    throw err;
+  }
+}));
+
+// GET /api/logs/recent — Recent logs (no search, just tail)
+app.get('/api/logs/recent', asyncRoute(async (req, res) => {
+  const { container, app: appSlug } = req.query;
+  const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+
+  let sql = 'SELECT id, container_name, app_slug, stream, line, logged_at FROM container_logs WHERE 1=1';
+  const params = [];
+
+  if (container) { sql += ' AND container_name = ?'; params.push(container); }
+  if (appSlug) { sql += ' AND app_slug = ?'; params.push(appSlug); }
+
+  sql += ' ORDER BY logged_at DESC LIMIT ?';
+  params.push(limit);
+
+  const results = db.prepare(sql).all(...params);
+  res.json({ results });
+}));
+
+// GET /api/logs/patterns — Detect recurring error patterns
+app.get('/api/logs/patterns', asyncRoute(async (req, res) => {
+  const hours = Math.min(parseInt(req.query.hours) || 6, 24);
+  const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+  // Find error-like lines and group by normalized message
+  const errorLines = db.prepare(`
+    SELECT container_name, app_slug, line, logged_at
+    FROM container_logs
+    WHERE logged_at >= ?
+    AND (line LIKE '%error%' OR line LIKE '%Error%' OR line LIKE '%ERROR%'
+      OR line LIKE '%exception%' OR line LIKE '%Exception%'
+      OR line LIKE '%fatal%' OR line LIKE '%FATAL%'
+      OR line LIKE '%failed%' OR line LIKE '%FAILED%')
+    ORDER BY logged_at DESC
+    LIMIT 5000
+  `).all(since);
+
+  // Group by normalized pattern (strip numbers, timestamps, IDs)
+  const patternMap = new Map();
+  for (const row of errorLines) {
+    const normalized = row.line
+      .replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.\dZ]*/g, '<TS>')
+      .replace(/\b[0-9a-f]{8,}\b/gi, '<ID>')
+      .replace(/\b\d+\.\d+\.\d+\.\d+\b/g, '<IP>')
+      .replace(/\b\d{4,}\b/g, '<N>')
+      .replace(/:\d+/g, ':<PORT>')
+      .trim()
+      .slice(0, 200);
+
+    const existing = patternMap.get(normalized);
+    if (existing) {
+      existing.count++;
+      if (row.logged_at < existing.first_seen) existing.first_seen = row.logged_at;
+      if (row.logged_at > existing.last_seen) existing.last_seen = row.logged_at;
+      if (!existing.containers.includes(row.container_name)) existing.containers.push(row.container_name);
+      if (row.app_slug && !existing.apps.includes(row.app_slug)) existing.apps.push(row.app_slug);
+    } else {
+      patternMap.set(normalized, {
+        pattern: normalized,
+        sample: row.line.slice(0, 300),
+        count: 1,
+        first_seen: row.logged_at,
+        last_seen: row.logged_at,
+        containers: [row.container_name],
+        apps: row.app_slug ? [row.app_slug] : [],
+      });
+    }
+  }
+
+  // Sort by count descending
+  const patterns = [...patternMap.values()]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 50);
+
+  res.json({ patterns, hours, total_error_lines: errorLines.length });
+}));
+
+// GET /api/logs/stats — Log volume stats per container
+app.get('/api/logs/stats', asyncRoute(async (req, res) => {
+  const stats = db.prepare(`
+    SELECT container_name, app_slug, COUNT(*) as line_count,
+      MIN(logged_at) as oldest, MAX(logged_at) as newest
+    FROM container_logs
+    GROUP BY container_name
+    ORDER BY line_count DESC
+  `).all();
+
+  const total = db.prepare('SELECT COUNT(*) as count FROM container_logs').get().count;
+
+  res.json({ stats, total });
+}));
+
+// === Feature: Launch Day Dashboard ===
+
+let launchMode = null; // { slug, appName, startedAt, intervalId }
+
+// POST /api/launch/start — Activate launch mode for an app
+app.post('/api/launch/start', asyncRoute(async (req, res) => {
+  const { slug } = req.body;
+  if (!slug) return res.status(400).json({ error: 'slug is required' });
+  const appDef = findAppBySlug(slug);
+  if (!appDef) return res.status(404).json({ error: 'App not found' });
+
+  // Stop existing launch mode if active
+  if (launchMode?.intervalId) clearInterval(launchMode.intervalId);
+
+  launchMode = { slug, appName: appDef.name, startedAt: new Date().toISOString(), stats: [] };
+  auditLog(req, 'launch.start', slug);
+
+  // Send Telegram notification
+  sendTelegram(`🚀 <b>Launch Mode Activated!</b>\n${appDef.name} (${appDef.domain || slug})\nMonitoring every 30 seconds.`);
+
+  // Collect stats every 30 seconds during launch mode
+  launchMode.intervalId = setInterval(async () => {
+    if (!launchMode || launchMode.slug !== slug) return;
+    try {
+      const snapshot = { ts: new Date().toISOString() };
+
+      // Container health
+      const containers = await docker.listContainers({ all: true });
+      const appContainers = (appDef.containers || []).map(name => {
+        const c = containers.find(ct => containerName(ct) === name);
+        return { name, state: c?.State || 'not found' };
+      });
+      snapshot.containers = appContainers;
+      snapshot.allHealthy = appContainers.every(c => c.state === 'running');
+
+      // Traffic (from analytics if available)
+      const recentVisits = db.prepare("SELECT COUNT(*) as count FROM page_views WHERE app_slug = ? AND created_at >= datetime('now', '-5 minutes')").get(slug);
+      snapshot.visitors5m = recentVisits?.count || 0;
+
+      // Revenue (from cached data)
+      if (cachedRevenue?.apps) {
+        const appRev = Object.entries(cachedRevenue.apps).find(([name]) => slugify(name) === slug);
+        if (appRev) snapshot.revenue = { mrr: (appRev[1].mrr / 100).toFixed(2), charges30d: appRev[1].chargeCount30d };
+      }
+
+      // System load
+      try {
+        const loadLine = readFileSync('/proc/loadavg', 'utf8').trim().split(' ');
+        snapshot.load = parseFloat(loadLine[0]);
+      } catch { snapshot.load = null; }
+
+      launchMode.stats.push(snapshot);
+      if (launchMode.stats.length > 600) launchMode.stats.shift(); // Keep last 5 hours (600 * 30s)
+
+      // Alert if container goes down
+      if (!snapshot.allHealthy) {
+        const down = appContainers.filter(c => c.state !== 'running').map(c => c.name).join(', ');
+        sendTelegram(`⚠️ <b>Launch Alert!</b>\n${appDef.name}: Container(s) not running: ${down}`);
+      }
+    } catch (err) {
+      console.error('[LAUNCH] Stats collection error:', err.message);
+    }
+  }, 30_000);
+
+  res.json({ ok: true, app: appDef.name, slug });
+}));
+
+// POST /api/launch/stop — Deactivate launch mode
+app.post('/api/launch/stop', asyncRoute(async (req, res) => {
+  if (!launchMode) return res.json({ ok: true, message: 'Launch mode was not active' });
+  const duration = Math.round((Date.now() - new Date(launchMode.startedAt).getTime()) / 60000);
+  sendTelegram(`🏁 <b>Launch Mode Ended</b>\n${launchMode.appName}\nDuration: ${duration} minutes\nSnapshots collected: ${launchMode.stats.length}`);
+  if (launchMode.intervalId) clearInterval(launchMode.intervalId);
+  auditLog(req, 'launch.stop', launchMode.slug);
+  launchMode = null;
+  res.json({ ok: true });
+}));
+
+// GET /api/launch/status — Get current launch mode status and stats
+app.get('/api/launch/status', asyncRoute(async (req, res) => {
+  if (!launchMode) return res.json({ active: false });
+
+  const appDef = findAppBySlug(launchMode.slug);
+  const duration = Math.round((Date.now() - new Date(launchMode.startedAt).getTime()) / 60000);
+  const recentStats = launchMode.stats.slice(-20); // Last 10 minutes
+
+  // Aggregate stats
+  const totalVisitors = launchMode.stats.reduce((sum, s) => sum + (s.visitors5m || 0), 0);
+  const latestSnapshot = launchMode.stats[launchMode.stats.length - 1] || {};
+
+  res.json({
+    active: true,
+    slug: launchMode.slug,
+    appName: launchMode.appName,
+    domain: appDef?.domain || null,
+    startedAt: launchMode.startedAt,
+    durationMinutes: duration,
+    snapshotCount: launchMode.stats.length,
+    totalVisitors,
+    latestSnapshot,
+    recentStats,
+  });
+}));
+
+// === Feature: INWX DNS Management ===
+
+// INWX JSON-RPC API helper (session-based auth via cookies)
+async function inwxCall(method, params = {}, sessionCookie = null) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (sessionCookie) headers['Cookie'] = sessionCookie;
+  const res = await fetch('https://api.domrobot.com/jsonrpc/', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ method, params }),
+    signal: AbortSignal.timeout(TIMEOUT_MEDIUM),
+  });
+  const setCookie = res.headers.get('set-cookie');
+  const data = await res.json();
+  if (data.code !== 1000) {
+    throw new Error(`INWX API error (${data.code}): ${data.msg || 'Unknown error'}`);
+  }
+  return { data: data.resData, cookie: setCookie || sessionCookie };
+}
+
+async function inwxSession() {
+  const user = getSetting('inwx_user');
+  const pass = getSetting('inwx_pass');
+  if (!user || !pass) throw new Error('INWX credentials not configured. Set inwx_user and inwx_pass in Settings.');
+  const result = await inwxCall('account.login', { user, pass });
+  return result.cookie;
+}
+
+// GET /api/dns/records — List DNS records for a domain
+app.get('/api/dns/records', asyncRoute(async (req, res) => {
+  const { domain } = req.query;
+  if (!domain) return res.status(400).json({ error: 'domain parameter required' });
+
+  let cookie;
+  try {
+    cookie = await inwxSession();
+    const result = await inwxCall('nameserver.info', { domain }, cookie);
+    const records = (result.data?.record || []).map(r => ({
+      id: r.id, name: r.name, type: r.type, content: r.content,
+      ttl: r.ttl, prio: r.prio || null,
+    }));
+    res.json({ domain, records, count: records.length });
+  } catch (err) {
+    res.status(err.message.includes('not configured') ? 503 : 500).json({ error: err.message });
+  } finally {
+    if (cookie) inwxCall('account.logout', {}, cookie).catch(() => {});
+  }
+}));
+
+// POST /api/dns/records — Create a DNS record
+app.post('/api/dns/records', asyncRoute(async (req, res) => {
+  const { domain, type, name, content, ttl, prio } = req.body;
+  if (!domain || !type || !name || !content) {
+    return res.status(400).json({ error: 'domain, type, name, and content are required' });
+  }
+  const ALLOWED_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SRV', 'CAA'];
+  if (!ALLOWED_TYPES.includes(type.toUpperCase())) {
+    return res.status(400).json({ error: `Invalid record type. Allowed: ${ALLOWED_TYPES.join(', ')}` });
+  }
+
+  let cookie;
+  try {
+    cookie = await inwxSession();
+    const params = { domain, type: type.toUpperCase(), name, content, ttl: ttl || 3600 };
+    if (prio !== undefined && prio !== null) params.prio = Number(prio);
+    const result = await inwxCall('nameserver.createRecord', params, cookie);
+    auditLog(req, 'dns.create', domain, { type, name, content });
+    res.json({ ok: true, id: result.data?.id });
+  } catch (err) {
+    res.status(err.message.includes('not configured') ? 503 : 500).json({ error: err.message });
+  } finally {
+    if (cookie) inwxCall('account.logout', {}, cookie).catch(() => {});
+  }
+}));
+
+// PUT /api/dns/records/:id — Update a DNS record
+app.put('/api/dns/records/:id', asyncRoute(async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid record ID' });
+  const { content, ttl, prio } = req.body;
+  if (!content) return res.status(400).json({ error: 'content is required' });
+
+  let cookie;
+  try {
+    cookie = await inwxSession();
+    const params = { id, content };
+    if (ttl) params.ttl = ttl;
+    if (prio !== undefined && prio !== null) params.prio = Number(prio);
+    await inwxCall('nameserver.updateRecord', params, cookie);
+    auditLog(req, 'dns.update', String(id), { content });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.message.includes('not configured') ? 503 : 500).json({ error: err.message });
+  } finally {
+    if (cookie) inwxCall('account.logout', {}, cookie).catch(() => {});
+  }
+}));
+
+// DELETE /api/dns/records/:id — Delete a DNS record
+app.delete('/api/dns/records/:id', asyncRoute(async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Invalid record ID' });
+
+  let cookie;
+  try {
+    cookie = await inwxSession();
+    await inwxCall('nameserver.deleteRecord', { id }, cookie);
+    auditLog(req, 'dns.delete', String(id));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.message.includes('not configured') ? 503 : 500).json({ error: err.message });
+  } finally {
+    if (cookie) inwxCall('account.logout', {}, cookie).catch(() => {});
+  }
+}));
+
+// GET /api/dns/validate — Validate DNS for all configured domains
+app.get('/api/dns/validate', asyncRoute(async (req, res) => {
+  const { promises: dnsPromises } = await import('dns');
+  const domains = (config.apps || []).filter(a => a.domain).map(a => ({ domain: a.domain, slug: slugify(a.name) }));
+  const results = [];
+
+  for (const { domain, slug } of domains) {
+    const checks = { domain, slug, a: null, www: null, reachable: null };
+    try {
+      const addrs = await dnsPromises.resolve4(domain);
+      checks.a = { ok: addrs.includes('91.99.104.132'), addresses: addrs };
+    } catch { checks.a = { ok: false, addresses: [] }; }
+    try {
+      const cname = await dnsPromises.resolveCname(`www.${domain}`);
+      checks.www = { ok: true, target: cname[0] };
+    } catch {
+      try {
+        const addrs = await dnsPromises.resolve4(`www.${domain}`);
+        checks.www = { ok: addrs.includes('91.99.104.132'), addresses: addrs };
+      } catch { checks.www = { ok: false }; }
+    }
+    checks.reachable = checks.a?.ok || false;
+    results.push(checks);
+  }
+
+  res.json({ results, server_ip: '91.99.104.132' });
 }));
 
 // --- Achievement System ---

@@ -1947,6 +1947,35 @@
       </div>
     </div>
 
+    <div id="launchModePanel" class="view-panel" style="padding:12px 32px;border-bottom:2px solid var(--accent);background:linear-gradient(135deg,rgba(139,92,246,0.08),rgba(59,130,246,0.08));display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:14px;font-weight:700;color:var(--accent);letter-spacing:0.02em">LAUNCH MODE ACTIVE</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span id="launchDuration" style="font-size:11px;color:var(--text-muted)"></span>
+          <button class="btn" style="background:var(--red);color:#fff" onclick="stopLaunchMode()">Stop</button>
+        </div>
+      </div>
+      <div id="launchStats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:8px">
+        <div style="text-align:center">
+          <div style="font-size:24px;font-weight:700;color:var(--text)" id="launchVisitors">--</div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Visitors (5m)</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:24px;font-weight:700;color:var(--green)" id="launchRevenue">--</div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Revenue</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:24px;font-weight:700" id="launchHealth">--</div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Containers</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:24px;font-weight:700;color:var(--text)" id="launchLoad">--</div>
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">System Load</div>
+        </div>
+      </div>
+      <div id="launchTimeline" style="font-size:11px;color:var(--text-muted)"></div>
+    </div>
+
     <div id="activityPanel" class="activity-panel view-panel">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Recent Activity (6h)</span>
@@ -1969,17 +1998,6 @@
         <button class="btn" onclick="fetchUptimeTimeline(true)">Refresh</button>
       </div>
       <div id="uptimeTimelineContent" style="min-height:60px"><span style="font-size:12px;color:var(--text-muted)">Loading uptime data...</span></div>
-    </div>
-
-    <div id="logSearchPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Log Search</span>
-      </div>
-      <div style="display:flex;gap:8px;margin-bottom:8px">
-        <input id="logSearchInput" type="text" placeholder="Search across all container logs..." style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text);outline:none" onkeydown="if(event.key==='Enter')searchLogs()">
-        <button class="btn" onclick="searchLogs()">Search</button>
-      </div>
-      <div id="logSearchResults" style="max-height:300px;overflow-y:auto"></div>
     </div>
 
     <div id="sslPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
@@ -2008,6 +2026,37 @@
         <button class="btn" onclick="fetchDependencies(true)">Refresh</button>
       </div>
       <div id="depsContent"><span style="font-size:12px;color:var(--text-muted)">Loading dependency map...</span></div>
+    </div>
+
+    <div id="logSearchPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Log Search <kbd style="font-size:9px;background:var(--surface2);padding:1px 4px;border-radius:3px;margin-left:4px">l</kbd></span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn" onclick="fetchLogPatterns()">Patterns</button>
+          <button class="btn" onclick="fetchLogStats()">Stats</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <input type="text" id="logSearchInput" placeholder="Search all container logs..." style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;font-family:inherit" onkeydown="if(event.key==='Enter')searchLogs()">
+        <select id="logSearchApp" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:11px">
+          <option value="">All Apps</option>
+        </select>
+        <button class="btn" onclick="searchLogs()">Search</button>
+      </div>
+      <div id="logSearchResults" style="font-size:12px;color:var(--text-muted)">Enter a search query to search across all container logs (last 24h).</div>
+    </div>
+
+    <div id="dnsPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">DNS Management</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="dnsDomainSelect" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:11px" onchange="fetchDNSRecords()">
+            <option value="">Select domain...</option>
+          </select>
+          <button class="btn" onclick="validateAllDNS()">Validate All</button>
+        </div>
+      </div>
+      <div id="dnsContent" style="font-size:12px;color:var(--text-muted)">Select a domain to view DNS records, or click "Validate All" to check DNS for all apps.</div>
     </div>
 
     <div id="predictionsPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
@@ -2979,6 +3028,8 @@
           fetchImageUpdates();
           fetchGitHub();
           fetchDependencies();
+          initDNSPanel();
+          checkLaunchMode();
           break;
         case 'security':
           if (!securityData) fetchSecurityStatus();
@@ -3764,6 +3815,247 @@
         html += `<div style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:6px">Updated: ${new Date(depsData.timestamp).toLocaleTimeString()}</div>`;
       }
       el.innerHTML = html;
+    }
+
+    // --- DNS Management ---
+    let dnsInitialized = false;
+
+    function initDNSPanel() {
+      if (dnsInitialized) return;
+      dnsInitialized = true;
+      const select = document.getElementById('dnsDomainSelect');
+      if (!appData) return;
+      for (const app of appData) {
+        if (app.domain) {
+          const opt = document.createElement('option');
+          opt.value = app.domain;
+          opt.textContent = app.domain;
+          select.appendChild(opt);
+        }
+      }
+    }
+
+    async function fetchDNSRecords() {
+      const domain = document.getElementById('dnsDomainSelect').value;
+      const el = document.getElementById('dnsContent');
+      if (!domain) { el.innerHTML = '<span style="color:var(--text-muted)">Select a domain to view DNS records.</span>'; return; }
+      el.innerHTML = '<span style="color:var(--text-muted)">Loading DNS records...</span>';
+      try {
+        const res = await apiFetch(`/api/dns/records?domain=${encodeURIComponent(domain)}`);
+        const data = await res.json();
+        if (data.error) { el.innerHTML = `<span style="color:var(--red)">${escapeHtml(data.error)}</span>`; return; }
+        if (!data.records.length) { el.innerHTML = '<span style="color:var(--text-muted)">No DNS records found for this domain.</span>'; return; }
+
+        // Group records by type
+        const byType = {};
+        for (const r of data.records) {
+          if (!byType[r.type]) byType[r.type] = [];
+          byType[r.type].push(r);
+        }
+
+        let html = `<div style="margin-bottom:6px;color:var(--text-muted)">${data.count} records for ${escapeHtml(domain)}</div>`;
+        html += '<div style="display:grid;grid-template-columns:60px 200px 1fr 60px 50px;gap:1px;font-size:12px">';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Type</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Name</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Content</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">TTL</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">ID</div>';
+
+        const typeColors = { A: 'var(--green)', AAAA: 'var(--green)', CNAME: 'var(--blue)', MX: 'var(--purple)', TXT: 'var(--yellow)', NS: 'var(--cyan)', SRV: 'var(--orange)', CAA: 'var(--red)' };
+        for (const r of data.records) {
+          const typeColor = typeColors[r.type] || 'var(--text)';
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border);color:${typeColor};font-weight:600">${r.type}</div>`;
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border);color:var(--text);font-family:monospace;font-size:11px;word-break:break-all">${escapeHtml(r.name)}</div>`;
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border);color:var(--text-dim);font-family:monospace;font-size:11px;word-break:break-all">${escapeHtml(r.content)}</div>`;
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border);color:var(--text-muted)">${r.ttl}</div>`;
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border);color:var(--text-muted);font-size:10px">${r.id}</div>`;
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
+    }
+
+    async function validateAllDNS() {
+      const el = document.getElementById('dnsContent');
+      el.innerHTML = '<span style="color:var(--text-muted)">Validating DNS for all domains...</span>';
+      try {
+        const res = await apiFetch('/api/dns/validate');
+        const data = await res.json();
+        let html = `<div style="margin-bottom:6px;color:var(--text-muted)">DNS validation for ${data.results.length} domains (expected IP: ${data.server_ip})</div>`;
+        html += '<div style="display:grid;grid-template-columns:200px 80px 80px 80px;gap:1px;font-size:12px">';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Domain</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">A Record</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">www</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Status</div>';
+        for (const r of data.results) {
+          const aOk = r.a?.ok;
+          const wwwOk = r.www?.ok;
+          const dot = (ok) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${ok ? 'var(--green)' : 'var(--red)'};margin-right:4px"></span>${ok ? 'OK' : 'Fail'}`;
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border);color:var(--text)">${escapeHtml(r.domain)}</div>`;
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border)">${dot(aOk)}</div>`;
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border)">${dot(wwwOk)}</div>`;
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border)">${aOk && wwwOk ? '<span style="color:var(--green)">Healthy</span>' : '<span style="color:var(--red)">Issue</span>'}</div>`;
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
+    }
+
+    // --- Launch Mode ---
+    let launchPollId = null;
+
+    async function startLaunchMode(slug) {
+      try {
+        const res = await apiFetch('/api/launch/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug }) });
+        const data = await res.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+        showToast(`Launch mode activated for ${data.app}!`, 'success');
+        switchView('infra');
+        pollLaunchStatus();
+        launchPollId = setInterval(pollLaunchStatus, 15000);
+      } catch (err) { showToast('Failed to start launch mode: ' + err.message, 'error'); }
+    }
+
+    async function stopLaunchMode() {
+      try {
+        await apiFetch('/api/launch/stop', { method: 'POST' });
+        if (launchPollId) { clearInterval(launchPollId); launchPollId = null; }
+        document.getElementById('launchModePanel').style.display = 'none';
+        showToast('Launch mode deactivated', 'success');
+      } catch (err) { showToast('Failed to stop launch mode: ' + err.message, 'error'); }
+    }
+
+    async function pollLaunchStatus() {
+      try {
+        const res = await apiFetch('/api/launch/status');
+        const data = await res.json();
+        const panel = document.getElementById('launchModePanel');
+        if (!data.active) { panel.style.display = 'none'; if (launchPollId) { clearInterval(launchPollId); launchPollId = null; } return; }
+
+        panel.style.display = '';
+        document.getElementById('launchDuration').textContent = `${data.appName} | ${data.durationMinutes}m elapsed | ${data.snapshotCount} snapshots`;
+        document.getElementById('launchVisitors').textContent = data.latestSnapshot?.visitors5m ?? '--';
+        const rev = data.latestSnapshot?.revenue;
+        document.getElementById('launchRevenue').textContent = rev ? `${rev.mrr} EUR` : '--';
+
+        const snap = data.latestSnapshot;
+        const healthEl = document.getElementById('launchHealth');
+        if (snap?.containers) {
+          const running = snap.containers.filter(c => c.state === 'running').length;
+          healthEl.textContent = `${running}/${snap.containers.length}`;
+          healthEl.style.color = snap.allHealthy ? 'var(--green)' : 'var(--red)';
+        } else { healthEl.textContent = '--'; }
+
+        document.getElementById('launchLoad').textContent = snap?.load?.toFixed(2) ?? '--';
+
+        // Mini timeline of recent snapshots
+        if (data.recentStats.length > 1) {
+          const timeline = data.recentStats.map(s => {
+            const t = new Date(s.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const dot = s.allHealthy ? '<span style="color:var(--green)">&#9679;</span>' : '<span style="color:var(--red)">&#9679;</span>';
+            return `${dot} ${t} v:${s.visitors5m || 0}`;
+          }).join('  ');
+          document.getElementById('launchTimeline').innerHTML = timeline;
+        }
+      } catch { /* silent poll failure */ }
+    }
+
+    // Check for active launch mode on infra view load
+    function checkLaunchMode() {
+      pollLaunchStatus();
+    }
+
+    // --- Log Search ---
+    async function searchLogs() {
+      const q = document.getElementById('logSearchInput').value.trim();
+      const appSlug = document.getElementById('logSearchApp').value;
+      const el = document.getElementById('logSearchResults');
+      if (!q || q.length < 2) { el.innerHTML = '<span style="color:var(--yellow)">Query must be at least 2 characters</span>'; return; }
+      el.innerHTML = '<span style="color:var(--text-muted)">Searching...</span>';
+      try {
+        let url = `/api/logs/search?q=${encodeURIComponent(q)}&limit=100`;
+        if (appSlug) url += `&app=${encodeURIComponent(appSlug)}`;
+        const res = await apiFetch(url);
+        const data = await res.json();
+        if (data.error) { el.innerHTML = `<span style="color:var(--red)">${escapeHtml(data.error)}</span>`; return; }
+        if (!data.results.length) { el.innerHTML = '<span style="color:var(--text-muted)">No results found.</span>'; return; }
+        let html = `<div style="margin-bottom:6px;color:var(--text-muted)">${data.total} results for "${escapeHtml(data.query)}"</div>`;
+        html += '<div style="max-height:400px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg)">';
+        for (const r of data.results) {
+          const ts = new Date(r.logged_at).toLocaleTimeString();
+          const appBadge = r.app_slug ? `<span style="color:var(--blue);margin-right:4px">[${escapeHtml(r.app_slug)}]</span>` : '';
+          html += `<div style="padding:3px 8px;border-bottom:1px solid var(--border);font-family:monospace;font-size:11px;line-height:1.5;white-space:pre-wrap;word-break:break-all">`;
+          html += `<span style="color:var(--text-muted);margin-right:6px">${ts}</span>`;
+          html += `<span style="color:var(--cyan);margin-right:4px">${escapeHtml(r.container_name)}</span>`;
+          html += appBadge;
+          html += escapeHtml(r.line);
+          html += '</div>';
+        }
+        html += '</div>';
+        if (data.total > data.results.length) html += `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Showing ${data.results.length} of ${data.total} results</div>`;
+        el.innerHTML = html;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
+    }
+
+    async function fetchLogPatterns() {
+      const el = document.getElementById('logSearchResults');
+      el.innerHTML = '<span style="color:var(--text-muted)">Analyzing error patterns...</span>';
+      try {
+        const res = await apiFetch('/api/logs/patterns?hours=6');
+        const data = await res.json();
+        if (!data.patterns.length) { el.innerHTML = '<span style="color:var(--green)">No error patterns detected in the last 6 hours.</span>'; return; }
+        let html = `<div style="margin-bottom:6px;color:var(--text-muted)">${data.patterns.length} error patterns (${data.total_error_lines} total error lines in last ${data.hours}h)</div>`;
+        html += '<div style="max-height:400px;overflow-y:auto">';
+        for (const p of data.patterns) {
+          const severity = p.count >= 50 ? 'var(--red)' : p.count >= 10 ? 'var(--yellow)' : 'var(--text-muted)';
+          html += `<div style="padding:8px;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;background:var(--bg)">`;
+          html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">`;
+          html += `<span style="font-weight:600;color:${severity};font-size:13px">${p.count}x</span>`;
+          html += `<span style="font-size:10px;color:var(--text-muted)">${new Date(p.first_seen).toLocaleTimeString()} - ${new Date(p.last_seen).toLocaleTimeString()}</span>`;
+          html += '</div>';
+          html += `<div style="font-family:monospace;font-size:11px;color:var(--text);white-space:pre-wrap;word-break:break-all;margin-bottom:4px">${escapeHtml(p.sample.slice(0, 200))}</div>`;
+          html += `<div style="font-size:10px;color:var(--text-muted)">Containers: ${p.containers.map(c => escapeHtml(c)).join(', ')}${p.apps.length ? ' | Apps: ' + p.apps.map(a => escapeHtml(a)).join(', ') : ''}</div>`;
+          html += '</div>';
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
+    }
+
+    async function fetchLogStats() {
+      const el = document.getElementById('logSearchResults');
+      el.innerHTML = '<span style="color:var(--text-muted)">Loading log stats...</span>';
+      try {
+        const res = await apiFetch('/api/logs/stats');
+        const data = await res.json();
+        if (!data.stats.length) { el.innerHTML = '<span style="color:var(--text-muted)">No logs ingested yet. Logs are collected every 5 minutes.</span>'; return; }
+        let html = `<div style="margin-bottom:6px;color:var(--text-muted)">${data.total.toLocaleString()} total log lines across ${data.stats.length} containers</div>`;
+        html += '<div style="display:grid;grid-template-columns:180px 100px 80px 1fr;gap:1px;font-size:12px">';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Container</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">App</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Lines</div>';
+        html += '<div style="padding:4px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Time Range</div>';
+        for (const s of data.stats) {
+          html += `<div style="padding:4px 8px;color:var(--cyan);border-bottom:1px solid var(--border)">${escapeHtml(s.container_name)}</div>`;
+          html += `<div style="padding:4px 8px;color:var(--text-dim);border-bottom:1px solid var(--border)">${s.app_slug ? escapeHtml(s.app_slug) : '-'}</div>`;
+          html += `<div style="padding:4px 8px;font-weight:500;border-bottom:1px solid var(--border)">${s.line_count.toLocaleString()}</div>`;
+          html += `<div style="padding:4px 8px;color:var(--text-muted);font-size:10px;border-bottom:1px solid var(--border)">${new Date(s.oldest).toLocaleString()} - ${new Date(s.newest).toLocaleString()}</div>`;
+        }
+        html += '</div>';
+        // Populate app filter dropdown
+        const select = document.getElementById('logSearchApp');
+        const existingApps = new Set(Array.from(select.options).map(o => o.value));
+        for (const s of data.stats) {
+          if (s.app_slug && !existingApps.has(s.app_slug)) {
+            const opt = document.createElement('option');
+            opt.value = s.app_slug;
+            opt.textContent = s.app_slug;
+            select.appendChild(opt);
+            existingApps.add(s.app_slug);
+          }
+        }
+        el.innerHTML = html;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
     }
 
     // --- Marketing Manager (tabbed) ---
@@ -5840,7 +6132,9 @@
           { type: 'command', cmd: 'playground', label: 'API Playground', description: 'Interactive API explorer', shortcut: '' },
           { type: 'command', cmd: 'addapp', label: 'Add New App', description: 'Config wizard for new apps', shortcut: '' },
           { type: 'command', cmd: 'envdiff', label: 'Env Comparison', description: 'Compare .env files across apps', shortcut: '' },
-          { type: 'command', cmd: 'logsearch', label: 'Log Search', description: 'Search across all container logs', shortcut: '/' },
+          { type: 'command', cmd: 'logsearch', label: 'Log Search', description: 'Search across all container logs', shortcut: 'l' },
+          { type: 'command', cmd: 'dns', label: 'DNS Management', description: 'View and manage DNS records via INWX', shortcut: '' },
+          { type: 'command', cmd: 'launch', label: 'Launch Mode', description: 'Activate launch day monitoring for an app', shortcut: '' },
         ];
         renderCmdResults();
         return;
@@ -5981,6 +6275,8 @@
           cost: () => { switchView('infra'); fetchCostAnalysis(true); },
           deploys: () => { switchView('infra'); fetchDeploys(); },
           logsearch: () => { switchView('infra'); document.getElementById('logSearchInput').focus(); },
+          dns: () => { switchView('infra'); document.getElementById('dnsPanel').scrollIntoView({ behavior: 'smooth' }); },
+          launch: () => { const slug = prompt('Enter app slug to launch:'); if (slug) startLaunchMode(slug.trim()); },
           playground: () => { switchView('settings'); setTimeout(() => { document.getElementById('playgroundPanel').scrollIntoView({ behavior: 'smooth' }); loadPlaygroundRoutes(); }, 100); },
           'export errors': () => exportData('errors'),
           'export security': () => exportData('security'),
@@ -6325,26 +6621,6 @@
       } else {
         el.innerHTML = svg + perfectHtml + legend;
       }
-    }
-
-    // === Log Search ===
-    async function searchLogs() {
-      const q = document.getElementById('logSearchInput').value.trim();
-      const el = document.getElementById('logSearchResults');
-      if (!q || q.length < 2) { el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Enter at least 2 characters.</span>'; return; }
-      el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Searching...</span>';
-      try {
-        const res = await apiFetch('/api/logs/search?q=' + encodeURIComponent(q));
-        const data = await res.json();
-        if (!data.results?.length) { el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">No results found.</span>'; return; }
-        el.innerHTML = `<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">${data.count} matches</div>` +
-          data.results.map(r => {
-            const highlighted = escapeHtml(r.line).replace(new RegExp(escapeHtml(q), 'gi'), m => `<mark style="background:var(--yellow);color:var(--bg);padding:0 2px;border-radius:2px">${m}</mark>`);
-            return `<div style="font-size:11px;font-family:monospace;padding:3px 6px;border-left:2px solid var(--accent);margin-bottom:2px;background:var(--surface2);border-radius:0 4px 4px 0;line-height:1.4;word-break:break-all">
-              <span style="color:var(--text-dim);font-size:10px">${escapeHtml(r.container)}</span> ${highlighted}
-            </div>`;
-          }).join('');
-      } catch { el.innerHTML = '<span style="font-size:12px;color:var(--red)">Search failed.</span>'; }
     }
 
     // === Deploy History Panel ===
@@ -9161,6 +9437,7 @@
       if (e.key === 'o') toggleOps();
       if (e.key === 'e') toggleErrors();
       if (e.key === 'g') { switchView('infra'); fetchGitHub(true); }
+      if (e.key === 'l') { switchView('infra'); document.getElementById('logSearchInput').focus(); }
       if (e.key === 'D') { switchView('infra'); fetchDependencies(true); }
       if (e.key === 'n') toggleNotifications();
       if (e.key === 'A') toggleADHDMode();
