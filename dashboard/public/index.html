@@ -1842,6 +1842,27 @@
       <div id="mktPlaybookGrid" class="marketing-grid"></div>
     </div>
   </div>
+    <!-- Stripe Payments Panel -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3><span style="color:var(--green)">&#9679;</span> Stripe Payments</h3>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="loadStripeProducts()" style="color:var(--cyan);font-size:11px">&#8635; Refresh</button>
+        </div>
+      </div>
+      <div id="stripeRecentCharges" style="margin-bottom:16px"></div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <div style="flex:1;min-width:300px">
+          <h4 style="margin:0 0 8px;color:var(--text-muted);font-size:12px;text-transform:uppercase;letter-spacing:1px">Products & Prices</h4>
+          <div id="stripeProductsList" style="color:var(--text-muted);font-size:13px">Loading...</div>
+        </div>
+        <div style="flex:1;min-width:300px">
+          <h4 style="margin:0 0 8px;color:var(--text-muted);font-size:12px;text-transform:uppercase;letter-spacing:1px">Payment Links</h4>
+          <div id="stripePaymentLinks" style="color:var(--text-muted);font-size:13px">Loading...</div>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /view-marketing -->
 
   <!-- === VIEW: INFRASTRUCTURE === -->
@@ -3542,6 +3563,7 @@
       renderMktRevenue();
       renderMktTraffic();
       renderMktSEO();
+      loadStripeProducts();
       document.getElementById('mktLastUpdated').textContent = 'Updated: ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       mktLoaded = true;
     }
@@ -4753,6 +4775,107 @@
     }
 
     function toggleMarketing() { switchView('revenue'); }
+
+    // --- Stripe Payments Panel ---
+    async function loadStripeProducts() {
+      const prodEl = document.getElementById('stripeProductsList');
+      const linksEl = document.getElementById('stripePaymentLinks');
+      const chargesEl = document.getElementById('stripeRecentCharges');
+      if (!prodEl) return;
+
+      const [prodRes, linksRes, chargesRes] = await Promise.allSettled([
+        apiFetch('/api/stripe/products'),
+        apiFetch('/api/stripe/payment-links'),
+        apiFetch('/api/stripe/recent'),
+      ]);
+
+      // Recent charges
+      if (chargesRes.status === 'fulfilled' && chargesRes.value.ok) {
+        const data = await chargesRes.value.json();
+        if (data.charges && data.charges.length > 0) {
+          let html = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">';
+          for (const c of data.charges.slice(0, 10)) {
+            const amt = (c.amount / 100).toFixed(2);
+            const color = c.status === 'succeeded' ? 'var(--green)' : c.status === 'failed' ? 'var(--red)' : 'var(--yellow)';
+            const date = new Date(c.created).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+            html += `<div style="background:var(--bg-lighter);border-radius:8px;padding:6px 10px;font-size:11px;border:1px solid var(--border)">
+              <span style="color:${color};font-weight:600">${amt} ${c.currency.toUpperCase()}</span>
+              <span style="color:var(--text-muted);margin-left:4px">${c.customerEmail || 'no email'}</span>
+              <span style="color:var(--text-muted);margin-left:4px">${date}</span>
+            </div>`;
+          }
+          html += '</div>';
+          chargesEl.innerHTML = html;
+        } else {
+          chargesEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">No recent charges</span>';
+        }
+      } else {
+        chargesEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Could not load charges</span>';
+      }
+
+      // Products & Prices
+      if (prodRes.status === 'fulfilled' && prodRes.value.ok) {
+        const data = await prodRes.value.json();
+        if (data.products.length === 0 && data.prices.length === 0) {
+          prodEl.innerHTML = 'No products found. <a href="https://dashboard.stripe.com/products" target="_blank" style="color:var(--cyan)">Create in Stripe</a>';
+        } else {
+          let html = '';
+          for (const p of data.products) {
+            const prices = data.prices.filter(pr => pr.productId === p.id);
+            html += `<div style="background:var(--bg-lighter);border-radius:8px;padding:8px 12px;margin-bottom:6px;border:1px solid var(--border)">
+              <div style="font-weight:600;font-size:13px">${escapeHtml(p.name)}</div>`;
+            if (p.description) html += `<div style="font-size:11px;color:var(--text-muted)">${escapeHtml(p.description)}</div>`;
+            for (const pr of prices) {
+              const amt = (pr.unitAmount / 100).toFixed(2);
+              const label = pr.recurring ? `${amt} ${pr.currency.toUpperCase()}/${pr.recurring.interval}` : `${amt} ${pr.currency.toUpperCase()} one-time`;
+              html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+                <span style="font-size:12px;color:var(--green)">${label}</span>
+                <button class="btn" onclick="createPaymentLink('${pr.id}')" style="font-size:10px;color:var(--cyan);padding:2px 8px">Create Link</button>
+              </div>`;
+            }
+            html += '</div>';
+          }
+          prodEl.innerHTML = html;
+        }
+      } else {
+        prodEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">No Stripe key configured. Add in Settings.</span>';
+      }
+
+      // Payment Links
+      if (linksRes.status === 'fulfilled' && linksRes.value.ok) {
+        const data = await linksRes.value.json();
+        if (data.links.length === 0) {
+          linksEl.innerHTML = 'No payment links yet. Create one from a product price.';
+        } else {
+          let html = '';
+          for (const l of data.links) {
+            html += `<div style="background:var(--bg-lighter);border-radius:8px;padding:6px 10px;margin-bottom:4px;border:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+              <a href="${escapeHtml(l.url)}" target="_blank" style="color:var(--cyan);font-size:12px;word-break:break-all">${escapeHtml(l.url)}</a>
+              <button class="btn" onclick="navigator.clipboard.writeText('${escapeHtml(l.url)}').then(()=>showToast('Copied!'))" style="font-size:10px;color:var(--text-muted);padding:2px 8px">Copy</button>
+            </div>`;
+          }
+          linksEl.innerHTML = html;
+        }
+      } else {
+        linksEl.innerHTML = '<span style="color:var(--text-muted);font-size:12px">Could not load payment links</span>';
+      }
+    }
+
+    async function createPaymentLink(priceId) {
+      try {
+        const res = await apiPost('/api/stripe/payment-links', { priceId });
+        const data = await res.json();
+        if (data.url) {
+          await navigator.clipboard.writeText(data.url);
+          showToast('Payment link created and copied!');
+          loadStripeProducts();
+        } else {
+          showToast(data.error || 'Failed to create link', true);
+        }
+      } catch (err) {
+        showToast('Error creating payment link', true);
+      }
+    }
 
     async function viewLogs(containerName, lines = 80) {
       const area = document.getElementById('logArea');
