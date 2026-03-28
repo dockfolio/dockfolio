@@ -17,7 +17,7 @@ import {
   letterGrade, maskValue, parseEnvFile, serializeEnvVars,
   getMarketableApps, getAppsWithEnv, diskScore, securityScore, seoScore,
   parseId, asyncRoute, errorFingerprint, errorScore, rateLimit,
-  isBot, callAnthropic, htmlEscape
+  isBot, callAnthropic, htmlEscape, assertSafeDomain, assertSafeUrl
 } from './utils.js';
 import registerDnsRoutes from './routes/dns.js';
 import registerHetznerRoutes from './routes/hetzner.js';
@@ -2574,7 +2574,8 @@ cron.schedule('0 7 * * *', async () => {
     for (const a of config.apps) {
       if (!a.domain) continue;
       try {
-        const result = execSync(`echo | openssl s_client -servername ${a.domain} -connect ${a.domain}:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null`, { timeout: TIMEOUT_MEDIUM }).toString().trim();
+        assertSafeDomain(a.domain);
+        const result = execSync(`echo | openssl s_client -servername "${a.domain}" -connect "${a.domain}:443" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null`, { timeout: TIMEOUT_MEDIUM }).toString().trim();
         const match = result.match(/notAfter=(.*)/);
         if (match) {
           const expiresAt = new Date(match[1]);

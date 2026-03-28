@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
 import { dirname } from 'path';
 import { execSync } from 'child_process';
 import yaml from 'js-yaml';
-import { asyncRoute, slugify, parseEnvFile, serializeEnvVars, maskValue } from '../utils.js';
+import { asyncRoute, slugify, parseEnvFile, serializeEnvVars, maskValue, assertSafePath } from '../utils.js';
 
 const STRIPE_API = 'https://api.stripe.com/v1';
 
@@ -173,7 +173,8 @@ export default function registerConfigRoutes({
       if (!appDef) return res.status(404).json({ error: 'App not found' });
       if (!appDef.composeFile) return res.status(400).json({ error: 'No compose file configured' });
 
-      const projectDir = dirname(appDef.composeFile);
+      const projectDir = assertSafePath(dirname(appDef.composeFile));
+      assertSafePath(appDef.composeFile);
       const output = execSync(
         `docker compose -f "${appDef.composeFile}" --project-directory "${projectDir}" up -d --no-build 2>&1`,
         { timeout: TIMEOUT_HEAVY }

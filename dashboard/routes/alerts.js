@@ -1,4 +1,4 @@
-import { asyncRoute, slugify } from '../utils.js';
+import { asyncRoute, slugify, assertSafeUrl } from '../utils.js';
 
 export default function registerAlertRoutes({ app, db, config, cron, qLatestMetric, sendTelegram, guardedCron, cronFail, isInMaintenanceWindow, TIMEOUT_QUICK }) {
 
@@ -163,6 +163,7 @@ export default function registerAlertRoutes({ app, db, config, cron, qLatestMetr
         if (actionType === 'telegram') {
           sendTelegram(`🔔 <b>Alert Rule Triggered</b>\n${msg}`);
         } else if (actionType === 'webhook' && actionTarget) {
+          try { assertSafeUrl(actionTarget); } catch { continue; }
           fetch(actionTarget, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

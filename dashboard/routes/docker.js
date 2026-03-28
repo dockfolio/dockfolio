@@ -546,11 +546,16 @@ export default function registerDockerRoutes({ app, db, docker, config, auditLog
       return res.status(400).json({ error: 'cmd is required' });
     }
 
-    // Safety: block destructive commands
-    const BLOCKED = ['rm -rf /', 'mkfs', 'dd if=', ':(){', 'shutdown', 'reboot', 'halt', 'init 0', 'init 6'];
-    const lowerCmd = cmd.toLowerCase().trim();
-    if (BLOCKED.some(b => lowerCmd.includes(b))) {
-      return res.status(403).json({ error: 'This command is blocked for safety' });
+    // Safety: whitelist allowed commands (diagnostic only)
+    const ALLOWED_PREFIXES = ['ls', 'cat', 'head', 'tail', 'ps', 'df', 'du', 'env', 'printenv', 'whoami', 'hostname', 'uname', 'uptime', 'free', 'top -bn1', 'netstat', 'ss', 'ip', 'ifconfig', 'ping', 'dig', 'nslookup', 'curl', 'wget', 'wc', 'find', 'grep', 'echo', 'date', 'id', 'mount', 'which', 'npm list', 'pip list', 'node -v', 'python --version'];
+    const trimmedCmd = cmd.trim();
+    const cmdBase = trimmedCmd.split(/\s+/)[0].toLowerCase();
+    if (!ALLOWED_PREFIXES.some(p => cmdBase === p.split(/\s+/)[0])) {
+      return res.status(403).json({ error: `Command '${cmdBase}' is not in the allowed list. Only diagnostic commands are permitted.` });
+    }
+    // Block shell operators that could chain arbitrary commands
+    if (/[;&|`$()]/.test(trimmedCmd)) {
+      return res.status(403).json({ error: 'Shell operators (;, &, |, `, $, parentheses) are not allowed' });
     }
 
     const containers = await docker.listContainers({ all: true });

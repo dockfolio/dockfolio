@@ -1,4 +1,4 @@
-import { asyncRoute, slugify, containerName, callAnthropic } from '../utils.js';
+import { asyncRoute, slugify, containerName, callAnthropic, assertSafePath } from '../utils.js';
 import { execSync } from 'child_process';
 
 export default function registerSnapshotRoutes({ app, db, docker, config, resolveContainerApp, auditLog, getAnthropicKey, cbAnthropic, TIMEOUT_STANDARD }) {
@@ -70,6 +70,7 @@ export default function registerSnapshotRoutes({ app, db, docker, config, resolv
     // Read recent git commits from the repo
     let commits = [];
     try {
+      assertSafePath(repoPath);
       const gitLog = execSync(
         `cd "${repoPath}" && git log --oneline --no-decorate -10 2>/dev/null`,
         { timeout: TIMEOUT_STANDARD }

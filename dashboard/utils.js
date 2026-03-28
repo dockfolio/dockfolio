@@ -209,3 +209,29 @@ export async function callAnthropic(apiKey, { model = 'claude-haiku-4-5-20251001
 export function htmlEscape(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// Shell-safe path validation: rejects characters that could escape shell quoting
+const SAFE_PATH_RE = /^[a-zA-Z0-9\/_. -]+$/;
+export function assertSafePath(p) {
+  if (!p || !SAFE_PATH_RE.test(p)) throw new Error(`Unsafe path rejected: ${String(p).slice(0, 80)}`);
+  if (p.includes('..')) throw new Error('Path traversal rejected');
+  return p;
+}
+
+// Validate domain format (RFC-compliant subset, no shell metacharacters)
+const SAFE_DOMAIN_RE = /^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$/;
+export function assertSafeDomain(d) {
+  if (!d || !SAFE_DOMAIN_RE.test(d)) throw new Error(`Invalid domain: ${String(d).slice(0, 80)}`);
+  return d;
+}
+
+// Validate URL for SSRF prevention: must be HTTPS, no localhost/private IPs
+export function assertSafeUrl(url) {
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'https:') throw new Error('Only HTTPS URLs allowed');
+  const host = parsed.hostname;
+  if (host === 'localhost' || host.startsWith('127.') || host.startsWith('10.') ||
+      host.startsWith('192.168.') || host.startsWith('172.16.') || host === '0.0.0.0' ||
+      host === '[::1]') throw new Error('Internal URLs not allowed');
+  return url;
+}

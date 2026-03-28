@@ -1,7 +1,7 @@
-import { createHmac } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { execSync } from 'child_process';
 import { dirname } from 'path';
-import { asyncRoute, slugify } from '../utils.js';
+import { asyncRoute, slugify, assertSafePath } from '../utils.js';
 
 const GITHUB_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -90,7 +90,9 @@ export default function registerGitHubRoutes({ app, config, db, getSetting, audi
     const sig = req.headers['x-hub-signature-256'];
     if (!sig || !req.rawBody) return res.status(401).json({ error: 'Invalid signature' });
     const expected = 'sha256=' + createHmac('sha256', WEBHOOK_SECRET).update(req.rawBody).digest('hex');
-    if (sig !== expected) return res.status(401).json({ error: 'Invalid signature' });
+    const sigBuf = Buffer.from(sig);
+    const expectedBuf = Buffer.from(expected);
+    if (sigBuf.length !== expectedBuf.length || !timingSafeEqual(sigBuf, expectedBuf)) return res.status(401).json({ error: 'Invalid signature' });
     const event = req.headers['x-github-event'];
     const payload = req.body;
     if (event === 'push' && (payload.ref === 'refs/heads/main' || payload.ref === 'refs/heads/master')) {
@@ -101,8 +103,8 @@ export default function registerGitHubRoutes({ app, config, db, getSetting, audi
       const appDef = config.apps.find(a => slugify(a.name) === appSlug);
       if (appDef?.composePath) {
         try {
-          const dir = dirname(appDef.composePath);
-          execSync(`cd ${dir} && git pull && docker compose up -d --build`, { timeout: TIMEOUT_BUILD });
+          const dir = assertSafePath(dirname(appDef.composePath));
+          execSync(`cd "${dir}" && git pull && docker compose up -d --build`, { timeout: TIMEOUT_BUILD });
           sendTelegram(`Deploy complete: ${appSlug} (${payload.head_commit?.id?.slice(0, 7)})`);
         } catch (err) {
           console.error(`[DEPLOY] ${appSlug} failed:`, err.message);
