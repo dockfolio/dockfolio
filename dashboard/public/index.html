@@ -1543,6 +1543,13 @@
     <div id="anomalyBanner" style="display:none"></div>
     <div id="predictionsPanel" style="display:none"></div>
     <div id="focusPanel" class="focus-panel" style="display:none"></div>
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="whatIfInput" class="search-input" style="flex:1" placeholder="What if I shut down SacredLens? What if I upgrade to 32GB RAM?">
+        <button class="btn" onclick="runWhatIf()" style="color:var(--purple);padding:6px 12px;white-space:nowrap">What If?</button>
+      </div>
+      <div id="whatIfResult" style="display:none;margin-top:12px"></div>
+    </div>
     <div class="pnl-panel" id="pnlPanel" style="display:none"></div>
     <div class="slo-panel" id="sloPanel" style="display:none"></div>
     <div class="heatmap-panel" id="heatmapPanel" style="display:none"></div>
@@ -2297,6 +2304,43 @@
           <div id="playgroundEmpty" style="display:flex;align-items:center;justify-content:center;min-height:200px;color:var(--text-muted);font-size:13px">Select a route from the sidebar to get started</div>
         </div>
       </div>
+    </div>
+
+    <!-- Alert Rules Panel -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>Alert Rules</h3>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="showAlertRuleForm()" style="color:var(--green);font-size:11px">+ New Rule</button>
+          <button class="btn" onclick="loadAlertRules()" style="color:var(--cyan);font-size:11px">&#8635; Refresh</button>
+        </div>
+      </div>
+      <div id="alertRuleForm" style="display:none;margin-bottom:12px;padding:12px;background:var(--bg-lighter);border-radius:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+          <div><label style="font-size:10px;color:var(--text-muted)">Metric</label>
+            <select id="arMetric" class="search-input" style="width:120px;display:block;margin-top:2px">
+              <option value="cpu">CPU %</option><option value="memory_percent">Memory %</option><option value="disk_percent">Disk %</option><option value="load">Load</option><option value="mrr">MRR (EUR)</option><option value="traffic">Traffic</option>
+            </select></div>
+          <div><label style="font-size:10px;color:var(--text-muted)">Operator</label>
+            <select id="arOperator" class="search-input" style="width:60px;display:block;margin-top:2px">
+              <option value=">">&gt;</option><option value="<">&lt;</option><option value=">=">&gt;=</option><option value="<=">&lt;=</option>
+            </select></div>
+          <div><label style="font-size:10px;color:var(--text-muted)">Threshold</label>
+            <input id="arThreshold" class="search-input" style="width:80px;display:block;margin-top:2px" placeholder="90"></div>
+          <div><label style="font-size:10px;color:var(--text-muted)">Action</label>
+            <select id="arAction" class="search-input" style="width:120px;display:block;margin-top:2px">
+              <option value="telegram">Telegram</option><option value="webhook:">Webhook URL</option>
+            </select></div>
+          <div><label style="font-size:10px;color:var(--text-muted)">Cooldown (min)</label>
+            <input id="arWindow" class="search-input" style="width:60px;display:block;margin-top:2px" value="30"></div>
+          <button class="btn" onclick="createAlertRule()" style="color:var(--green);padding:6px 12px">Save</button>
+          <button class="btn" onclick="document.getElementById('alertRuleForm').style.display='none'" style="color:var(--text-muted)">Cancel</button>
+        </div>
+        <div id="arWebhookUrl" style="display:none;margin-top:8px">
+          <input id="arWebhookInput" class="search-input" style="width:100%;display:block" placeholder="https://hooks.slack.com/services/...">
+        </div>
+      </div>
+      <div id="alertRulesList" style="font-size:12px;color:var(--text-muted)">Click refresh to load rules</div>
     </div>
 
     <!-- Audit Log Panel -->
@@ -6688,6 +6732,106 @@
 
     // --- Settings Panel ---
     function toggleSettings() { switchView('settings'); }
+
+    // --- Alert Rules ---
+    function showAlertRuleForm() {
+      document.getElementById('alertRuleForm').style.display = '';
+      document.getElementById('arAction').onchange = function() {
+        document.getElementById('arWebhookUrl').style.display = this.value.startsWith('webhook') ? '' : 'none';
+      };
+    }
+
+    async function createAlertRule() {
+      const metric = document.getElementById('arMetric').value;
+      const operator = document.getElementById('arOperator').value;
+      const threshold = document.getElementById('arThreshold').value;
+      const actionSelect = document.getElementById('arAction').value;
+      const webhookUrl = document.getElementById('arWebhookInput').value;
+      const windowMinutes = parseInt(document.getElementById('arWindow').value) || 30;
+
+      const action = actionSelect.startsWith('webhook') && webhookUrl ? `webhook:${webhookUrl}` : actionSelect;
+
+      try {
+        const res = await apiPost('/api/alerts/rules', { metric, operator, threshold, action, windowMinutes });
+        const data = await res.json();
+        if (data.id) {
+          showToast('Alert rule created');
+          document.getElementById('alertRuleForm').style.display = 'none';
+          loadAlertRules();
+        } else {
+          showToast(data.error || 'Failed', true);
+        }
+      } catch { showToast('Error creating rule', true); }
+    }
+
+    async function loadAlertRules() {
+      const el = document.getElementById('alertRulesList');
+      el.innerHTML = '<span style="color:var(--text-muted)">Loading...</span>';
+      try {
+        const res = await apiFetch('/api/alerts/rules');
+        const data = await res.json();
+        if (!data.rules || data.rules.length === 0) {
+          el.innerHTML = '<span style="color:var(--text-muted)">No alert rules configured. Create one above.</span>';
+          return;
+        }
+        let html = '';
+        for (const r of data.rules) {
+          const enabledColor = r.enabled ? 'var(--green)' : 'var(--text-muted)';
+          const actionLabel = r.action.startsWith('webhook:') ? 'Webhook' : r.action;
+          html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+            <div>
+              <span style="color:${enabledColor};font-weight:600">${r.enabled ? 'ON' : 'OFF'}</span>
+              <span style="margin-left:8px">${escapeHtml(r.metric)} ${escapeHtml(r.operator)} ${escapeHtml(r.threshold)}</span>
+              ${r.app_slug ? `<span style="color:var(--text-muted);margin-left:4px">(${escapeHtml(r.app_slug)})</span>` : ''}
+              <span style="color:var(--text-muted);margin-left:8px;font-size:10px">${actionLabel} | ${r.window_minutes}min cooldown</span>
+            </div>
+            <div style="display:flex;gap:4px">
+              <button class="btn" onclick="toggleAlertRule(${r.id}, ${r.enabled ? 0 : 1})" style="font-size:10px;color:${r.enabled ? 'var(--yellow)' : 'var(--green)'}">${r.enabled ? 'Disable' : 'Enable'}</button>
+              <button class="btn" onclick="deleteAlertRule(${r.id})" style="font-size:10px;color:var(--red)">Delete</button>
+            </div>
+          </div>`;
+        }
+        el.innerHTML = html;
+      } catch { el.innerHTML = '<span style="color:var(--red)">Failed to load rules</span>'; }
+    }
+
+    async function toggleAlertRule(id, enabled) {
+      await apiPost(`/api/alerts/rules/${id}`, { enabled }, 'PUT');
+      loadAlertRules();
+    }
+
+    async function deleteAlertRule(id) {
+      if (!confirm('Delete this alert rule?')) return;
+      await fetch(`/api/alerts/rules/${id}`, { method: 'DELETE' });
+      loadAlertRules();
+    }
+
+    // --- What If Simulator ---
+    async function runWhatIf() {
+      const input = document.getElementById('whatIfInput');
+      const result = document.getElementById('whatIfResult');
+      const scenario = input.value.trim();
+      if (!scenario) return;
+
+      result.style.display = '';
+      result.innerHTML = '<span style="color:var(--text-muted)">Analyzing scenario...</span>';
+
+      try {
+        const res = await apiPost('/api/whatif', { scenario });
+        const data = await res.json();
+        if (data.error) {
+          result.innerHTML = `<span style="color:var(--red)">${escapeHtml(data.error)}</span>`;
+          return;
+        }
+        result.innerHTML = `<pre style="background:var(--bg-lighter);padding:12px;border-radius:8px;font-size:12px;white-space:pre-wrap;border:1px solid var(--border);color:var(--text)">${escapeHtml(data.analysis)}</pre>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:4px">${data.portfolioContext.totalApps} apps, ${data.portfolioContext.totalMRR} EUR MRR, ${data.portfolioContext.totalContainers} containers</div>`;
+      } catch (err) {
+        result.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`;
+      }
+    }
+
+    // Allow Enter key in What If input
+    document.getElementById('whatIfInput')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') runWhatIf(); });
 
     async function loadAuditLog() {
       const el = document.getElementById('auditLogEntries');

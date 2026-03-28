@@ -9718,6 +9718,223 @@ app.get('/api/stripe/recent', asyncRoute(async (_req, res) => {
   });
 }));
 
+// --- Webhook / Alert Rules ---
+
+app.get('/api/alerts/rules', asyncRoute((_req, res) => {
+  const rules = db.prepare('SELECT * FROM alert_rules ORDER BY created_at DESC').all();
+  res.json({ rules });
+}));
+
+app.post('/api/alerts/rules', asyncRoute((req, res) => {
+  const { appSlug, metric, operator, threshold, windowMinutes, action } = req.body;
+  if (!metric || !operator || !threshold) return res.status(400).json({ error: 'metric, operator, and threshold are required' });
+
+  const validOperators = ['>', '<', '>=', '<=', '==', '!=', 'contains'];
+  if (!validOperators.includes(operator)) return res.status(400).json({ error: 'Invalid operator' });
+
+  const validActions = ['telegram', 'webhook', 'email'];
+  const act = action || 'telegram';
+  if (!validActions.includes(act.split(':')[0])) return res.status(400).json({ error: 'Invalid action. Use: telegram, webhook:URL, or email:ADDRESS' });
+
+  const result = db.prepare(
+    'INSERT INTO alert_rules (app_slug, metric, operator, threshold, window_minutes, action) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(appSlug || null, metric, operator, String(threshold), windowMinutes || 5, act);
+
+  res.json({ id: result.lastInsertRowid, message: 'Rule created' });
+}));
+
+app.put('/api/alerts/rules/:id', asyncRoute((req, res) => {
+  const { id } = req.params;
+  const { enabled, metric, operator, threshold, windowMinutes, action } = req.body;
+
+  const rule = db.prepare('SELECT * FROM alert_rules WHERE id = ?').get(id);
+  if (!rule) return res.status(404).json({ error: 'Rule not found' });
+
+  db.prepare(
+    'UPDATE alert_rules SET metric = ?, operator = ?, threshold = ?, window_minutes = ?, action = ?, enabled = ? WHERE id = ?'
+  ).run(
+    metric || rule.metric,
+    operator || rule.operator,
+    threshold != null ? String(threshold) : rule.threshold,
+    windowMinutes || rule.window_minutes,
+    action || rule.action,
+    enabled != null ? (enabled ? 1 : 0) : rule.enabled,
+    id
+  );
+
+  res.json({ message: 'Rule updated' });
+}));
+
+app.delete('/api/alerts/rules/:id', asyncRoute((req, res) => {
+  const result = db.prepare('DELETE FROM alert_rules WHERE id = ?').run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Rule not found' });
+  res.json({ message: 'Rule deleted' });
+}));
+
+// Evaluate alert rules against current metrics
+async function evaluateAlertRules() {
+  const rules = db.prepare('SELECT * FROM alert_rules WHERE enabled = 1').all();
+  if (rules.length === 0) return;
+
+  // Gather current values
+  const currentValues = {};
+
+  // System metrics
+  const sysRow = db.prepare("SELECT * FROM system_snapshots ORDER BY ts DESC LIMIT 1").get();
+  if (sysRow) {
+    currentValues['cpu'] = sysRow.cpu_percent;
+    currentValues['memory_percent'] = sysRow.mem_total_bytes > 0 ? (sysRow.mem_used_bytes / sysRow.mem_total_bytes * 100) : 0;
+    currentValues['disk_percent'] = sysRow.disk_total_bytes > 0 ? (sysRow.disk_used_bytes / sysRow.disk_total_bytes * 100) : 0;
+    currentValues['load'] = sysRow.load_1m;
+  }
+
+  // Per-app MRR
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+    const row = qLatestMetric.get(slug, 'mrr');
+    if (row) currentValues[`${slug}.mrr`] = row.value / 100;
+    const pv = qLatestMetric.get(slug, 'pageviews_30d');
+    if (pv) currentValues[`${slug}.traffic`] = pv.value;
+  }
+
+  for (const rule of rules) {
+    // Cooldown check
+    if (rule.last_fired_at) {
+      const lastFired = new Date(rule.last_fired_at + 'Z').getTime();
+      if (Date.now() - lastFired < rule.window_minutes * 60 * 1000) continue;
+    }
+
+    const metricKey = rule.app_slug ? `${rule.app_slug}.${rule.metric}` : rule.metric;
+    const value = currentValues[metricKey];
+    if (value == null) continue;
+
+    const threshold = parseFloat(rule.threshold);
+    let triggered = false;
+
+    switch (rule.operator) {
+      case '>': triggered = value > threshold; break;
+      case '<': triggered = value < threshold; break;
+      case '>=': triggered = value >= threshold; break;
+      case '<=': triggered = value <= threshold; break;
+      case '==': triggered = value === threshold; break;
+      case '!=': triggered = value !== threshold; break;
+      case 'contains': triggered = String(value).includes(rule.threshold); break;
+    }
+
+    if (triggered) {
+      db.prepare('UPDATE alert_rules SET last_fired_at = datetime(\'now\') WHERE id = ?').run(rule.id);
+
+      const msg = `Alert: ${rule.metric}${rule.app_slug ? ` (${rule.app_slug})` : ''} is ${value} (${rule.operator} ${rule.threshold})`;
+
+      const actionType = rule.action.split(':')[0];
+      const actionTarget = rule.action.slice(actionType.length + 1);
+
+      if (actionType === 'telegram') {
+        sendTelegram(`🔔 <b>Alert Rule Triggered</b>\n${msg}`);
+      } else if (actionType === 'webhook' && actionTarget) {
+        fetch(actionTarget, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alert: msg, metric: rule.metric, value, threshold, app: rule.app_slug, timestamp: new Date().toISOString() }),
+          signal: AbortSignal.timeout(TIMEOUT_QUICK),
+        }).catch(() => {});
+      }
+    }
+  }
+}
+
+// Evaluate alert rules every 5 minutes
+cron.schedule('*/5 * * * *', guardedCron('alert-rules', async () => {
+  await evaluateAlertRules().catch(err => cronFail('Alert rules evaluation', err));
+}));
+
+// --- "What If" Simulator ---
+
+app.post('/api/whatif', asyncRoute(async (req, res) => {
+  const { scenario } = req.body;
+  if (!scenario) return res.status(400).json({ error: 'scenario is required' });
+
+  const anthropicKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) return res.status(400).json({ error: 'No Anthropic API key configured' });
+
+  // Gather portfolio context
+  const appSummaries = [];
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+    const mrr = qLatestMetric.get(slug, 'mrr')?.value || 0;
+    const pv = qLatestMetric.get(slug, 'pageviews_30d')?.value || 0;
+    const containers = appDef.containers || [];
+
+    let memMB = 0;
+    let cpuPct = 0;
+    for (const cName of containers) {
+      try {
+        const stats = await docker.getContainer(cName).stats({ stream: false });
+        memMB += (stats.memory_stats?.usage || 0) / 1e6;
+        const cpuDelta = stats.cpu_stats?.cpu_usage?.total_usage - stats.precpu_stats?.cpu_usage?.total_usage;
+        const sysDelta = stats.cpu_stats?.system_cpu_usage - stats.precpu_stats?.system_cpu_usage;
+        if (sysDelta > 0) cpuPct += (cpuDelta / sysDelta) * 100;
+      } catch { /* container may not be running */ }
+    }
+
+    appSummaries.push({
+      name: appDef.name,
+      slug,
+      domain: appDef.domain,
+      type: appDef.type || 'unknown',
+      containers: containers.length,
+      mrrEUR: (mrr / 100).toFixed(2),
+      monthlyVisitors: pv,
+      memoryMB: Math.round(memMB),
+      cpuPercent: cpuPct.toFixed(1),
+    });
+  }
+
+  const sysRow = db.prepare("SELECT * FROM system_snapshots ORDER BY ts DESC LIMIT 1").get();
+
+  const prompt = `You are a portfolio strategist for a solo developer running ${appSummaries.length} apps on one server.
+
+## Current Portfolio
+${appSummaries.map(a => `- ${a.name} (${a.domain}): ${a.type}, ${a.mrrEUR} EUR/mo MRR, ${a.monthlyVisitors} visitors/mo, ${a.containers} containers, ${a.memoryMB}MB RAM, ${a.cpuPercent}% CPU`).join('\n')}
+
+## Server Resources
+${sysRow ? `CPU: ${sysRow.cpu_percent}%, Memory: ${(sysRow.mem_used_bytes / sysRow.mem_total_bytes * 100).toFixed(1)}% (${(sysRow.mem_used_bytes / 1e9).toFixed(1)}/${(sysRow.mem_total_bytes / 1e9).toFixed(1)} GB), Disk: ${(sysRow.disk_used_bytes / sysRow.disk_total_bytes * 100).toFixed(1)}%` : 'No system data available'}
+
+## Scenario to Analyze
+"${scenario}"
+
+Provide a structured analysis:
+1. **Impact Summary**: One-sentence verdict
+2. **Resource Impact**: CPU, memory, disk changes (with numbers)
+3. **Revenue Impact**: What happens to MRR and traffic
+4. **Risk Assessment**: What could go wrong
+5. **Recommendation**: Do it / Don't do it / Do it with modifications
+
+Be specific with numbers. Reference actual apps and their metrics.`;
+
+  try {
+    const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
+      maxTokens: 600,
+      timeout: 15000,
+      messages: [{ role: 'user', content: prompt }],
+    }));
+
+    res.json({
+      scenario,
+      analysis: ai.text,
+      portfolioContext: {
+        totalApps: appSummaries.length,
+        totalMRR: appSummaries.reduce((s, a) => s + parseFloat(a.mrrEUR), 0).toFixed(2),
+        totalContainers: appSummaries.reduce((s, a) => s + a.containers, 0),
+      },
+      tokens: ai.tokens,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}));
+
 // --- Security Leaderboard ---
 
 app.get('/api/security/leaderboard', asyncRoute((_req, res) => {
