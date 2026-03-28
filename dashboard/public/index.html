@@ -3255,7 +3255,7 @@
       let card = `<div class="app-card ${cardClass}" data-slug="${slug}" data-domain="${escapeHtml(app.domain || '')}" data-appname="${escapeHtml(app.name)}" onclick="openDetail('${escapeHtml(app.name)}')">
         ${hsBadge}
         <div class="app-card-header">
-          <span class="app-name"><span class="status-dot ${h}" data-label="${h}"></span>${app.name}</span>
+          <span class="app-name"><span class="status-dot ${h}" data-label="${h}"></span>${escapeHtml(app.name)}</span>
           <div class="app-badges">
             ${maintBadge}
             <button class="app-fav-btn ${isFav ? 'is-fav' : ''}" onclick="toggleFavorite('${slug}', event)" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">&#9733;</button>
@@ -3263,8 +3263,8 @@
             ${app.hasEnvFile ? '<span class="badge-env" title="Has .env file">ENV</span>' : ''}
           </div>
         </div>
-        <div class="app-domain"><a href="https://${app.domain}" target="_blank" onclick="event.stopPropagation()">${app.domain}</a></div>
-        <div class="app-desc">${app.description || ''}</div>
+        <div class="app-domain"><a href="https://${escapeHtml(app.domain || '')}" target="_blank" onclick="event.stopPropagation()">${escapeHtml(app.domain || '')}</a></div>
+        <div class="app-desc">${escapeHtml(app.description || '')}</div>
         <div class="app-meta">`;
 
       const um = uptimeData.monitors?.[app.name];
@@ -3450,9 +3450,9 @@
       const ssl = sslData.domains?.[app.domain];
 
       let overview = `<dl class="detail-grid">
-        <dt>Domain</dt><dd><a href="https://${app.domain}" target="_blank">${app.domain}</a></dd>
+        <dt>Domain</dt><dd><a href="https://${escapeHtml(app.domain || '')}" target="_blank">${escapeHtml(app.domain || '')}</a></dd>
         <dt>Type</dt><dd><span class="badge ${typeBadge[app.type]}">${typeShort[app.type]}</span></dd>
-        <dt>Tech</dt><dd>${app.tech || 'N/A'}</dd>
+        <dt>Tech</dt><dd>${escapeHtml(app.tech || 'N/A')}</dd>
         <dt>Status</dt><dd><span class="status-dot ${h}"></span> ${h}</dd>
         ${app.port ? `<dt>Port</dt><dd>${app.port}</dd>` : ''}
         ${app.repo ? `<dt>Path</dt><dd style="font-family:monospace;font-size:12px">${app.repo}</dd>` : ''}
@@ -4698,7 +4698,7 @@
       const sorted = Object.entries(mktAnalyticsData.apps).sort((a, b) => (b[1].visitors || 0) - (a[1].visitors || 0));
       for (const [name, app] of sorted) {
         if (app.error && !app.visitors) {
-          html += `<div class="ana-card"><div class="ana-card-name">${name}</div><span style="color:var(--text-muted);font-size:11px">${app.error || 'No data'}</span><div style="font-size:10px;color:var(--text-muted);margin-top:4px">${app.domain} &mdash; Plausible tracking may not be installed</div></div>`;
+          html += `<div class="ana-card"><div class="ana-card-name">${escapeHtml(name)}</div><span style="color:var(--text-muted);font-size:11px">${escapeHtml(app.error || 'No data')}</span><div style="font-size:10px;color:var(--text-muted);margin-top:4px">${escapeHtml(app.domain || '')} &mdash; Plausible tracking may not be installed</div></div>`;
           continue;
         }
         const maxVisitors = sorted[0]?.[1]?.visitors || 1;
@@ -4706,10 +4706,10 @@
 
         html += `<div class="ana-card">
           <div class="ana-card-header">
-            <span class="ana-card-name">${name}</span>
+            <span class="ana-card-name">${escapeHtml(name)}</span>
             ${app.realtime > 0 ? `<span class="ana-realtime"><span class="ana-realtime-dot"></span>${app.realtime} live</span>` : ''}
           </div>
-          <div style="font-size:11px;color:var(--cyan);margin-bottom:6px">${app.domain}</div>
+          <div style="font-size:11px;color:var(--cyan);margin-bottom:6px">${escapeHtml(app.domain || '')}</div>
           <div class="ana-stats">
             <div class="ana-stat"><div class="ana-stat-val">${(app.visitors || 0).toLocaleString()}</div><div class="ana-stat-lbl">Visitors</div></div>
             <div class="ana-stat"><div class="ana-stat-val">${(app.pageviews || 0).toLocaleString()}</div><div class="ana-stat-lbl">Pageviews</div></div>
@@ -4806,7 +4806,7 @@
           marketingHtml += '</div>';
         }
         html += `<div class="seo-card">
-          <div class="seo-card-header"><div><div class="seo-card-name">${name}</div><a href="https://${app.domain}" target="_blank" class="seo-card-domain">${app.domain}</a></div>
+          <div class="seo-card-header"><div><div class="seo-card-name">${escapeHtml(name)}</div><a href="https://${escapeHtml(app.domain || '')}" target="_blank" class="seo-card-domain">${escapeHtml(app.domain || '')}</a></div>
             <div style="text-align:right"><span class="seo-score grade-${app.grade}">${app.score}</span><span class="seo-grade" style="background:${scoreColor}20;color:${scoreColor}">${app.grade}</span></div>
           </div>
           <div class="seo-bar"><div class="seo-bar-fill" style="width:${app.score}%;background:${bColor}"></div></div>
