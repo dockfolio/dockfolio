@@ -467,6 +467,44 @@ test('handles empty string', () => { assert.equal(htmlEscape(''), ''); });
 test('passes through safe text', () => { assert.equal(htmlEscape('hello world'), 'hello world'); });
 test('escapes mixed content', () => { assert.equal(htmlEscape('<b>"A & B"</b>'), '&lt;b&gt;&quot;A &amp; B&quot;&lt;/b&gt;'); });
 
+// ================================
+// assertSafePath()
+// ================================
+import { assertSafePath, assertSafeDomain, assertSafeUrl } from './utils.js';
+
+console.log('\nassertSafePath()');
+
+test('accepts normal paths', () => { assert.equal(assertSafePath('/opt/promoforge/docker-compose.yml'), '/opt/promoforge/docker-compose.yml'); });
+test('accepts paths with spaces', () => { assert.equal(assertSafePath('/home/deploy/my app'), '/home/deploy/my app'); });
+test('accepts paths with dots', () => { assert.equal(assertSafePath('/opt/app/.env'), '/opt/app/.env'); });
+test('rejects path traversal', () => { assert.throws(() => assertSafePath('/opt/../etc/passwd'), /traversal/); });
+test('rejects shell metacharacters ;', () => { assert.throws(() => assertSafePath('/opt; rm -rf /'), /Unsafe/); });
+test('rejects shell metacharacters $', () => { assert.throws(() => assertSafePath('/opt/$(whoami)'), /Unsafe/); });
+test('rejects backticks', () => { assert.throws(() => assertSafePath('/opt/`id`'), /Unsafe/); });
+test('rejects ampersand', () => { assert.throws(() => assertSafePath('/opt & evil'), /Unsafe/); });
+test('rejects pipe', () => { assert.throws(() => assertSafePath('/opt | cat'), /Unsafe/); });
+test('rejects null/empty', () => { assert.throws(() => assertSafePath(''), /Unsafe/); });
+test('rejects null', () => { assert.throws(() => assertSafePath(null), /Unsafe/); });
+
+console.log('\nassertSafeDomain()');
+
+test('accepts valid domain', () => { assert.equal(assertSafeDomain('promoforge.app'), 'promoforge.app'); });
+test('accepts subdomain', () => { assert.equal(assertSafeDomain('admin.crelvo.dev'), 'admin.crelvo.dev'); });
+test('accepts hyphenated domain', () => { assert.equal(assertSafeDomain('bewerbungsfotos-ai.de'), 'bewerbungsfotos-ai.de'); });
+test('rejects shell injection in domain', () => { assert.throws(() => assertSafeDomain('evil.com; rm -rf /'), /Invalid domain/); });
+test('rejects backtick in domain', () => { assert.throws(() => assertSafeDomain('evil.com`id`'), /Invalid domain/); });
+test('rejects spaces', () => { assert.throws(() => assertSafeDomain('evil .com'), /Invalid domain/); });
+test('rejects empty', () => { assert.throws(() => assertSafeDomain(''), /Invalid domain/); });
+
+console.log('\nassertSafeUrl()');
+
+test('accepts HTTPS URL', () => { assert.equal(assertSafeUrl('https://hooks.slack.com/foo'), 'https://hooks.slack.com/foo'); });
+test('rejects HTTP', () => { assert.throws(() => assertSafeUrl('http://example.com'), /HTTPS/); });
+test('rejects localhost', () => { assert.throws(() => assertSafeUrl('https://localhost/foo'), /Internal/); });
+test('rejects 127.0.0.1', () => { assert.throws(() => assertSafeUrl('https://127.0.0.1/foo'), /Internal/); });
+test('rejects 10.x', () => { assert.throws(() => assertSafeUrl('https://10.0.0.1/foo'), /Internal/); });
+test('rejects 192.168.x', () => { assert.throws(() => assertSafeUrl('https://192.168.1.1/foo'), /Internal/); });
+
 // --- Summary ---
 console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed\n`);
 process.exit(failed > 0 ? 1 : 0);
