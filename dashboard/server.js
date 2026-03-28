@@ -10085,6 +10085,127 @@ cron.schedule('0 4 * * *', guardedCron('audit-cleanup', () => {
   } catch (err) { cronFail('Audit cleanup', err); }
 }));
 
+// --- Achievement System ---
+
+const ACHIEVEMENTS = [
+  { id: 'first-deploy', name: 'First Deploy', desc: 'Deploy an app for the first time', icon: '🚀', check: () => db.prepare("SELECT COUNT(*) as c FROM healing_log WHERE action_taken LIKE '%restart%'").get().c > 0 },
+  { id: 'security-hawk', name: 'Security Hawk', desc: 'Security score > 90 for any app', icon: '🛡️', check: () => {
+    for (const appDef of config.apps) { const rc = calculateAppReportCard(slugify(appDef.name)); if (rc?.dimensions?.security?.score > 90) return true; } return false;
+  }},
+  { id: 'revenue-10', name: 'First Tenner', desc: 'Reach 10 EUR MRR on any app', icon: '💰', check: () => {
+    for (const appDef of config.apps) { const r = qLatestMetric.get(slugify(appDef.name), 'mrr'); if (r?.value >= 1000) return true; } return false;
+  }},
+  { id: 'revenue-100', name: 'Triple Digits', desc: 'Reach 100 EUR MRR on any app', icon: '💎', check: () => {
+    for (const appDef of config.apps) { const r = qLatestMetric.get(slugify(appDef.name), 'mrr'); if (r?.value >= 10000) return true; } return false;
+  }},
+  { id: 'revenue-1000', name: 'Four Figures', desc: 'Reach 1,000 EUR MRR portfolio-wide', icon: '👑', check: () => {
+    let total = 0; for (const appDef of config.apps) { const r = qLatestMetric.get(slugify(appDef.name), 'mrr'); total += r?.value || 0; } return total >= 100000;
+  }},
+  { id: 'uptime-7', name: 'Steady Ship', desc: '7-day uptime streak on any app', icon: '🔥', check: () => {
+    const row = db.prepare("SELECT MAX(streak_days) as m FROM (SELECT app_slug, COUNT(*) as streak_days FROM uptime_history WHERE status = 'up' GROUP BY app_slug)").get();
+    return (row?.m || 0) >= 7;
+  }},
+  { id: 'uptime-30', name: 'Iron Uptime', desc: '30-day uptime streak', icon: '⚡', check: () => {
+    const row = db.prepare("SELECT MAX(streak_days) as m FROM (SELECT app_slug, COUNT(*) as streak_days FROM uptime_history WHERE status = 'up' GROUP BY app_slug)").get();
+    return (row?.m || 0) >= 30;
+  }},
+  { id: 'portfolio-5', name: 'Portfolio Builder', desc: 'Run 5+ apps', icon: '📦', check: () => config.apps.length >= 5 },
+  { id: 'portfolio-10', name: 'App Empire', desc: 'Run 10+ apps', icon: '🏰', check: () => config.apps.length >= 10 },
+  { id: 'healer', name: 'Self-Healer', desc: 'Auto-healing has fixed 10+ issues', icon: '🔧', check: () => db.prepare("SELECT COUNT(*) as c FROM healing_log WHERE result = 'executed'").get().c >= 10 },
+  { id: 'night-owl', name: 'Night Owl', desc: 'Activity logged between midnight and 5 AM', icon: '🦉', check: () => db.prepare("SELECT COUNT(*) as c FROM audit_log WHERE CAST(strftime('%H', timestamp) AS INTEGER) < 5").get().c > 0 },
+  { id: 'clean-sweep', name: 'Clean Sweep', desc: 'All apps have security grade A or B', icon: '✨', check: () => {
+    for (const appDef of config.apps) { const rc = calculateAppReportCard(slugify(appDef.name)); if (!rc?.dimensions?.security || rc.dimensions.security.score < 80) return false; } return config.apps.length > 0;
+  }},
+];
+
+app.get('/api/achievements', asyncRoute((_req, res) => {
+  const unlocked = [];
+  const locked = [];
+
+  for (const ach of ACHIEVEMENTS) {
+    try {
+      const earned = ach.check();
+      const stored = getSetting(`achievement_${ach.id}`);
+      if (earned && !stored) {
+        setSetting(`achievement_${ach.id}`, new Date().toISOString());
+      }
+      const unlockedAt = stored || (earned ? new Date().toISOString() : null);
+      if (unlockedAt) {
+        unlocked.push({ ...ach, check: undefined, unlockedAt });
+      } else {
+        locked.push({ id: ach.id, name: ach.name, desc: ach.desc, icon: ach.icon });
+      }
+    } catch {
+      locked.push({ id: ach.id, name: ach.name, desc: ach.desc, icon: ach.icon });
+    }
+  }
+
+  res.json({
+    unlocked,
+    locked,
+    total: ACHIEVEMENTS.length,
+    earned: unlocked.length,
+    timestamp: new Date().toISOString(),
+  });
+}));
+
+// --- Build in Public Generator ---
+
+app.get('/api/build-in-public', asyncRoute(async (_req, res) => {
+  const anthropicKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) return res.status(400).json({ error: 'No Anthropic API key configured' });
+
+  // Gather this week's activity
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const healingEvents = db.prepare("SELECT COUNT(*) as c FROM healing_log WHERE timestamp > ?").get(weekAgo).c;
+  const auditEvents = db.prepare("SELECT COUNT(*) as c FROM audit_log WHERE timestamp > ?").get(weekAgo).c;
+  const securityFindings = db.prepare("SELECT COUNT(*) as c FROM security_findings WHERE created_at > ?").get(weekAgo).c;
+
+  // Revenue data
+  const appMetrics = [];
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+    const mrr = qLatestMetric.get(slug, 'mrr')?.value || 0;
+    const pv = qLatestMetric.get(slug, 'pageviews_30d')?.value || 0;
+    if (mrr > 0 || pv > 100) {
+      appMetrics.push({ name: appDef.name, mrrEUR: (mrr / 100).toFixed(2), visitors: pv });
+    }
+  }
+
+  const totalMRR = appMetrics.reduce((s, a) => s + parseFloat(a.mrrEUR), 0).toFixed(2);
+
+  const prompt = `Generate a short "build in public" update for a solo developer running ${config.apps.length} apps. Make it authentic, casual, and engaging for Twitter/X (max 280 chars for the main tweet, then 2-3 reply tweets for details).
+
+This week's stats:
+- Total MRR: ${totalMRR} EUR
+- Apps with traction: ${appMetrics.map(a => `${a.name}: ${a.mrrEUR} EUR MRR, ${a.visitors} visitors`).join('; ') || 'None yet'}
+- Infrastructure events: ${healingEvents} auto-healing, ${auditEvents} config changes, ${securityFindings} security findings fixed
+- Portfolio: ${config.apps.length} apps on one server
+
+Format as JSON array of tweet strings. Be genuine, share real numbers, mention specific apps. No hashtag spam (1-2 max).`;
+
+  try {
+    const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
+      maxTokens: 400,
+      timeout: 15000,
+      messages: [{ role: 'user', content: prompt }],
+    }));
+
+    let tweets = [];
+    try { tweets = JSON.parse(ai.text); } catch { tweets = [ai.text]; }
+
+    res.json({
+      tweets,
+      stats: { totalMRR, appsWithRevenue: appMetrics.length, totalApps: config.apps.length, healingEvents, auditEvents },
+      tokens: ai.tokens,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}));
+
 // Health check endpoint
 app.get('/health', (_req, res) => res.send('ok'));
 

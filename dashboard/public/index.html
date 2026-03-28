@@ -1550,6 +1550,7 @@
       </div>
       <div id="whatIfResult" style="display:none;margin-top:12px"></div>
     </div>
+    <div id="achievementsPanel" style="display:none;margin-bottom:12px"></div>
     <div class="pnl-panel" id="pnlPanel" style="display:none"></div>
     <div class="slo-panel" id="sloPanel" style="display:none"></div>
     <div class="heatmap-panel" id="heatmapPanel" style="display:none"></div>
@@ -1866,6 +1867,15 @@
       <div id="mktPlaybookGrid" class="marketing-grid"></div>
     </div>
   </div>
+    <!-- Build in Public -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>Build in Public</h3>
+        <button class="btn" onclick="generateBIP()" style="color:var(--purple);font-size:11px">Generate Update</button>
+      </div>
+      <div id="bipContent" style="font-size:12px;color:var(--text-muted)">Generate a weekly "build in public" update from your real stats.</div>
+    </div>
+
     <!-- Time-to-Revenue Tracker -->
     <div class="card" style="margin-top:16px">
       <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
@@ -2617,6 +2627,7 @@
         apiFetch('/api/realtime/visitors').then(r => r.ok ? r.json() : null).then(d => { if (d) renderRealtimeVisitors(d); }).catch(() => {});
         apiFetch('/api/slo').then(r => r.ok ? r.json() : null).then(d => { if (d) renderSloPanel(d); }).catch(() => {});
         apiFetch('/api/focus').then(r => r.ok ? r.json() : null).then(d => { if (d) renderFocusPanel(d); }).catch(() => {});
+        loadAchievements();
         document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       } catch (err) {
         console.error('Fetch error:', err);
@@ -4914,6 +4925,61 @@
     }
 
     function toggleMarketing() { switchView('revenue'); }
+
+    // --- Achievements ---
+    async function loadAchievements() {
+      const el = document.getElementById('achievementsPanel');
+      if (!el) return;
+      try {
+        const res = await apiFetch('/api/achievements');
+        const data = await res.json();
+        if (!data.unlocked || (data.unlocked.length === 0 && data.locked.length === 0)) return;
+
+        el.style.display = '';
+        let html = `<div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+          <h3>Achievements</h3>
+          <span style="font-size:12px;color:var(--text-muted)">${data.earned}/${data.total}</span>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">`;
+        for (const a of data.unlocked) {
+          html += `<div style="background:var(--bg-lighter);border:1px solid var(--green);border-radius:8px;padding:6px 10px;font-size:11px" title="${escapeHtml(a.desc)}">
+            <span style="font-size:16px">${a.icon}</span> <span style="font-weight:600;color:var(--green)">${escapeHtml(a.name)}</span>
+          </div>`;
+        }
+        for (const a of data.locked) {
+          html += `<div style="background:var(--bg-lighter);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;opacity:0.4" title="${escapeHtml(a.desc)}">
+            <span style="font-size:16px">${a.icon}</span> <span>${escapeHtml(a.name)}</span>
+          </div>`;
+        }
+        html += '</div></div>';
+        el.innerHTML = html;
+      } catch { /* silent */ }
+    }
+
+    // --- Build in Public ---
+    async function generateBIP() {
+      const el = document.getElementById('bipContent');
+      el.innerHTML = '<span style="color:var(--text-muted)">Generating update from your real stats...</span>';
+      try {
+        const res = await apiFetch('/api/build-in-public');
+        const data = await res.json();
+        if (data.error) { el.innerHTML = `<span style="color:var(--red)">${escapeHtml(data.error)}</span>`; return; }
+        let html = '';
+        const tweets = Array.isArray(data.tweets) ? data.tweets : [data.tweets];
+        for (let i = 0; i < tweets.length; i++) {
+          const tweet = typeof tweets[i] === 'string' ? tweets[i] : JSON.stringify(tweets[i]);
+          html += `<div style="background:var(--bg-lighter);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:6px">
+            <div style="font-size:13px;white-space:pre-wrap">${escapeHtml(tweet)}</div>
+            <div style="display:flex;justify-content:space-between;margin-top:6px">
+              <span style="font-size:10px;color:var(--text-muted)">${tweet.length} chars</span>
+              <button class="btn" onclick="navigator.clipboard.writeText(${JSON.stringify(tweet).replace(/'/g, "\\'")}).then(()=>showToast('Copied!'))" style="font-size:10px;color:var(--cyan)">Copy</button>
+            </div>
+          </div>`;
+        }
+        html += `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">${data.stats.totalMRR} EUR MRR | ${data.stats.totalApps} apps | ${data.stats.healingEvents} auto-heals this week</div>`;
+        el.innerHTML = html;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
+    }
 
     // --- Security Leaderboard ---
     async function loadSecurityLeaderboard() {
