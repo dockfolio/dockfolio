@@ -2046,6 +2046,25 @@
       <div id="logSearchResults" style="font-size:12px;color:var(--text-muted)">Enter a search query to search across all container logs (last 24h).</div>
     </div>
 
+    <div id="troubleshootPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Troubleshoot</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="troubleshootFlow" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:11px">
+            <option value="app-not-responding">App Not Responding</option>
+            <option value="high-memory">High Memory Usage</option>
+            <option value="high-disk">Disk Space Issue</option>
+            <option value="deploy-failed">Deploy Failed</option>
+          </select>
+          <select id="troubleshootApp" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:11px">
+            <option value="">All / System</option>
+          </select>
+          <button class="btn" onclick="runTroubleshoot()">Run</button>
+        </div>
+      </div>
+      <div id="troubleshootResults" style="font-size:12px;color:var(--text-muted)">Select a troubleshooting flow and click "Run" to diagnose issues.</div>
+    </div>
+
     <div id="dnsPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">DNS Management</span>
@@ -2840,12 +2859,26 @@
       const el = document.getElementById('anomalyBanner');
       if (!data || !data.anomalies || data.anomalies.length === 0) { el.style.display = 'none'; return; }
       el.style.display = '';
-      let html = `<div class="anomaly-banner"><h4>&#x1F4CA; Anomalies Detected</h4>`;
+      let html = `<div class="anomaly-banner"><div style="display:flex;justify-content:space-between;align-items:center"><h4 style="margin:0 0 8px;font-size:13px;color:var(--red)">&#x1F4CA; Anomalies Detected</h4><button class="btn" style="font-size:10px;padding:2px 8px" onclick="fetchAnomalyNarrative()">Explain</button></div>`;
       for (const a of data.anomalies) {
         html += `<div class="anomaly-item ${a.severity}">${a.message}</div>`;
       }
+      html += `<div id="anomalyNarrative" style="display:none;margin-top:8px;padding:8px;background:var(--surface);border-radius:6px;font-size:12px;color:var(--text);border-left:3px solid var(--blue)"></div>`;
       html += `</div>`;
       el.innerHTML = html;
+    }
+
+    async function fetchAnomalyNarrative() {
+      const el = document.getElementById('anomalyNarrative');
+      if (!el) return;
+      el.style.display = '';
+      el.innerHTML = '<span style="color:var(--text-muted)">Analyzing anomalies...</span>';
+      try {
+        const res = await apiFetch('/api/anomalies/narrative');
+        const data = await res.json();
+        if (data.error) { el.innerHTML = `<span style="color:var(--red)">${escapeHtml(data.error)}</span>`; return; }
+        el.innerHTML = `<div style="font-style:italic;line-height:1.5">${escapeHtml(data.narrative)}</div>`;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
     }
 
     function renderPredictions(data) {
@@ -3029,6 +3062,7 @@
           fetchGitHub();
           fetchDependencies();
           initDNSPanel();
+          initTroubleshootPanel();
           checkLaunchMode();
           break;
         case 'security':
@@ -3815,6 +3849,59 @@
         html += `<div style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:6px">Updated: ${new Date(depsData.timestamp).toLocaleTimeString()}</div>`;
       }
       el.innerHTML = html;
+    }
+
+    // --- Troubleshooting ---
+    let troubleshootInitialized = false;
+
+    function initTroubleshootPanel() {
+      if (troubleshootInitialized) return;
+      troubleshootInitialized = true;
+      const select = document.getElementById('troubleshootApp');
+      if (!appData) return;
+      for (const app of appData) {
+        const opt = document.createElement('option');
+        opt.value = app.slug || app.name;
+        opt.textContent = app.name;
+        select.appendChild(opt);
+      }
+    }
+
+    async function runTroubleshoot() {
+      const flow = document.getElementById('troubleshootFlow').value;
+      const appSlug = document.getElementById('troubleshootApp').value || undefined;
+      const el = document.getElementById('troubleshootResults');
+      el.innerHTML = '<span style="color:var(--text-muted)">Running diagnostics...</span>';
+
+      try {
+        const res = await apiFetch('/api/troubleshoot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ flow, appSlug }),
+        });
+        const data = await res.json();
+        if (data.error) { el.innerHTML = `<span style="color:var(--red)">${escapeHtml(data.error)}</span>`; return; }
+
+        const verdictColor = data.verdict === 'healthy' ? 'var(--green)' : data.verdict === 'warnings' ? 'var(--yellow)' : 'var(--red)';
+        let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">`;
+        html += `<span style="font-weight:600;font-size:13px">${escapeHtml(data.flowName)}${data.app ? ' — ' + escapeHtml(data.app) : ''}</span>`;
+        html += `<span style="padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600;color:${verdictColor};background:${verdictColor}20">${data.verdict.replace('-', ' ').toUpperCase()}</span>`;
+        html += '</div>';
+
+        for (const r of data.results) {
+          const icon = r.status === 'ok' ? '<span style="color:var(--green)">&#10003;</span>'
+            : r.status === 'fail' ? '<span style="color:var(--red)">&#10007;</span>'
+            : r.status === 'warn' ? '<span style="color:var(--yellow)">&#9888;</span>'
+            : r.status === 'manual' ? '<span style="color:var(--blue)">&#9998;</span>'
+            : '<span style="color:var(--text-muted)">&#8722;</span>';
+          html += `<div style="padding:6px 8px;border-left:3px solid ${r.status === 'fail' ? 'var(--red)' : r.status === 'warn' ? 'var(--yellow)' : r.status === 'ok' ? 'var(--green)' : 'var(--border)'};margin-bottom:4px;background:var(--bg);border-radius:0 6px 6px 0">`;
+          html += `<div style="display:flex;align-items:center;gap:6px">${icon} <span style="font-weight:500">${escapeHtml(r.label)}</span></div>`;
+          if (r.message) html += `<div style="font-size:11px;color:var(--text-dim);margin-top:2px;margin-left:20px">${escapeHtml(r.message)}</div>`;
+          if (r.hint) html += `<div style="font-size:10px;color:var(--blue);margin-top:2px;margin-left:20px;font-style:italic">${escapeHtml(r.hint)}</div>`;
+          html += '</div>';
+        }
+        el.innerHTML = html;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
     }
 
     // --- DNS Management ---
@@ -6135,6 +6222,8 @@
           { type: 'command', cmd: 'logsearch', label: 'Log Search', description: 'Search across all container logs', shortcut: 'l' },
           { type: 'command', cmd: 'dns', label: 'DNS Management', description: 'View and manage DNS records via INWX', shortcut: '' },
           { type: 'command', cmd: 'launch', label: 'Launch Mode', description: 'Activate launch day monitoring for an app', shortcut: '' },
+          { type: 'command', cmd: 'troubleshoot', label: 'Troubleshoot', description: 'Guided troubleshooting for common issues', shortcut: '' },
+          { type: 'command', cmd: 'anomaly', label: 'Anomaly Narrative', description: 'AI explanation of current anomalies', shortcut: '' },
         ];
         renderCmdResults();
         return;
@@ -6277,6 +6366,8 @@
           logsearch: () => { switchView('infra'); document.getElementById('logSearchInput').focus(); },
           dns: () => { switchView('infra'); document.getElementById('dnsPanel').scrollIntoView({ behavior: 'smooth' }); },
           launch: () => { const slug = prompt('Enter app slug to launch:'); if (slug) startLaunchMode(slug.trim()); },
+          troubleshoot: () => { switchView('infra'); document.getElementById('troubleshootPanel').scrollIntoView({ behavior: 'smooth' }); },
+          anomaly: () => { switchView('infra'); fetchAnomalyNarrative(); },
           playground: () => { switchView('settings'); setTimeout(() => { document.getElementById('playgroundPanel').scrollIntoView({ behavior: 'smooth' }); loadPlaygroundRoutes(); }, 100); },
           'export errors': () => exportData('errors'),
           'export security': () => exportData('security'),
