@@ -1,9 +1,13 @@
-FROM node:20-alpine
-RUN apk add --no-cache docker-cli docker-cli-compose python3 make g++
+FROM node:20-alpine AS builder
+RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev
-RUN apk del python3 make g++
+
+FROM node:20-alpine
+RUN apk add --no-cache docker-cli docker-cli-compose
+WORKDIR /app
+COPY --from=builder /app/node_modules ./node_modules
 COPY . .
 
 # Create non-root user; add to docker group
