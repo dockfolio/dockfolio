@@ -17,3 +17,15 @@ docker-compose.yml
 deploy.sh
 CLAUDE.md
 ss.png
+*.jpg
+*.png
+.mcp.json
+HANDOVER.md
+SECURITY-HARDENING.md
+TECH-RESEARCH.md
+PLAYWRIGHT-MCP-GUIDE.md
+RAM-UPGRADE-PROMPT.txt
+CS2-Game-Mode.bat
+cs2-game-mode.ps1
+research/
+marketing-mcp/
