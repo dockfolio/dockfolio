@@ -23,6 +23,8 @@ import registerDnsRoutes from './routes/dns.js';
 import registerHetznerRoutes from './routes/hetzner.js';
 import registerLaunchRoutes from './routes/launch.js';
 import registerTroubleshootRoutes from './routes/troubleshoot.js';
+import registerUptimeRoutes from './routes/uptime.js';
+import registerGitHubRoutes from './routes/github.js';
 import registerDockerRoutes from './routes/docker.js';
 import registerMarketingRoutes from './routes/marketing.js';
 import registerErrorRoutes from './routes/errors.js';
@@ -35,6 +37,7 @@ import registerLogRoutes from './routes/logs.js';
 import registerExportRoutes from './routes/export.js';
 import registerAnalyticsRoutes from './routes/analytics.js';
 import registerStripeRoutes from './routes/stripe.js';
+import registerAlertRoutes from './routes/alerts.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -885,72 +888,7 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
-// GET /api/uptime — proxy Uptime Kuma status page data
-let cachedUptime = null;
-let lastUptimeUpdate = 0;
-const UPTIME_TTL = 60_000;
-
-app.get('/api/uptime', asyncRoute(async (_req, res) => {
-  const now = Date.now();
-  if (cachedUptime && (now - lastUptimeUpdate) < UPTIME_TTL) {
-    return res.json(cachedUptime);
-  }
-
-  const kumaBase = process.env.UPTIME_KUMA_URL || 'http://dockfolio-uptime-kuma:3001';
-  const kumaOpts = { signal: AbortSignal.timeout(TIMEOUT_QUICK) };
-  const [statusResult, heartbeatResult] = await Promise.allSettled([
-    fetch(`${kumaBase}/api/status-page/status`, kumaOpts),
-    fetch(`${kumaBase}/api/status-page/heartbeat/status`, kumaOpts),
-  ]);
-
-  if (statusResult.status === 'rejected' && heartbeatResult.status === 'rejected') {
-    return res.status(503).json({ error: 'Uptime Kuma unavailable', details: statusResult.reason?.message });
-  }
-  const statusData = statusResult.status === 'fulfilled' ? await statusResult.value.json() : { publicGroupList: [] };
-  const heartbeatData = heartbeatResult.status === 'fulfilled' ? await heartbeatResult.value.json() : { heartbeatList: {} };
-
-  // Map monitor data: id -> { name, uptime24h, avgPing, status }
-  const monitors = {};
-  const groups = statusData.publicGroupList || [];
-  for (const group of groups) {
-    for (const mon of group.monitorList || []) {
-      const beats = heartbeatData.heartbeatList?.[String(mon.id)] || [];
-      const lastBeat = beats[beats.length - 1];
-      const pings = beats.filter(b => b.ping > 0).map(b => b.ping);
-      const avgPing = pings.length > 0 ? Math.round(pings.reduce((a, b) => a + b, 0) / pings.length) : null;
-      const uptime24 = heartbeatData.uptimeList?.[`${mon.id}_24`];
-
-      // Last 24 heartbeats for sparkline (sampled)
-      const totalBeats = beats.length;
-      const sampleSize = 24;
-      const step = Math.max(1, Math.floor(totalBeats / sampleSize));
-      const sparkline = [];
-      for (let i = 0; i < totalBeats; i += step) {
-        sparkline.push(beats[i].status === 1 ? 'up' : beats[i].status === 0 ? 'down' : 'pending');
-      }
-
-      // Ping history for response time chart (last 30 points)
-      const pingHistory = beats
-        .filter(b => b.ping > 0)
-        .slice(-30)
-        .map(b => b.ping);
-
-      monitors[mon.name] = {
-        id: mon.id,
-        status: lastBeat?.status === 1 ? 'up' : lastBeat?.status === 0 ? 'down' : 'pending',
-        uptime24h: uptime24 != null ? Math.round(uptime24 * 10000) / 100 : null,
-        avgPing,
-        lastPing: lastBeat?.ping || null,
-        sparkline: sparkline.slice(-24),
-        pingHistory,
-      };
-    }
-  }
-
-  cachedUptime = { monitors, timestamp: new Date().toISOString() };
-  lastUptimeUpdate = now;
-  res.json(cachedUptime);
-}));
+// GET /api/uptime — moved to routes/uptime.js
 
 // GET /api/ssl — check SSL certificate expiry for all domains
 let cachedSSL = null;
@@ -1070,139 +1008,7 @@ app.get('/api/events', async (_req, res) => {
   }
 });
 
-// GET /api/uptime/timeline — 24h container uptime timeline
-let cachedUptimeTimeline = null;
-let lastUptimeTimelineUpdate = 0;
-const UPTIME_TIMELINE_TTL = 300_000; // 5 min cache
-
-app.get('/api/uptime/timeline', asyncRoute(async (_req, res) => {
-  const now = Date.now();
-  if (cachedUptimeTimeline && (now - lastUptimeTimelineUpdate) < UPTIME_TIMELINE_TTL) {
-    return res.json(cachedUptimeTimeline);
-  }
-
-  const periodEnd = Math.floor(now / 1000);
-  const periodStart = periodEnd - 86400; // 24 hours ago
-
-  // Fetch Docker events for the last 24 hours
-  const stream = await docker.getEvents({
-    since: periodStart,
-    until: periodEnd,
-    filters: JSON.stringify({
-      type: ['container'],
-      event: ['start', 'stop', 'die', 'restart', 'health_status'],
-    }),
-  });
-
-  const chunks = [];
-  await new Promise((resolve) => {
-    stream.on('data', chunk => chunks.push(chunk));
-    stream.on('end', resolve);
-    stream.on('error', () => resolve());
-    setTimeout(() => { stream.destroy(); resolve(); }, TIMEOUT_STANDARD);
-  });
-
-  const raw = Buffer.concat(chunks).toString();
-  const events = raw.split('\n').filter(Boolean).map(line => {
-    try { return JSON.parse(line); } catch { return null; }
-  }).filter(Boolean);
-
-  // Get current container statuses
-  const runningContainers = await docker.listContainers({ all: true });
-  const currentStatusMap = new Map();
-  for (const c of runningContainers) {
-    const name = containerName(c);
-    if (name) currentStatusMap.set(name, c.State);
-  }
-
-  // Build container-to-app mapping from config
-  const containerToApp = new Map();
-  for (const appDef of config.apps) {
-    const slug = slugify(appDef.name);
-    for (const cName of (appDef.containers || [])) {
-      containerToApp.set(cName, slug);
-    }
-  }
-
-  // Group events by container name
-  const containerEvents = new Map();
-  for (const e of events) {
-    const name = e.Actor?.Attributes?.name;
-    if (!name) continue;
-    if (!containerEvents.has(name)) containerEvents.set(name, []);
-    containerEvents.get(name).push({
-      time: e.time || Math.floor(e.timeNano / 1e9),
-      action: (e.Action || e.status || '').replace('health_status: ', ''),
-    });
-  }
-
-  // Build timeline for each known container
-  const containers = {};
-  const allContainerNames = new Set([
-    ...containerToApp.keys(),
-    ...containerEvents.keys(),
-  ]);
-
-  for (const name of allContainerNames) {
-    const appSlug = containerToApp.get(name) || null;
-    const evts = (containerEvents.get(name) || []).sort((a, b) => a.time - b.time);
-    const currentStatus = currentStatusMap.get(name) || 'unknown';
-
-    // Calculate uptime: walk through events to determine running/stopped segments
-    // Infer initial state from first event type or current status
-    let wasRunning;
-    if (evts.length === 0) {
-      wasRunning = currentStatus === 'running';
-    } else {
-      const firstAction = evts[0].action;
-      wasRunning = firstAction === 'stop' || firstAction === 'die' || firstAction === 'unhealthy';
-    }
-
-    let runningSeconds = 0;
-    let lastTransition = periodStart;
-
-    for (const evt of evts) {
-      const evtTime = Math.max(evt.time, periodStart);
-      if (wasRunning) {
-        runningSeconds += evtTime - lastTransition;
-      }
-      lastTransition = evtTime;
-
-      if (evt.action === 'start' || evt.action === 'restart' || evt.action === 'healthy') {
-        wasRunning = true;
-      } else if (evt.action === 'stop' || evt.action === 'die' || evt.action === 'unhealthy') {
-        wasRunning = false;
-      }
-    }
-
-    // Account for time from last event to period end
-    if (wasRunning) {
-      runningSeconds += periodEnd - lastTransition;
-    }
-
-    const totalSeconds = periodEnd - periodStart;
-    const uptimePercent = Math.round((runningSeconds / totalSeconds) * 1000) / 10;
-
-    containers[name] = {
-      app: appSlug,
-      currentStatus,
-      events: evts,
-      uptimePercent,
-    };
-  }
-
-  const result = {
-    containers,
-    period: {
-      start: new Date(periodStart * 1000).toISOString(),
-      end: new Date(periodEnd * 1000).toISOString(),
-    },
-  };
-
-  cachedUptimeTimeline = result;
-  lastUptimeTimelineUpdate = now;
-  res.json(result);
-}));
+// GET /api/uptime/timeline — moved to routes/uptime.js
 
 // GET /api/disk — per-container and image disk breakdown
 let cachedDisk = null;
@@ -3117,30 +2923,7 @@ app.get('/api/savings', asyncRoute((_req, res) => {
   });
 }));
 
-// --- Uptime History ---
-app.get('/api/uptime/history', asyncRoute((req, res) => {
-  const { app: appSlug, range = '24h' } = req.query;
-  const ranges = { '24h': 1, '7d': 7, '30d': 30 };
-  const days = ranges[range] || 1;
-  const since = new Date(Date.now() - days * MS_PER_DAY).toISOString();
-  let sql = 'SELECT * FROM uptime_history WHERE checked_at > ?';
-  const params = [since];
-  if (appSlug) { sql += ' AND app_slug = ?'; params.push(appSlug); }
-  sql += ' ORDER BY checked_at DESC LIMIT 2000';
-  const rows = db.prepare(sql).all(...params);
-  // Calculate per-app uptime
-  const byApp = {};
-  for (const r of rows) {
-    if (!byApp[r.app_slug]) byApp[r.app_slug] = { total: 0, up: 0 };
-    byApp[r.app_slug].total++;
-    if (r.status === 'up') byApp[r.app_slug].up++;
-  }
-  const uptime = {};
-  for (const [slug, data] of Object.entries(byApp)) {
-    uptime[slug] = Math.round((data.up / data.total) * 10000) / 100;
-  }
-  res.json({ range, since, uptime, data: rows });
-}));
+// --- Uptime History --- moved to routes/uptime.js
 
 // --- Audit Log ---
 app.get('/api/audit', asyncRoute((req, res) => {
@@ -3158,49 +2941,6 @@ function auditLog(req, action, target, details = {}) {
       req?.session?.username || 'system', action, target || null, JSON.stringify(details), req?.ip || 'unknown'
     );
   } catch (err) { console.error('[AUDIT]', err.message); }
-}
-
-// ========== GITHUB WEBHOOK (auto-deploy) ==========
-
-app.post('/api/webhooks/github', asyncRoute(async (req, res) => {
-  const WEBHOOK_SECRET = getSetting('GITHUB_WEBHOOK_SECRET') || process.env.GITHUB_WEBHOOK_SECRET;
-  if (!WEBHOOK_SECRET) return res.status(500).json({ error: 'Webhook secret not configured' });
-  const sig = req.headers['x-hub-signature-256'];
-  if (!sig || !req.rawBody) return res.status(401).json({ error: 'Invalid signature' });
-  const expected = 'sha256=' + createHmac('sha256', WEBHOOK_SECRET).update(req.rawBody).digest('hex');
-  if (sig !== expected) return res.status(401).json({ error: 'Invalid signature' });
-  const event = req.headers['x-github-event'];
-  const payload = req.body;
-  if (event === 'push' && (payload.ref === 'refs/heads/main' || payload.ref === 'refs/heads/master')) {
-    const appSlug = matchRepoToApp(payload.repository?.full_name);
-    if (!appSlug) return res.json({ ok: true, skipped: 'no matching app' });
-    auditLog(req, 'github_deploy', appSlug, { commit: payload.head_commit?.id?.slice(0, 7), message: payload.head_commit?.message });
-    console.log(`[DEPLOY] GitHub push to ${appSlug}: ${payload.head_commit?.message}`);
-    const appDef = config.apps.find(a => slugify(a.name) === appSlug);
-    if (appDef?.composePath) {
-      try {
-        const dir = dirname(appDef.composePath);
-        execSync(`cd ${dir} && git pull && docker compose up -d --build`, { timeout: TIMEOUT_BUILD });
-        sendTelegram(`Deploy complete: ${appSlug} (${payload.head_commit?.id?.slice(0, 7)})`);
-      } catch (err) {
-        console.error(`[DEPLOY] ${appSlug} failed:`, err.message);
-        sendTelegram(`Deploy FAILED: ${appSlug} — ${err.message.slice(0, 200)}`);
-      }
-    }
-    res.json({ ok: true, deploying: appSlug });
-  } else {
-    res.json({ ok: true, event, skipped: true });
-  }
-}));
-
-function matchRepoToApp(repoFullName) {
-  if (!repoFullName) return null;
-  for (const appDef of config.apps) {
-    if (appDef.repo === repoFullName || appDef.repo === `https://github.com/${repoFullName}` || appDef.repo?.endsWith('/' + repoFullName)) {
-      return slugify(appDef.name);
-    }
-  }
-  return null;
 }
 
 // ========== SQLITE BACKUP CRON ==========
@@ -3404,50 +3144,7 @@ app.get('/api/portfolio/pnl', asyncRoute((_req, res) => {
   });
 }));
 
-// --- Uptime Streaks ---
-// Track consecutive days of 100% uptime per app
-app.get('/api/uptime/streaks', asyncRoute((_req, res) => {
-  const streaks = {};
-  for (const appDef of config.apps) {
-    const slug = slugify(appDef.name);
-    if (!appDef.domain) { streaks[slug] = { current: 0, best: 0 }; continue; }
-
-    // Get daily uptime status for last 90 days
-    const days = db.prepare(`
-      SELECT date(checked_at) as day,
-             COUNT(*) as checks,
-             SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_checks
-      FROM uptime_history
-      WHERE app_slug = ? AND checked_at > datetime('now', '-90 days')
-      GROUP BY date(checked_at)
-      ORDER BY day DESC
-    `).all(slug);
-
-    let current = 0, best = 0, streakBroken = false;
-    for (const d of days) {
-      const perfect = d.checks > 0 && d.up_checks === d.checks;
-      if (perfect && !streakBroken) {
-        current++;
-      } else {
-        streakBroken = true;
-      }
-      // Calculate best streak (scan all days)
-    }
-    // Best streak requires full scan
-    let tempStreak = 0;
-    for (let i = days.length - 1; i >= 0; i--) {
-      const d = days[i];
-      if (d.checks > 0 && d.up_checks === d.checks) {
-        tempStreak++;
-        if (tempStreak > best) best = tempStreak;
-      } else {
-        tempStreak = 0;
-      }
-    }
-    streaks[slug] = { current, best, totalDaysTracked: days.length };
-  }
-  res.json({ streaks, timestamp: new Date().toISOString() });
-}));
+// --- Uptime Streaks --- moved to routes/uptime.js
 
 // --- Cron Job Monitoring (Dead Man's Switch) ---
 const cronHeartbeats = new Map(); // cronName -> { lastRun, duration, status, error }
@@ -3657,32 +3354,7 @@ cron.schedule('30 * * * *', guardedCron('cron-monitor', async () => {
   }
 }));
 
-// --- Uptime Heatmap Calendar (GitHub-style, 90 days) ---
-app.get('/api/uptime/heatmap', asyncRoute((_req, res) => {
-  const heatmap = {};
-
-  for (const appDef of config.apps) {
-    if (!appDef.domain) continue;
-    const slug = slugify(appDef.name);
-    const days = db.prepare(`
-      SELECT date(checked_at) as day,
-             COUNT(*) as total,
-             SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_count
-      FROM uptime_history
-      WHERE app_slug = ? AND checked_at > datetime('now', '-90 days')
-      GROUP BY date(checked_at)
-      ORDER BY day ASC
-    `).all(slug);
-
-    heatmap[slug] = days.map(d => ({
-      date: d.day,
-      uptime: d.total > 0 ? +(d.up_count / d.total * 100).toFixed(1) : null,
-      checks: d.total,
-    }));
-  }
-
-  res.json({ heatmap, timestamp: new Date().toISOString() });
-}));
+// --- Uptime Heatmap --- moved to routes/uptime.js
 
 // --- Revenue Milestones ---
 const revenueMilestonesChecked = new Set();
@@ -4002,253 +3674,6 @@ app.get('/api/realtime/visitors', asyncRoute(async (_req, res) => {
 
   apps.sort((a, b) => b.visitors - a.visitors);
   res.json({ apps, total, timestamp: new Date().toISOString() });
-}));
-
-// --- SLO / Error Budget Tracking ---
-app.get('/api/slo', asyncRoute((_req, res) => {
-  const slos = [];
-  const daysInMonth = 30;
-  const minutesInMonth = daysInMonth * 24 * 60;
-
-  for (const appDef of config.apps) {
-    if (!appDef.domain) continue;
-    const slug = slugify(appDef.name);
-
-    // Default SLO: 99.9% uptime
-    const targetUptime = 99.9;
-    const allowedDowntimeMinutes = +(minutesInMonth * (1 - targetUptime / 100)).toFixed(1); // ~43.2 min
-
-    // Calculate actual uptime from uptime_history (last 30 days)
-    const stats = db.prepare(`
-      SELECT COUNT(*) as total,
-             SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_count
-      FROM uptime_history
-      WHERE app_slug = ? AND checked_at > datetime('now', '-30 days')
-    `).get(slug);
-
-    const actualUptime = stats.total > 0 ? +(stats.up_count / stats.total * 100).toFixed(3) : 100;
-    const failedChecks = stats.total - (stats.up_count || 0);
-    // Each check is ~5 min apart
-    const downMinutes = failedChecks * 5;
-    const budgetUsedPct = allowedDowntimeMinutes > 0 ? +(downMinutes / allowedDowntimeMinutes * 100).toFixed(1) : 0;
-    const budgetRemaining = +(allowedDowntimeMinutes - downMinutes).toFixed(1);
-
-    // Response time SLO: p95 < 1000ms
-    const perfRow = db.prepare(`
-      SELECT AVG(p95_ms) as avg_p95
-      FROM perf_metrics
-      WHERE app_slug = ? AND hour > datetime('now', '-7 days')
-    `).get(slug);
-    const avgP95 = perfRow?.avg_p95 ? Math.round(perfRow.avg_p95) : null;
-
-    // Burn rate: budget consumption rate vs expected
-    const daysSoFar = Math.max(1, Math.min(30, Math.round((Date.now() - new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).getTime()) / (24 * 60 * 60 * 1000))));
-    const expectedBurnPct = +(daysSoFar / daysInMonth * 100).toFixed(1);
-    const burnRate = expectedBurnPct > 0 ? +(budgetUsedPct / expectedBurnPct).toFixed(2) : 0;
-
-    slos.push({
-      slug,
-      name: appDef.name,
-      uptime: {
-        target: targetUptime,
-        actual: actualUptime,
-        met: actualUptime >= targetUptime,
-        allowedDowntime: allowedDowntimeMinutes,
-        usedDowntime: downMinutes,
-        budgetUsedPct,
-        budgetRemaining: Math.max(0, budgetRemaining),
-        burnRate,
-        burnRateStatus: burnRate > 2 ? 'critical' : burnRate > 1.5 ? 'warning' : 'healthy',
-      },
-      responseTime: avgP95 ? {
-        target: 1000,
-        actual: avgP95,
-        met: avgP95 <= 1000,
-      } : null,
-      totalChecks: stats.total,
-    });
-  }
-
-  res.json({ slos, timestamp: new Date().toISOString() });
-}));
-
-
-
-// --- Webhook / Alert Rules ---
-
-app.get('/api/alerts/rules', asyncRoute((_req, res) => {
-  const rules = db.prepare('SELECT * FROM alert_rules ORDER BY created_at DESC').all();
-  res.json({ rules });
-}));
-
-app.post('/api/alerts/rules', asyncRoute((req, res) => {
-  const { appSlug, metric, operator, threshold, windowMinutes, action } = req.body;
-  if (!metric || !operator || !threshold) return res.status(400).json({ error: 'metric, operator, and threshold are required' });
-
-  const validOperators = ['>', '<', '>=', '<=', '==', '!=', 'contains'];
-  if (!validOperators.includes(operator)) return res.status(400).json({ error: 'Invalid operator' });
-
-  const validActions = ['telegram', 'webhook', 'email'];
-  const act = action || 'telegram';
-  if (!validActions.includes(act.split(':')[0])) return res.status(400).json({ error: 'Invalid action. Use: telegram, webhook:URL, or email:ADDRESS' });
-
-  const result = db.prepare(
-    'INSERT INTO alert_rules (app_slug, metric, operator, threshold, window_minutes, action) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(appSlug || null, metric, operator, String(threshold), windowMinutes || 5, act);
-
-  res.json({ id: result.lastInsertRowid, message: 'Rule created' });
-}));
-
-app.put('/api/alerts/rules/:id', asyncRoute((req, res) => {
-  const { id } = req.params;
-  const { enabled, metric, operator, threshold, windowMinutes, action } = req.body;
-
-  const rule = db.prepare('SELECT * FROM alert_rules WHERE id = ?').get(id);
-  if (!rule) return res.status(404).json({ error: 'Rule not found' });
-
-  db.prepare(
-    'UPDATE alert_rules SET metric = ?, operator = ?, threshold = ?, window_minutes = ?, action = ?, enabled = ? WHERE id = ?'
-  ).run(
-    metric || rule.metric,
-    operator || rule.operator,
-    threshold != null ? String(threshold) : rule.threshold,
-    windowMinutes || rule.window_minutes,
-    action || rule.action,
-    enabled != null ? (enabled ? 1 : 0) : rule.enabled,
-    id
-  );
-
-  res.json({ message: 'Rule updated' });
-}));
-
-app.delete('/api/alerts/rules/:id', asyncRoute((req, res) => {
-  const result = db.prepare('DELETE FROM alert_rules WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Rule not found' });
-  res.json({ message: 'Rule deleted' });
-}));
-
-// --- Scheduled Maintenance Windows ---
-
-app.get('/api/maintenance', asyncRoute((_req, res) => {
-  const rows = db.prepare('SELECT * FROM maintenance_windows ORDER BY day_of_week, start_hour, start_minute').all();
-  const result = rows.map(w => {
-    const appDef = config.apps.find(a => slugify(a.name) === w.app_slug);
-    return { ...w, app_name: appDef ? appDef.name : w.app_slug };
-  });
-  res.json({ windows: result });
-}));
-
-app.post('/api/maintenance', asyncRoute((req, res) => {
-  const { app_slug, day_of_week, start_hour, start_minute, duration_minutes, suppress_alerts, auto_restart } = req.body;
-
-  if (!app_slug) return res.status(400).json({ error: 'app_slug is required' });
-  const day = parseInt(day_of_week, 10);
-  const hour = parseInt(start_hour, 10);
-  const minute = parseInt(start_minute || 0, 10);
-  const duration = parseInt(duration_minutes || 120, 10);
-
-  if (isNaN(day) || day < 0 || day > 6) return res.status(400).json({ error: 'day_of_week must be 0-6 (0=Sunday)' });
-  if (isNaN(hour) || hour < 0 || hour > 23) return res.status(400).json({ error: 'start_hour must be 0-23' });
-  if (isNaN(minute) || minute < 0 || minute > 59) return res.status(400).json({ error: 'start_minute must be 0-59' });
-  if (isNaN(duration) || duration <= 0) return res.status(400).json({ error: 'duration_minutes must be > 0' });
-
-  const result = db.prepare(
-    'INSERT INTO maintenance_windows (app_slug, day_of_week, start_hour, start_minute, duration_minutes, suppress_alerts, auto_restart) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(app_slug, day, hour, minute, duration, suppress_alerts ? 1 : 0, auto_restart ? 1 : 0);
-
-  res.json({ id: result.lastInsertRowid, message: 'Maintenance window created' });
-}));
-
-app.delete('/api/maintenance/:id', asyncRoute((req, res) => {
-  const result = db.prepare('DELETE FROM maintenance_windows WHERE id = ?').run(req.params.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Maintenance window not found' });
-  res.json({ message: 'Maintenance window deleted' });
-}));
-
-// Evaluate alert rules against current metrics
-async function evaluateAlertRules() {
-  const rules = db.prepare('SELECT * FROM alert_rules WHERE enabled = 1').all();
-  if (rules.length === 0) return;
-
-  // Gather current values
-  const currentValues = {};
-
-  // System metrics
-  const sysRow = db.prepare("SELECT * FROM system_snapshots ORDER BY ts DESC LIMIT 1").get();
-  if (sysRow) {
-    currentValues['cpu'] = sysRow.cpu_percent;
-    currentValues['memory_percent'] = sysRow.mem_total_bytes > 0 ? (sysRow.mem_used_bytes / sysRow.mem_total_bytes * 100) : 0;
-    currentValues['disk_percent'] = sysRow.disk_total_bytes > 0 ? (sysRow.disk_used_bytes / sysRow.disk_total_bytes * 100) : 0;
-    currentValues['load'] = sysRow.load_1m;
-  }
-
-  // Per-app MRR
-  for (const appDef of config.apps) {
-    const slug = slugify(appDef.name);
-    const row = qLatestMetric.get(slug, 'mrr');
-    if (row) currentValues[`${slug}.mrr`] = row.value / 100;
-    const pv = qLatestMetric.get(slug, 'pageviews_30d');
-    if (pv) currentValues[`${slug}.traffic`] = pv.value;
-  }
-
-  for (const rule of rules) {
-    // Skip if app is in a scheduled maintenance window
-    if (rule.app_slug) {
-      const mw = isInMaintenanceWindow(rule.app_slug);
-      if (mw.inMaintenance && mw.window.suppress_alerts) {
-        console.log(`[ALERTS] Suppressed rule ${rule.id} for ${rule.app_slug} — scheduled maintenance window`);
-        continue;
-      }
-    }
-
-    // Cooldown check
-    if (rule.last_fired_at) {
-      const lastFired = new Date(rule.last_fired_at + 'Z').getTime();
-      if (Date.now() - lastFired < rule.window_minutes * 60 * 1000) continue;
-    }
-
-    const metricKey = rule.app_slug ? `${rule.app_slug}.${rule.metric}` : rule.metric;
-    const value = currentValues[metricKey];
-    if (value == null) continue;
-
-    const threshold = parseFloat(rule.threshold);
-    let triggered = false;
-
-    switch (rule.operator) {
-      case '>': triggered = value > threshold; break;
-      case '<': triggered = value < threshold; break;
-      case '>=': triggered = value >= threshold; break;
-      case '<=': triggered = value <= threshold; break;
-      case '==': triggered = value === threshold; break;
-      case '!=': triggered = value !== threshold; break;
-      case 'contains': triggered = String(value).includes(rule.threshold); break;
-    }
-
-    if (triggered) {
-      db.prepare('UPDATE alert_rules SET last_fired_at = datetime(\'now\') WHERE id = ?').run(rule.id);
-
-      const msg = `Alert: ${rule.metric}${rule.app_slug ? ` (${rule.app_slug})` : ''} is ${value} (${rule.operator} ${rule.threshold})`;
-
-      const actionType = rule.action.split(':')[0];
-      const actionTarget = rule.action.slice(actionType.length + 1);
-
-      if (actionType === 'telegram') {
-        sendTelegram(`🔔 <b>Alert Rule Triggered</b>\n${msg}`);
-      } else if (actionType === 'webhook' && actionTarget) {
-        fetch(actionTarget, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ alert: msg, metric: rule.metric, value, threshold, app: rule.app_slug, timestamp: new Date().toISOString() }),
-          signal: AbortSignal.timeout(TIMEOUT_QUICK),
-        }).catch(() => {});
-      }
-    }
-  }
-}
-
-// Evaluate alert rules every 5 minutes
-cron.schedule('*/5 * * * *', guardedCron('alert-rules', async () => {
-  await evaluateAlertRules().catch(err => cronFail('Alert rules evaluation', err));
 }));
 
 // --- "What If" Simulator ---
@@ -4597,6 +4022,8 @@ registerDnsRoutes({ app, config, getSetting, auditLog, slugify });
 registerHetznerRoutes({ app, getSetting, TIMEOUT_STANDARD });
 registerLaunchRoutes({ app, docker, db, config, findAppBySlug, auditLog, sendTelegram, cachedRevenue: () => marketingCache.revenue });
 registerTroubleshootRoutes({ app, docker, findAppBySlug, auditLog, getDiskParts, TIMEOUT_STANDARD });
+registerGitHubRoutes({ app, config, db, getSetting, auditLog, sendTelegram, cbGitHub, TIMEOUT_STANDARD, TIMEOUT_BUILD });
+registerUptimeRoutes({ app, docker, db, config, TIMEOUT_QUICK, TIMEOUT_STANDARD, MS_PER_DAY });
 registerDockerRoutes({ app, db, docker, config, auditLog, resolveContainerApp, SENSITIVE_PATTERN, TIMEOUT_STANDARD, MS_PER_HOUR });
 registerErrorRoutes({ app, db, ingestError, rlErrorIngest });
 const { getCachedKeyHealth } = registerConfigRoutes({
@@ -4650,6 +4077,13 @@ registerAnalyticsRoutes({
   MS_PER_HOUR, MS_PER_DAY,
 });
 registerStripeRoutes({ app, config, getStripeKeys });
+registerAlertRoutes({
+  app, db, config, cron,
+  qLatestMetric,
+  sendTelegram, guardedCron, cronFail,
+  isInMaintenanceWindow,
+  TIMEOUT_QUICK,
+});
 
 // --- Achievement System ---
 
@@ -4772,120 +4206,6 @@ Format as JSON array of tweet strings. Be genuine, share real numbers, mention s
   }
 }));
 
-// ========== GITHUB DEEP INTEGRATION ==========
-
-function parseGitHubRepo(repoField) {
-  if (!repoField) return null;
-  // Handle full URLs: https://github.com/owner/repo or git@github.com:owner/repo
-  const urlMatch = repoField.match(/github\.com[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?$/);
-  if (urlMatch) return `${urlMatch[1]}/${urlMatch[2]}`;
-  // Handle owner/repo format
-  if (/^[\w.-]+\/[\w.-]+$/.test(repoField)) return repoField;
-  return null;
-}
-
-async function fetchGitHubData(ownerRepo, token) {
-  const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'Dockfolio' };
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  const ghFetch = (url) => fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_STANDARD) }).then(r => {
-    if (!r.ok) throw new Error(`GitHub API ${r.status}: ${r.statusText}`);
-    return r.json();
-  });
-
-  const [repoInfo, commits, pulls, actionsRuns] = await Promise.allSettled([
-    ghFetch(`https://api.github.com/repos/${ownerRepo}`),
-    ghFetch(`https://api.github.com/repos/${ownerRepo}/commits?per_page=5`),
-    ghFetch(`https://api.github.com/repos/${ownerRepo}/pulls?state=open&per_page=100`),
-    ghFetch(`https://api.github.com/repos/${ownerRepo}/actions/runs?per_page=1`),
-  ]);
-
-  return {
-    repo: ownerRepo,
-    openIssues: repoInfo.status === 'fulfilled' ? (repoInfo.value.open_issues_count || 0) : null,
-    defaultBranch: repoInfo.status === 'fulfilled' ? repoInfo.value.default_branch : 'main',
-    stars: repoInfo.status === 'fulfilled' ? repoInfo.value.stargazers_count : null,
-    commits: commits.status === 'fulfilled' ? commits.value.map(c => ({
-      sha: c.sha?.slice(0, 7),
-      message: c.commit?.message?.split('\n')[0]?.slice(0, 80),
-      author: c.commit?.author?.name,
-      date: c.commit?.author?.date,
-    })) : [],
-    openPRs: pulls.status === 'fulfilled' ? pulls.value.length : null,
-    ci: actionsRuns.status === 'fulfilled' && actionsRuns.value.workflow_runs?.length > 0 ? {
-      status: actionsRuns.value.workflow_runs[0].status,
-      conclusion: actionsRuns.value.workflow_runs[0].conclusion,
-      name: actionsRuns.value.workflow_runs[0].name,
-      updated: actionsRuns.value.workflow_runs[0].updated_at,
-    } : null,
-  };
-}
-
-const ghCacheGet = db.prepare('SELECT data_json, fetched_at FROM github_cache WHERE app_slug = ?');
-const ghCacheUpsert = db.prepare('INSERT OR REPLACE INTO github_cache (app_slug, data_json, fetched_at) VALUES (?, ?, datetime(\'now\'))');
-
-async function getGitHubForApp(slug, repoField, token) {
-  // Check cache (5 min TTL)
-  const cached = ghCacheGet.get(slug);
-  if (cached) {
-    const age = Date.now() - new Date(cached.fetched_at + 'Z').getTime();
-    if (age < 5 * 60 * 1000) return JSON.parse(cached.data_json);
-  }
-
-  const ownerRepo = parseGitHubRepo(repoField);
-  if (!ownerRepo) return null;
-
-  const data = await cbGitHub.call(() => fetchGitHubData(ownerRepo, token));
-  ghCacheUpsert.run(slug, JSON.stringify(data));
-  return data;
-}
-
-app.get('/api/github/summary', asyncRoute(async (_req, res) => {
-  const token = getSetting('GITHUB_TOKEN') || process.env.GITHUB_TOKEN;
-  const results = [];
-
-  for (const appDef of config.apps) {
-    const slug = slugify(appDef.name);
-    const ghRepo = parseGitHubRepo(appDef.repo);
-    if (!ghRepo) continue;
-
-    try {
-      const data = await getGitHubForApp(slug, appDef.repo, token);
-      if (data) results.push({ slug, name: appDef.name, ...data });
-    } catch (err) {
-      // Return cached data on error, or partial result
-      const cached = ghCacheGet.get(slug);
-      if (cached) {
-        results.push({ slug, name: appDef.name, ...JSON.parse(cached.data_json), stale: true });
-      } else {
-        results.push({ slug, name: appDef.name, repo: ghRepo, error: err.message });
-      }
-    }
-  }
-
-  res.json({ apps: results, hasToken: !!token, timestamp: new Date().toISOString() });
-}));
-
-app.get('/api/github/app/:slug', asyncRoute(async (req, res) => {
-  const token = getSetting('GITHUB_TOKEN') || process.env.GITHUB_TOKEN;
-  const appDef = config.apps.find(a => slugify(a.name) === req.params.slug);
-  if (!appDef) return res.status(404).json({ error: 'App not found' });
-
-  const ghRepo = parseGitHubRepo(appDef.repo);
-  if (!ghRepo) return res.status(404).json({ error: 'No GitHub repo configured for this app' });
-
-  try {
-    const data = await getGitHubForApp(req.params.slug, appDef.repo, token);
-    res.json({ slug: req.params.slug, name: appDef.name, ...data, hasToken: !!token });
-  } catch (err) {
-    const cached = ghCacheGet.get(req.params.slug);
-    if (cached) {
-      res.json({ slug: req.params.slug, name: appDef.name, ...JSON.parse(cached.data_json), stale: true, hasToken: !!token });
-    } else {
-      res.status(502).json({ error: err.message });
-    }
-  }
-}));
 
 // Health check endpoint
 app.get('/health', (_req, res) => res.send('ok'));
