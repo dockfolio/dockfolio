@@ -1,4 +1,4 @@
-import { asyncRoute } from '../utils.js';
+import { asyncRoute, parseId } from '../utils.js';
 
 // INWX JSON-RPC API helper (session-based auth via cookies)
 async function inwxCall(method, params = {}, sessionCookie = null, timeoutMs = 15000) {
@@ -78,8 +78,8 @@ export default function registerDnsRoutes({ app, config, getSetting, auditLog, s
   }));
 
   app.put('/api/dns/records/:id', asyncRoute(async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (!id) return res.status(400).json({ error: 'Invalid record ID' });
+    const id = parseId(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid record ID' });
     const { content, ttl, prio } = req.body;
     if (!content) return res.status(400).json({ error: 'content is required' });
 
@@ -100,8 +100,8 @@ export default function registerDnsRoutes({ app, config, getSetting, auditLog, s
   }));
 
   app.delete('/api/dns/records/:id', asyncRoute(async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (!id) return res.status(400).json({ error: 'Invalid record ID' });
+    const id = parseId(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid record ID' });
 
     let cookie;
     try {

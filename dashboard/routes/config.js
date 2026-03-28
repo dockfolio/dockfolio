@@ -327,7 +327,8 @@ export default function registerConfigRoutes({
 
   app.get('/api/settings/favorites', (req, res) => {
     const raw = getSetting('favorite_apps');
-    const favorites = raw ? JSON.parse(raw) : [];
+    let favorites = [];
+    try { if (raw) favorites = JSON.parse(raw); } catch { /* corrupted setting */ }
     res.json({ favorites });
   });
 
@@ -343,14 +344,24 @@ export default function registerConfigRoutes({
   // =============================================
 
   function reloadConfig() {
-    const raw = readFileSync(configPath, 'utf8');
-    const parsed = yaml.load(raw);
-    config.apps = parsed.apps || [];
+    try {
+      const raw = readFileSync(configPath, 'utf8');
+      const parsed = yaml.load(raw);
+      config.apps = parsed.apps || [];
+    } catch (err) {
+      console.error('[CONFIG] Failed to reload config:', err.message);
+      throw err;
+    }
   }
 
   function saveConfig() {
-    const yamlStr = yaml.dump({ apps: config.apps }, { lineWidth: -1, noRefs: true, quotingType: '"' });
-    writeFileSync(configPath, yamlStr, 'utf8');
+    try {
+      const yamlStr = yaml.dump({ apps: config.apps }, { lineWidth: -1, noRefs: true, quotingType: '"' });
+      writeFileSync(configPath, yamlStr, 'utf8');
+    } catch (err) {
+      console.error('[CONFIG] Failed to save config:', err.message);
+      throw err;
+    }
   }
 
   app.get('/api/config/apps', (_req, res) => {

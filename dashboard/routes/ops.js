@@ -275,7 +275,8 @@ export default function registerOpsRoutes({ app, db, docker, config, cron, findA
       }
     } catch (err) { console.error('[BASELINE] Container list failed:', err.message); }
 
-    const configHash = hashValue(readFileSync(configPath, 'utf8'));
+    let configHash = '';
+    try { configHash = hashValue(readFileSync(configPath, 'utf8')); } catch (err) { console.error('[BASELINE] Config read failed:', err.message); }
     let diskPct = 0;
     try {
       diskPct = getDiskPercent();
@@ -337,7 +338,8 @@ export default function registerOpsRoutes({ app, db, docker, config, cron, findA
     } catch (err) { console.error('[DRIFT] Container state check failed:', err.message); }
 
     // Config.yml change
-    const currentConfigHash = hashValue(readFileSync(configPath, 'utf8'));
+    let currentConfigHash = '';
+    try { currentConfigHash = hashValue(readFileSync(configPath, 'utf8')); } catch { /* config unreadable */ }
     if (baseline.config_hash && baseline.config_hash !== currentConfigHash) {
       drifts.push({ type: 'drift_config', severity: 'info', title: 'config.yml changed since baseline', details: JSON.stringify({ oldHash: baseline.config_hash, newHash: currentConfigHash }) });
     }

@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { execSync } from 'child_process';
 import { dirname } from 'path';
-import { asyncRoute, slugify, assertSafePath } from '../utils.js';
+import { asyncRoute, slugify, assertSafePath, safeJSON } from '../utils.js';
 
 const GITHUB_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
@@ -61,7 +61,7 @@ export default function registerGitHubRoutes({ app, config, db, getSetting, audi
     const cached = ghCacheGet.get(slug);
     if (cached) {
       const age = Date.now() - new Date(cached.fetched_at + 'Z').getTime();
-      if (age < GITHUB_CACHE_TTL) return JSON.parse(cached.data_json);
+      if (age < GITHUB_CACHE_TTL) return safeJSON(cached.data_json, {});
     }
 
     const ownerRepo = parseGitHubRepo(repoField);
@@ -135,7 +135,7 @@ export default function registerGitHubRoutes({ app, config, db, getSetting, audi
         // Return cached data on error, or partial result
         const cached = ghCacheGet.get(slug);
         if (cached) {
-          results.push({ slug, name: appDef.name, ...JSON.parse(cached.data_json), stale: true });
+          results.push({ slug, name: appDef.name, ...safeJSON(cached.data_json, {}), stale: true });
         } else {
           results.push({ slug, name: appDef.name, repo: ghRepo, error: err.message });
         }
@@ -159,7 +159,7 @@ export default function registerGitHubRoutes({ app, config, db, getSetting, audi
     } catch (err) {
       const cached = ghCacheGet.get(req.params.slug);
       if (cached) {
-        res.json({ slug: req.params.slug, name: appDef.name, ...JSON.parse(cached.data_json), stale: true, hasToken: !!token });
+        res.json({ slug: req.params.slug, name: appDef.name, ...safeJSON(cached.data_json, {}), stale: true, hasToken: !!token });
       } else {
         res.status(502).json({ error: err.message });
       }
