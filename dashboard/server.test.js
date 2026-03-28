@@ -466,6 +466,47 @@ describe('Security headers', () => {
   });
 });
 
+// ── Auth boundary tests ─────────────────────────────────────────────
+
+describe('Auth boundary - banner endpoints', () => {
+  it('GET /api/banners/embed.js is public (200)', async () => {
+    const res = await req('/api/banners/embed.js');
+    assert.equal(res.status, 200);
+  });
+
+  it('GET /api/banners/serve is public (no 401)', async () => {
+    const saved = sessionCookie;
+    sessionCookie = null;
+    const res = await req('/api/banners/serve');
+    assert.notEqual(res.status, 401, 'banners/serve should be public');
+    sessionCookie = saved;
+  });
+
+  it('GET /api/banners/injection-status requires auth', async () => {
+    const saved = sessionCookie;
+    sessionCookie = null;
+    const { status } = await json('/api/banners/injection-status');
+    assert.equal(status, 401, 'injection-status should require auth');
+    sessionCookie = saved;
+  });
+
+  it('GET /api/marketing/banners requires auth', async () => {
+    const saved = sessionCookie;
+    sessionCookie = null;
+    const res = await req('/api/marketing/banners');
+    assert.ok([401, 302].includes(res.status), `Expected 401/302, got ${res.status}`);
+    sessionCookie = saved;
+  });
+
+  it('Path traversal via /api/banners/../marketing/banners returns 401', async () => {
+    const saved = sessionCookie;
+    sessionCookie = null;
+    const res = await req('/api/banners/../marketing/banners');
+    assert.ok([401, 404].includes(res.status), `Expected 401/404, got ${res.status}`);
+    sessionCookie = saved;
+  });
+});
+
 // ── Edge cases ───────────────────────────────────────────────────────
 
 describe('Edge cases', () => {
