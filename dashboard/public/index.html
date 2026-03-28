@@ -2054,6 +2054,14 @@
       <div id="hetznerContent" style="font-size:12px;color:var(--text-muted)">Click "Refresh" to load Hetzner VM info (requires API token in Settings).</div>
     </div>
 
+    <div id="domainOverviewPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Domain Overview</span>
+        <button class="btn" onclick="fetchDomainOverview()">Refresh</button>
+      </div>
+      <div id="domainOverviewContent" style="font-size:12px;color:var(--text-muted)">Loading domain overview...</div>
+    </div>
+
     <div id="cronPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Cron Jobs</span>
@@ -3093,6 +3101,7 @@
           fetchDependencies();
           initDNSPanel();
           initTroubleshootPanel();
+          fetchDomainOverview();
           fetchCronStatus();
           initExecPanel();
           checkLaunchMode();
@@ -3881,6 +3890,45 @@
         html += `<div style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:6px">Updated: ${new Date(depsData.timestamp).toLocaleTimeString()}</div>`;
       }
       el.innerHTML = html;
+    }
+
+    // --- Domain Overview ---
+    async function fetchDomainOverview() {
+      const el = document.getElementById('domainOverviewContent');
+      el.innerHTML = '<span style="color:var(--text-muted)">Loading domain overview...</span>';
+      try {
+        const res = await apiFetch('/api/domains/overview');
+        const data = await res.json();
+        if (!data.domains?.length) { el.innerHTML = '<span style="color:var(--text-muted)">No domains configured.</span>'; return; }
+
+        let html = '<div style="display:grid;grid-template-columns:180px 50px 50px 50px 80px 70px 60px 60px;gap:1px;font-size:11px">';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Domain</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">DNS</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">SSL</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">SEO</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Uptime</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Traffic</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">MRR</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Health</div>';
+
+        for (const d of data.domains) {
+          const dot = (ok) => ok ? '<span style="color:var(--green)">&#10003;</span>' : '<span style="color:var(--red)">&#10007;</span>';
+          const seoColor = d.seo?.grade === 'A' ? 'var(--green)' : d.seo?.grade === 'B' ? 'var(--green)' : d.seo?.grade === 'F' ? 'var(--red)' : 'var(--yellow)';
+          const uptimeColor = !d.uptime?.pct ? 'var(--text-muted)' : d.uptime.pct >= 99.5 ? 'var(--green)' : d.uptime.pct >= 95 ? 'var(--yellow)' : 'var(--red)';
+          const healthColor = !d.healthScore ? 'var(--text-muted)' : d.healthScore.score >= 80 ? 'var(--green)' : d.healthScore.score >= 60 ? 'var(--yellow)' : 'var(--red)';
+
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:var(--text);font-weight:500">${escapeHtml(d.domain)}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border)">${dot(d.dns?.ok)}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border)">${d.ssl ? dot(d.ssl.valid) : '<span style="color:var(--text-muted)">-</span>'}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:${seoColor}">${d.seo?.grade || '-'}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:${uptimeColor}">${d.uptime?.pct != null ? d.uptime.pct + '%' : '-'}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:var(--text-dim)">${d.traffic?.pageviews30d ? d.traffic.pageviews30d.toLocaleString() : '0'}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:${d.revenue?.mrr > 0 ? 'var(--green)' : 'var(--text-muted)'}">${d.revenue?.mrr > 0 ? d.revenue.mrr.toFixed(0) + ' EUR' : '-'}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:${healthColor};font-weight:600">${d.healthScore?.grade || '-'}</div>`;
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
     }
 
     // --- Hetzner VM Info ---

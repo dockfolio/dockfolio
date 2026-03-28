@@ -10783,6 +10783,81 @@ app.get('/api/logs/stats', asyncRoute(async (req, res) => {
   res.json({ stats, total });
 }));
 
+// === Feature: Domain Overview (unified per-domain dashboard) ===
+
+app.get('/api/domains/overview', asyncRoute(async (_req, res) => {
+  const { promises: dnsPromises } = await import('dns');
+  const domains = [];
+
+  for (const appDef of config.apps) {
+    if (!appDef.domain) continue;
+    const slug = slugify(appDef.name);
+    const domain = appDef.domain;
+    const entry = { domain, slug, name: appDef.name, type: appDef.type };
+
+    // DNS
+    try {
+      const addrs = await dnsPromises.resolve4(domain);
+      entry.dns = { ok: addrs.includes('91.99.104.132'), addresses: addrs };
+    } catch { entry.dns = { ok: false, addresses: [] }; }
+
+    // SSL (from cache if available)
+    if (cachedSSL?.results) {
+      const sslEntry = cachedSSL.results.find(r => r.domain === domain);
+      if (sslEntry) {
+        entry.ssl = { valid: sslEntry.valid, daysRemaining: sslEntry.daysRemaining, issuer: sslEntry.issuer };
+      }
+    }
+
+    // SEO (from cache)
+    if (cachedSEO?.apps) {
+      const seoEntry = Object.entries(cachedSEO.apps).find(([name]) => slugify(name) === slug);
+      if (seoEntry) entry.seo = { score: seoEntry[1].score, grade: seoEntry[1].grade };
+    }
+
+    // Traffic (from metrics)
+    try {
+      const pv = qLatestMetric.get(slug, 'pageviews_30d');
+      entry.traffic = pv ? { pageviews30d: pv.value } : { pageviews30d: 0 };
+    } catch { entry.traffic = { pageviews30d: 0 }; }
+
+    // Revenue
+    try {
+      const mrr = qLatestMetric.get(slug, 'mrr');
+      entry.revenue = mrr ? { mrr: mrr.value / 100 } : { mrr: 0 };
+    } catch { entry.revenue = { mrr: 0 }; }
+
+    // Uptime (last 24h)
+    try {
+      const stats = db.prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_count FROM uptime_history WHERE app_slug = ? AND checked_at > datetime('now', '-24 hours')").get(slug);
+      entry.uptime = stats.total > 0 ? { pct: +(stats.up_count / stats.total * 100).toFixed(1), checks: stats.total } : { pct: null, checks: 0 };
+    } catch { entry.uptime = { pct: null, checks: 0 }; }
+
+    // Container status
+    try {
+      const containers = await docker.listContainers({ all: true });
+      const appContainers = (appDef.containers || []).map(name => {
+        const c = containers.find(ct => containerName(ct) === name);
+        return c?.State || 'not found';
+      });
+      entry.containers = { total: appContainers.length, running: appContainers.filter(s => s === 'running').length };
+    } catch { entry.containers = { total: 0, running: 0 }; }
+
+    // Health score
+    try {
+      const card = calculateAppReportCard(slug);
+      if (card) entry.healthScore = { score: card.overall, grade: card.grade };
+    } catch { /* skip */ }
+
+    domains.push(entry);
+  }
+
+  // Sort by health score (worst first to highlight issues)
+  domains.sort((a, b) => (a.healthScore?.score || 0) - (b.healthScore?.score || 0));
+
+  res.json({ domains, timestamp: new Date().toISOString() });
+}));
+
 // === Feature: Hetzner Cloud API Integration ===
 
 // GET /api/hetzner/server — Get VM info from Hetzner Cloud API

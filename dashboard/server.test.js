@@ -395,6 +395,45 @@ describe('Authenticated endpoints', { skip: !AUTH_PASS ? 'No TEST_PASS set — s
     assert.equal(status, 200);
     assert.ok(Array.isArray(body.recommendations) || body.error, 'should return recommendations or error');
   });
+
+  it('GET /api/domains/overview returns unified domain data', async () => {
+    const { status, body } = await json('/api/domains/overview');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.domains), 'should return domains array');
+    assert.ok(body.timestamp, 'should include timestamp');
+    if (body.domains.length > 0) {
+      const d = body.domains[0];
+      assert.ok(d.domain, 'domain entry should have domain field');
+      assert.ok(d.slug, 'domain entry should have slug');
+      assert.ok(d.dns !== undefined, 'should include DNS check');
+    }
+  });
+
+  it('GET /api/marketing/emails/analytics returns email stats', async () => {
+    const { status, body } = await json('/api/marketing/emails/analytics');
+    assert.equal(status, 200);
+    assert.ok(body.totals, 'should have totals');
+    assert.ok(typeof body.totals.sent === 'number', 'should have sent count');
+    assert.ok(typeof body.totals.pending === 'number', 'should have pending count');
+  });
+
+  it('POST /api/containers/nonexistent/exec returns 404', async () => {
+    const res = await req('/api/containers/nonexistent-container-xyz/exec', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 'ls' }),
+    });
+    assert.equal(res.status, 404);
+  });
+
+  it('POST /api/config/apps/nonexistent/preview returns 404', async () => {
+    const res = await req('/api/config/apps/nonexistent-app-xyz/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Test' }),
+    });
+    assert.equal(res.status, 404);
+  });
 });
 
 // ── Response headers ─────────────────────────────────────────────────
