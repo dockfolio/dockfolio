@@ -296,6 +296,30 @@ function authMiddleware(req, res, next) {
 
 app.use(authMiddleware);
 
+// --- Audit Log Middleware ---
+const AUDIT_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const AUDIT_SKIP = ['/api/auth/login', '/api/auth/status', '/api/analytics/', '/api/errors/', '/api/banners/'];
+const insertAudit = db.prepare(
+  'INSERT INTO audit_log (user, method, path, status, ip, detail) VALUES (?, ?, ?, ?, ?, ?)'
+);
+
+app.use((req, res, next) => {
+  if (!AUDIT_METHODS.has(req.method)) return next();
+  if (AUDIT_SKIP.some(p => req.path.startsWith(p))) return next();
+
+  const originalEnd = res.end;
+  res.end = function (...args) {
+    try {
+      const user = req.user?.username || 'anonymous';
+      const ip = req.ip || req.connection?.remoteAddress || '';
+      const detail = req.body ? JSON.stringify(req.body).slice(0, 500) : null;
+      insertAudit.run(user, req.method, req.path, res.statusCode, ip, detail);
+    } catch { /* best-effort */ }
+    originalEnd.apply(res, args);
+  };
+  next();
+});
+
 // --- Demo Mode ---
 const DEMO_MODE = process.env.DEMO_MODE === 'true';
 const DEMO_ALLOW_WRITES = ['/api/auth/', '/api/errors/', '/api/analytics/', '/api/banners/', '/api/crosspromo/', '/api/webhooks/'];
@@ -2699,6 +2723,18 @@ db.exec(`
     details TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_healing_log_ts ON healing_log(timestamp);
+
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+    user TEXT,
+    method TEXT NOT NULL,
+    path TEXT NOT NULL,
+    status INTEGER,
+    ip TEXT,
+    detail TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(timestamp);
 
   CREATE TABLE IF NOT EXISTS content_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -9680,6 +9716,37 @@ app.get('/api/stripe/recent', asyncRoute(async (_req, res) => {
     })),
     timestamp: new Date().toISOString(),
   });
+}));
+
+// --- Audit Log API ---
+
+app.get('/api/audit', asyncRoute((_req, res) => {
+  const limit = Math.min(parseInt(_req.query.limit) || 100, 500);
+  const offset = parseInt(_req.query.offset) || 0;
+  const user = _req.query.user;
+  const method = _req.query.method;
+
+  let sql = 'SELECT * FROM audit_log WHERE 1=1';
+  const params = [];
+
+  if (user) { sql += ' AND user = ?'; params.push(user); }
+  if (method) { sql += ' AND method = ?'; params.push(method.toUpperCase()); }
+
+  sql += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+
+  const entries = db.prepare(sql).all(...params);
+  const total = db.prepare('SELECT COUNT(*) as count FROM audit_log').get().count;
+
+  res.json({ entries, total, limit, offset });
+}));
+
+// Audit log cleanup — daily, keep 90 days
+cron.schedule('0 4 * * *', guardedCron('audit-cleanup', () => {
+  try {
+    const result = db.prepare("DELETE FROM audit_log WHERE timestamp < datetime('now', '-90 days')").run();
+    if (result.changes > 0) console.log(`[CRON] Audit log cleanup: removed ${result.changes} entries`);
+  } catch (err) { cronFail('Audit cleanup', err); }
 }));
 
 // Health check endpoint
