@@ -169,7 +169,7 @@ export default function registerAlertRoutes({ app, db, config, cron, qLatestMetr
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ alert: msg, metric: rule.metric, value, threshold, app: rule.app_slug, timestamp: new Date().toISOString() }),
             signal: AbortSignal.timeout(TIMEOUT_QUICK),
-          }).catch(() => {});
+          }).catch(err => { console.error(`[ALERTS] Webhook delivery failed for ${actionTarget}:`, err.message); });
         }
       }
     }

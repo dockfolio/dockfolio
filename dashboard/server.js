@@ -264,7 +264,7 @@ function cleanExpiredSessions() {
 cleanExpiredSessions();
 setInterval(cleanExpiredSessions, MS_PER_HOUR);
 
-const SESSION_TTL_DAYS = 30;
+const SESSION_TTL_DAYS = 7;
 
 function createSession(userId) {
   const token = randomUUID();
@@ -289,13 +289,15 @@ function isSetupComplete() {
 }
 
 // --- Auth Middleware ---
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status', '/status', '/api/status-page', '/api/analytics/pixel.gif', '/api/analytics/track.js', '/api/analytics/event', '/api/webhooks'];
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners/embed.js', '/api/banners/serve', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status', '/status', '/api/status-page', '/api/analytics/pixel.gif', '/api/analytics/track.js', '/api/analytics/event', '/api/webhooks'];
 
 function authMiddleware(req, res, next) {
   // Normalize path to prevent traversal bypass (e.g. /api/crosspromo/../marketing/crosspromo)
   const normalizedPath = req.path.replace(/\/\.\.+/g, '').replace(/\/+/g, '/');
   // Allow public paths
   if (PUBLIC_PATHS.some(p => normalizedPath === p || normalizedPath.startsWith(p + '/'))) return next();
+  // Allow public banner tracking endpoints: /api/banners/:id/view, /api/banners/:id/click
+  if (/^\/api\/banners\/\d+\/(view|click)$/.test(normalizedPath)) return next();
   // Allow static assets for login page
   if (req.path.match(/\.(css|js|ico|svg|png|jpg|woff2?)$/)) return next();
 
@@ -2582,7 +2584,7 @@ cron.schedule('0 7 * * *', async () => {
           const daysLeft = Math.round((expiresAt - Date.now()) / MS_PER_DAY);
           if (daysLeft < 14) expiring.push(`${a.domain}: ${daysLeft}d left`);
         }
-      } catch { /* skip domains without SSL */ }
+      } catch (err) { if (process.env.DEBUG) console.log(`[SSL] Skipping ${a.domain}:`, err.message); }
     }
     if (expiring.length > 0) {
       sendTelegram(`\ud83d\udd12 SSL certificates expiring soon:\n${expiring.join('\n')}`);
@@ -2605,11 +2607,6 @@ cron.schedule('*/5 * * * *', guardedCron('uptime', async () => {
           const url = a.health ? `https://${a.domain}${a.health}` : `https://${a.domain}`;
           const start = Date.now();
           const r = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_STANDARD) });
-          response_ms = Date.now() - start;
-          status = r.ok ? 'up' : 'degraded';
-        } else if (a.health) {
-          const start = Date.now();
-          const r = await fetch(`https://${a.domain}`, { signal: AbortSignal.timeout(TIMEOUT_STANDARD) });
           response_ms = Date.now() - start;
           status = r.ok ? 'up' : 'degraded';
         } else continue;
