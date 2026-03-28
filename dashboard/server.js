@@ -299,9 +299,18 @@ app.use(authMiddleware);
 // --- Audit Log Middleware ---
 const AUDIT_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const AUDIT_SKIP = ['/api/auth/login', '/api/auth/status', '/api/analytics/', '/api/errors/', '/api/banners/'];
-const insertAudit = db.prepare(
-  'INSERT INTO audit_log (user, method, path, status, ip, detail) VALUES (?, ?, ?, ?, ?, ?)'
-);
+let _insertAudit = null;
+function getInsertAudit() {
+  if (!_insertAudit) {
+    // Ensure columns exist (table may predate these columns)
+    try { db.exec("ALTER TABLE audit_log ADD COLUMN method TEXT"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE audit_log ADD COLUMN path TEXT"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE audit_log ADD COLUMN status INTEGER"); } catch { /* already exists */ }
+    try { db.exec("ALTER TABLE audit_log ADD COLUMN detail TEXT"); } catch { /* already exists */ }
+    _insertAudit = db.prepare('INSERT INTO audit_log (user, action, method, path, status, ip, detail) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  }
+  return _insertAudit;
+}
 
 app.use((req, res, next) => {
   if (!AUDIT_METHODS.has(req.method)) return next();
@@ -313,7 +322,7 @@ app.use((req, res, next) => {
       const user = req.user?.username || 'anonymous';
       const ip = req.ip || req.connection?.remoteAddress || '';
       const detail = req.body ? JSON.stringify(req.body).slice(0, 500) : null;
-      insertAudit.run(user, req.method, req.path, res.statusCode, ip, detail);
+      getInsertAudit().run(user, req.method, req.method, req.path, res.statusCode, ip, detail);
     } catch { /* best-effort */ }
     originalEnd.apply(res, args);
   };
@@ -2726,15 +2735,18 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
     user TEXT,
-    method TEXT NOT NULL,
-    path TEXT NOT NULL,
-    status INTEGER,
+    action TEXT NOT NULL DEFAULT '',
+    target TEXT,
+    details TEXT,
     ip TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    method TEXT,
+    path TEXT,
+    status INTEGER,
     detail TEXT
   );
-  CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(created_at);
 
   CREATE TABLE IF NOT EXISTS content_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -9253,6 +9265,8 @@ app.get('/status', (_req, res) => {
   res.send(generateStatusPageHTML());
 });
 
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
 function generateStatusPageHTML() {
   const apps = [];
   for (const appDef of config.apps) {
@@ -9285,8 +9299,8 @@ function generateStatusPageHTML() {
     appRows += `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1f2937">
         <div>
-          <div style="font-weight:600;font-size:14px">${escapeHtml(app.name)}</div>
-          <div style="font-size:12px;color:#9ca3af">${escapeHtml(app.domain)}</div>
+          <div style="font-weight:600;font-size:14px">${esc(app.name)}</div>
+          <div style="font-size:12px;color:#9ca3af">${esc(app.domain)}</div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
           <span style="font-size:13px;color:${color};font-weight:500">${uptime}</span>
@@ -10068,7 +10082,7 @@ app.get('/api/audit', asyncRoute((_req, res) => {
   if (user) { sql += ' AND user = ?'; params.push(user); }
   if (method) { sql += ' AND method = ?'; params.push(method.toUpperCase()); }
 
-  sql += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
+  sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
   params.push(limit, offset);
 
   const entries = db.prepare(sql).all(...params);
@@ -10080,7 +10094,7 @@ app.get('/api/audit', asyncRoute((_req, res) => {
 // Audit log cleanup — daily, keep 90 days
 cron.schedule('0 4 * * *', guardedCron('audit-cleanup', () => {
   try {
-    const result = db.prepare("DELETE FROM audit_log WHERE timestamp < datetime('now', '-90 days')").run();
+    const result = db.prepare("DELETE FROM audit_log WHERE created_at < datetime('now', '-90 days')").run();
     if (result.changes > 0) console.log(`[CRON] Audit log cleanup: removed ${result.changes} entries`);
   } catch (err) { cronFail('Audit cleanup', err); }
 }));
@@ -10112,7 +10126,7 @@ const ACHIEVEMENTS = [
   { id: 'portfolio-5', name: 'Portfolio Builder', desc: 'Run 5+ apps', icon: '📦', check: () => config.apps.length >= 5 },
   { id: 'portfolio-10', name: 'App Empire', desc: 'Run 10+ apps', icon: '🏰', check: () => config.apps.length >= 10 },
   { id: 'healer', name: 'Self-Healer', desc: 'Auto-healing has fixed 10+ issues', icon: '🔧', check: () => db.prepare("SELECT COUNT(*) as c FROM healing_log WHERE result = 'executed'").get().c >= 10 },
-  { id: 'night-owl', name: 'Night Owl', desc: 'Activity logged between midnight and 5 AM', icon: '🦉', check: () => db.prepare("SELECT COUNT(*) as c FROM audit_log WHERE CAST(strftime('%H', timestamp) AS INTEGER) < 5").get().c > 0 },
+  { id: 'night-owl', name: 'Night Owl', desc: 'Activity logged between midnight and 5 AM', icon: '🦉', check: () => db.prepare("SELECT COUNT(*) as c FROM audit_log WHERE CAST(strftime('%H', created_at) AS INTEGER) < 5").get().c > 0 },
   { id: 'clean-sweep', name: 'Clean Sweep', desc: 'All apps have security grade A or B', icon: '✨', check: () => {
     for (const appDef of config.apps) { const rc = calculateAppReportCard(slugify(appDef.name)); if (!rc?.dimensions?.security || rc.dimensions.security.score < 80) return false; } return config.apps.length > 0;
   }},
@@ -10159,7 +10173,7 @@ app.get('/api/build-in-public', asyncRoute(async (_req, res) => {
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const healingEvents = db.prepare("SELECT COUNT(*) as c FROM healing_log WHERE timestamp > ?").get(weekAgo).c;
-  const auditEvents = db.prepare("SELECT COUNT(*) as c FROM audit_log WHERE timestamp > ?").get(weekAgo).c;
+  const auditEvents = db.prepare("SELECT COUNT(*) as c FROM audit_log WHERE created_at > ?").get(weekAgo).c;
   const securityFindings = db.prepare("SELECT COUNT(*) as c FROM security_findings WHERE created_at > ?").get(weekAgo).c;
 
   // Revenue data

@@ -6912,7 +6912,7 @@
         let html = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border)">';
         html += '<th style="padding:4px 8px">Time</th><th style="padding:4px 8px">User</th><th style="padding:4px 8px">Action</th><th style="padding:4px 8px">Path</th><th style="padding:4px 8px">Status</th></tr></thead><tbody>';
         for (const e of data.entries) {
-          const time = new Date(e.timestamp + 'Z').toLocaleString('de-DE', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+          const time = new Date((e.created_at || e.timestamp) + 'Z').toLocaleString('de-DE', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
           const methodColor = e.method === 'DELETE' ? 'var(--red)' : e.method === 'POST' ? 'var(--green)' : 'var(--yellow)';
           const statusColor = e.status >= 400 ? 'var(--red)' : 'var(--green)';
           html += `<tr style="border-bottom:1px solid var(--border)">
