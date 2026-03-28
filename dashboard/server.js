@@ -8490,6 +8490,716 @@ app.post('/api/notifications/read-all', (_req, res) => {
   res.json({ ok: true });
 });
 
+// --- App Health Scores (lightweight batch endpoint for home view) ---
+app.get('/api/apps/health-scores', asyncRoute((_req, res) => {
+  const scores = {};
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+    const card = calculateAppReportCard(slug);
+    if (card) {
+      scores[slug] = { overall: card.overall, grade: card.grade, dimensions: card.dimensions };
+    }
+  }
+  res.json({ scores, timestamp: new Date().toISOString() });
+}));
+
+// --- Portfolio P&L Dashboard ---
+app.get('/api/portfolio/pnl', asyncRoute((_req, res) => {
+  const apps = [];
+  const totalVMCost = 12.00; // EUR/month Hetzner VM
+
+  // Get total resource usage across all containers for proportional cost allocation
+  let totalMemAlloc = 0;
+  const appMemUsage = {};
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+    let memMB = 0;
+    if (appDef.containers?.length) {
+      // Estimate base memory per container type
+      memMB = appDef.containers.length * 80; // ~80MB avg per container
+    } else {
+      memMB = 10; // static sites ~10MB nginx
+    }
+    appMemUsage[slug] = memMB;
+    totalMemAlloc += memMB;
+  }
+
+  let totalRevenue = 0, totalCosts = 0;
+
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+
+    // Revenue from Stripe
+    const mrrRow = qLatestMetric.get(slug, 'mrr');
+    const mrr = (mrrRow?.value || 0) / 100; // cents to EUR
+
+    // Proportional infra cost based on estimated memory
+    const memShare = totalMemAlloc > 0 ? (appMemUsage[slug] / totalMemAlloc) : 0;
+    const infraCost = +(totalVMCost * memShare).toFixed(2);
+
+    // Domain cost estimate (~1 EUR/month amortized for paid domains)
+    const domainCost = appDef.domain ? 1.00 : 0;
+
+    // API costs (rough estimate from env vars)
+    let apiCost = 0;
+    if (appDef.envFile && existsSync(appDef.envFile)) {
+      const vars = parseEnvFile(appDef.envFile);
+      const hasStripe = vars.some(v => v.key.includes('STRIPE') && v.value);
+      const hasAI = vars.some(v => (v.key.includes('ANTHROPIC') || v.key.includes('OPENAI')) && v.value);
+      const hasResend = vars.some(v => v.key.includes('RESEND') && v.value);
+      if (hasStripe) apiCost += 0.50; // Stripe base fees
+      if (hasAI) apiCost += 1.00; // AI API costs
+      if (hasResend) apiCost += 0.50; // Email costs
+    }
+
+    const totalAppCost = +(infraCost + domainCost + apiCost).toFixed(2);
+    const profit = +(mrr - totalAppCost).toFixed(2);
+
+    totalRevenue += mrr;
+    totalCosts += totalAppCost;
+
+    apps.push({
+      slug,
+      name: appDef.name,
+      type: appDef.type,
+      revenue: mrr,
+      costs: {
+        infra: infraCost,
+        domain: domainCost,
+        api: apiCost,
+        total: totalAppCost,
+      },
+      profit,
+      profitable: profit > 0,
+    });
+  }
+
+  // Sort by profit descending
+  apps.sort((a, b) => b.profit - a.profit);
+
+  res.json({
+    portfolio: {
+      totalRevenue: +totalRevenue.toFixed(2),
+      totalCosts: +totalCosts.toFixed(2),
+      totalProfit: +(totalRevenue - totalCosts).toFixed(2),
+      vmCost: totalVMCost,
+      appCount: apps.length,
+    },
+    apps,
+    timestamp: new Date().toISOString(),
+  });
+}));
+
+// --- Uptime Streaks ---
+// Track consecutive days of 100% uptime per app
+app.get('/api/uptime/streaks', asyncRoute((_req, res) => {
+  const streaks = {};
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+    if (!appDef.domain) { streaks[slug] = { current: 0, best: 0 }; continue; }
+
+    // Get daily uptime status for last 90 days
+    const days = db.prepare(`
+      SELECT date(checked_at) as day,
+             COUNT(*) as checks,
+             SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_checks
+      FROM uptime_history
+      WHERE app_slug = ? AND checked_at > datetime('now', '-90 days')
+      GROUP BY date(checked_at)
+      ORDER BY day DESC
+    `).all(slug);
+
+    let current = 0, best = 0, streakBroken = false;
+    for (const d of days) {
+      const perfect = d.checks > 0 && d.up_checks === d.checks;
+      if (perfect && !streakBroken) {
+        current++;
+      } else {
+        streakBroken = true;
+      }
+      // Calculate best streak (scan all days)
+    }
+    // Best streak requires full scan
+    let tempStreak = 0;
+    for (let i = days.length - 1; i >= 0; i--) {
+      const d = days[i];
+      if (d.checks > 0 && d.up_checks === d.checks) {
+        tempStreak++;
+        if (tempStreak > best) best = tempStreak;
+      } else {
+        tempStreak = 0;
+      }
+    }
+    streaks[slug] = { current, best, totalDaysTracked: days.length };
+  }
+  res.json({ streaks, timestamp: new Date().toISOString() });
+}));
+
+// --- Cron Job Monitoring (Dead Man's Switch) ---
+const cronHeartbeats = new Map(); // cronName -> { lastRun, duration, status, error }
+
+function recordCronHeartbeat(name, status, durationMs, error) {
+  cronHeartbeats.set(name, {
+    lastRun: new Date().toISOString(),
+    duration: durationMs,
+    status, // 'ok' | 'error'
+    error: error || null,
+  });
+}
+
+// Wrap existing guardedCron to track heartbeats
+const _origGuardedCron = guardedCron;
+// We can't replace guardedCron retroactively, but we can track via a monitoring endpoint
+// that checks last execution times from ops_scores, security_scans, etc.
+
+app.get('/api/cron/status', asyncRoute((_req, res) => {
+  const jobs = [];
+
+  // Check each cron by its last output in the database
+  const cronChecks = [
+    { name: 'Revenue & Analytics', schedule: 'Every 6h', table: 'metrics_daily', query: "SELECT MAX(date) as last FROM metrics_daily" },
+    { name: 'SEO Audits', schedule: 'Daily 1:30 AM', table: 'seo_audits', query: "SELECT MAX(date) as last FROM seo_audits" },
+    { name: 'Security Scan', schedule: 'Daily 1 AM', table: 'security_scans', query: "SELECT MAX(timestamp) as last FROM security_scans" },
+    { name: 'Worry Score', schedule: 'Every 15 min', table: 'ops_scores', query: "SELECT MAX(timestamp) as last FROM ops_scores" },
+    { name: 'Uptime Checks', schedule: 'Every 5 min', table: 'uptime_history', query: "SELECT MAX(checked_at) as last FROM uptime_history" },
+    { name: 'Error Ingestion', schedule: 'Every 5 min', table: 'error_events', query: "SELECT MAX(created_at) as last FROM error_events" },
+    { name: 'Sparkline Snapshots', schedule: 'Hourly', table: 'sparkline_snapshots', query: "SELECT MAX(timestamp) as last FROM sparkline_snapshots" },
+    { name: 'Database Backup', schedule: 'Daily 3 AM', table: null, query: null },
+    { name: 'Perf Metrics', schedule: 'Every 15 min', table: 'perf_metrics', query: "SELECT MAX(hour) as last FROM perf_metrics" },
+  ];
+
+  const expectedIntervals = {
+    'Every 5 min': 10 * 60 * 1000,      // alert if >10 min
+    'Every 15 min': 30 * 60 * 1000,     // alert if >30 min
+    'Hourly': 2 * 60 * 60 * 1000,       // alert if >2h
+    'Every 6h': 12 * 60 * 60 * 1000,    // alert if >12h
+    'Daily 1 AM': 36 * 60 * 60 * 1000,  // alert if >36h
+    'Daily 1:30 AM': 36 * 60 * 60 * 1000,
+    'Daily 3 AM': 36 * 60 * 60 * 1000,
+  };
+
+  for (const check of cronChecks) {
+    let lastRun = null, status = 'unknown';
+    if (check.query) {
+      try {
+        const row = db.prepare(check.query).get();
+        lastRun = row?.last || null;
+      } catch { /* table may not exist yet */ }
+    }
+
+    if (lastRun) {
+      const ageMs = Date.now() - new Date(lastRun).getTime();
+      const maxAge = expectedIntervals[check.schedule] || 36 * 60 * 60 * 1000;
+      status = ageMs <= maxAge ? 'ok' : 'overdue';
+    } else {
+      status = 'never_run';
+    }
+
+    jobs.push({
+      name: check.name,
+      schedule: check.schedule,
+      lastRun,
+      status,
+    });
+  }
+
+  const overdue = jobs.filter(j => j.status === 'overdue');
+  res.json({
+    jobs,
+    healthy: overdue.length === 0,
+    overdueCount: overdue.length,
+    timestamp: new Date().toISOString(),
+  });
+}));
+
+// --- Weekly Portfolio Report Card ---
+app.get('/api/portfolio/report', asyncRoute((_req, res) => {
+  const cards = config.apps.map(a => calculateAppReportCard(slugify(a.name))).filter(Boolean);
+
+  // Portfolio-level aggregations
+  const avgScore = cards.length > 0 ? Math.round(cards.reduce((s, c) => s + c.overall, 0) / cards.length) : 0;
+  const gradeDistribution = { A: 0, B: 0, C: 0, D: 0, F: 0 };
+  for (const c of cards) {
+    const g = c.grade.charAt(0);
+    if (gradeDistribution[g] !== undefined) gradeDistribution[g]++;
+  }
+
+  // Week-over-week comparison from project_snapshots
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const prevSnapshots = db.prepare('SELECT app_slug, security_score, seo_score, mrr_cents, traffic_30d FROM project_snapshots WHERE snapshot_date <= ? ORDER BY snapshot_date DESC').all(weekAgo);
+  const prevMap = new Map();
+  for (const s of prevSnapshots) {
+    if (!prevMap.has(s.app_slug)) prevMap.set(s.app_slug, s);
+  }
+
+  const appReports = cards.map(card => {
+    const prev = prevMap.get(card.slug);
+    const trends = {};
+    if (prev) {
+      if (prev.security_score != null) trends.security = card.dimensions.security?.score - prev.security_score;
+      if (prev.seo_score != null) trends.seo = (card.dimensions.seo?.score || 0) - prev.seo_score;
+      if (prev.mrr_cents != null) trends.revenue = (card.dimensions.revenue?.score || 0) - (prev.mrr_cents > 0 ? Math.min(100, Math.round(50 + Math.log10(prev.mrr_cents / 100 + 1) * 30)) : 0);
+    }
+    return { ...card, trends };
+  });
+
+  // Top accomplishment & biggest concern
+  const sorted = [...appReports].sort((a, b) => b.overall - a.overall);
+  const topApp = sorted[0];
+  const weakestApp = sorted[sorted.length - 1];
+
+  res.json({
+    portfolioGrade: letterGrade(avgScore),
+    portfolioScore: avgScore,
+    gradeDistribution,
+    appCount: cards.length,
+    topPerformer: topApp ? { name: topApp.name, grade: topApp.grade, score: topApp.overall } : null,
+    needsAttention: weakestApp && weakestApp.overall < 60 ? { name: weakestApp.name, grade: weakestApp.grade, score: weakestApp.overall } : null,
+    apps: appReports,
+    timestamp: new Date().toISOString(),
+  });
+}));
+
+// Weekly report card cron — send via Telegram every Monday at 8 AM
+cron.schedule('0 8 * * 1', guardedCron('weekly-report', async () => {
+  try {
+    const cards = config.apps.map(a => calculateAppReportCard(slugify(a.name))).filter(Boolean);
+    const avgScore = cards.length > 0 ? Math.round(cards.reduce((s, c) => s + c.overall, 0) / cards.length) : 0;
+    const grade = letterGrade(avgScore);
+    const sorted = [...cards].sort((a, b) => b.overall - a.overall);
+    const top = sorted[0];
+    const weak = sorted[sorted.length - 1];
+
+    let msg = `📊 <b>Weekly Portfolio Report</b>\n`;
+    msg += `\nOverall: <b>${grade}</b> (${avgScore}/100)`;
+    msg += `\nApps: ${cards.length}`;
+    if (top) msg += `\n⭐ Top: ${top.name} (${top.grade}, ${top.overall}/100)`;
+    if (weak && weak.overall < 60) msg += `\n⚠️ Needs attention: ${weak.name} (${weak.grade}, ${weak.overall}/100)`;
+
+    // Grade breakdown
+    const grades = cards.map(c => `${c.name}: ${c.grade}`).join(', ');
+    msg += `\n\n${grades}`;
+
+    sendTelegram(msg);
+    addNotification('ops', 'info', `Weekly Report: ${grade} (${avgScore}/100)`, msg);
+  } catch (err) { cronFail('Weekly report', err); }
+}));
+
+// Uptime streak celebration — daily check at 10 AM
+cron.schedule('0 10 * * *', guardedCron('streak-celebrate', async () => {
+  try {
+    for (const appDef of config.apps) {
+      if (!appDef.domain) continue;
+      const slug = slugify(appDef.name);
+      const days = db.prepare(`
+        SELECT date(checked_at) as day, COUNT(*) as checks,
+               SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_checks
+        FROM uptime_history WHERE app_slug = ? AND checked_at > datetime('now', '-90 days')
+        GROUP BY date(checked_at) ORDER BY day DESC
+      `).all(slug);
+
+      let streak = 0;
+      for (const d of days) {
+        if (d.checks > 0 && d.up_checks === d.checks) streak++;
+        else break;
+      }
+
+      // Celebrate milestones: 7, 30, 60, 90 days
+      if ([7, 30, 60, 90].includes(streak)) {
+        sendTelegram(`🏆 ${appDef.name}: ${streak}-day uptime streak!`);
+        addNotification('ops', 'info', `${appDef.name}: ${streak}-day uptime streak!`, null, slug);
+      }
+    }
+  } catch (err) { cronFail('Streak celebrate', err); }
+}));
+
+// Cron health check — alert if any job is overdue (hourly)
+cron.schedule('30 * * * *', guardedCron('cron-monitor', async () => {
+  const cronChecks = [
+    { name: 'Worry Score', query: "SELECT MAX(timestamp) as last FROM ops_scores", maxAgeMs: 30 * 60 * 1000 },
+    { name: 'Uptime Checks', query: "SELECT MAX(checked_at) as last FROM uptime_history", maxAgeMs: 15 * 60 * 1000 },
+    { name: 'Security Scan', query: "SELECT MAX(timestamp) as last FROM security_scans", maxAgeMs: 36 * 60 * 60 * 1000 },
+  ];
+
+  const overdue = [];
+  for (const check of cronChecks) {
+    try {
+      const row = db.prepare(check.query).get();
+      if (row?.last) {
+        const ageMs = Date.now() - new Date(row.last).getTime();
+        if (ageMs > check.maxAgeMs) overdue.push(check.name);
+      }
+    } catch { /* table may not exist yet */ }
+  }
+
+  if (overdue.length > 0) {
+    sendTelegram(`⚠️ Overdue cron jobs: ${overdue.join(', ')}\nCheck /api/cron/status for details`);
+  }
+}));
+
+// --- Anomaly Detection (statistical z-scores on system metrics) ---
+app.get('/api/anomalies', asyncRoute((_req, res) => {
+  const anomalies = [];
+  const metrics = ['cpu_percent', 'mem_used_bytes', 'load_1m', 'disk_used_bytes'];
+
+  for (const metric of metrics) {
+    // Get 7-day baseline
+    const rows = db.prepare(`SELECT ${metric} as val FROM system_snapshots WHERE ts > datetime('now', '-7 days') ORDER BY ts ASC`).all();
+    if (rows.length < 20) continue; // need enough data
+
+    const values = rows.map(r => r.val);
+    const mean = values.reduce((a, b) => a + b, 0) / values.length;
+    const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+    const stddev = Math.sqrt(variance);
+    if (stddev === 0) continue;
+
+    // Check latest value
+    const latest = values[values.length - 1];
+    const zscore = (latest - mean) / stddev;
+
+    if (Math.abs(zscore) >= 2) {
+      const direction = zscore > 0 ? 'above' : 'below';
+      const severity = Math.abs(zscore) >= 3 ? 'critical' : 'warning';
+      let displayVal, displayMean;
+
+      if (metric.includes('bytes')) {
+        displayVal = (latest / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+        displayMean = (mean / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+      } else if (metric === 'cpu_percent') {
+        displayVal = latest.toFixed(1) + '%';
+        displayMean = mean.toFixed(1) + '%';
+      } else {
+        displayVal = latest.toFixed(2);
+        displayMean = mean.toFixed(2);
+      }
+
+      const label = metric.replace(/_/g, ' ').replace('bytes', '').replace('percent', '%').trim();
+      anomalies.push({
+        metric,
+        label,
+        severity,
+        zscore: +zscore.toFixed(2),
+        direction,
+        current: displayVal,
+        mean7d: displayMean,
+        message: `${label} is ${Math.abs(zscore).toFixed(1)}x std dev ${direction} 7-day average (${displayVal} vs avg ${displayMean})`,
+      });
+    }
+  }
+
+  // Per-app uptime anomalies
+  for (const appDef of config.apps) {
+    if (!appDef.domain) continue;
+    const slug = slugify(appDef.name);
+    const rows = db.prepare(`
+      SELECT date(checked_at) as day, COUNT(*) as checks,
+             SUM(CASE WHEN status != 'up' THEN 1 ELSE 0 END) as failures
+      FROM uptime_history WHERE app_slug = ? AND checked_at > datetime('now', '-7 days')
+      GROUP BY date(checked_at)
+    `).all(slug);
+
+    const todayRow = rows[rows.length - 1];
+    if (todayRow && todayRow.failures > 0 && rows.length >= 3) {
+      const avgFailures = rows.slice(0, -1).reduce((s, r) => s + r.failures, 0) / Math.max(1, rows.length - 1);
+      if (todayRow.failures > avgFailures * 2 + 1) {
+        anomalies.push({
+          metric: 'uptime',
+          label: `${appDef.name} failures`,
+          severity: 'warning',
+          zscore: 0,
+          direction: 'above',
+          current: `${todayRow.failures} failures`,
+          mean7d: `${avgFailures.toFixed(1)} avg`,
+          message: `${appDef.name}: ${todayRow.failures} uptime failures today vs ${avgFailures.toFixed(1)} daily avg`,
+          appSlug: slug,
+        });
+      }
+    }
+  }
+
+  res.json({ anomalies, timestamp: new Date().toISOString() });
+}));
+
+// --- Uptime Heatmap Calendar (GitHub-style, 90 days) ---
+app.get('/api/uptime/heatmap', asyncRoute((_req, res) => {
+  const heatmap = {};
+
+  for (const appDef of config.apps) {
+    if (!appDef.domain) continue;
+    const slug = slugify(appDef.name);
+    const days = db.prepare(`
+      SELECT date(checked_at) as day,
+             COUNT(*) as total,
+             SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_count
+      FROM uptime_history
+      WHERE app_slug = ? AND checked_at > datetime('now', '-90 days')
+      GROUP BY date(checked_at)
+      ORDER BY day ASC
+    `).all(slug);
+
+    heatmap[slug] = days.map(d => ({
+      date: d.day,
+      uptime: d.total > 0 ? +(d.up_count / d.total * 100).toFixed(1) : null,
+      checks: d.total,
+    }));
+  }
+
+  res.json({ heatmap, timestamp: new Date().toISOString() });
+}));
+
+// --- Revenue Milestones ---
+const revenueMilestonesChecked = new Set();
+
+app.get('/api/revenue/milestones', asyncRoute((_req, res) => {
+  const milestones = [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
+  const result = [];
+
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+    const row = qLatestMetric.get(slug, 'mrr');
+    const mrr = (row?.value || 0) / 100; // cents to EUR
+
+    const achieved = milestones.filter(m => mrr >= m);
+    const nextMilestone = milestones.find(m => mrr < m) || null;
+    const progress = nextMilestone ? +(mrr / nextMilestone * 100).toFixed(1) : 100;
+
+    if (mrr > 0) {
+      result.push({
+        slug,
+        name: appDef.name,
+        mrr: +mrr.toFixed(2),
+        achieved,
+        nextMilestone,
+        progress,
+      });
+    }
+  }
+
+  // Portfolio total
+  const totalMRR = result.reduce((s, a) => s + a.mrr, 0);
+  const portfolioAchieved = milestones.filter(m => totalMRR >= m);
+  const portfolioNext = milestones.find(m => totalMRR < m) || null;
+
+  res.json({
+    apps: result,
+    portfolio: {
+      totalMRR: +totalMRR.toFixed(2),
+      achieved: portfolioAchieved,
+      nextMilestone: portfolioNext,
+      progress: portfolioNext ? +(totalMRR / portfolioNext * 100).toFixed(1) : 100,
+    },
+    timestamp: new Date().toISOString(),
+  });
+}));
+
+// Revenue milestone celebration cron — daily at 9 AM
+cron.schedule('0 9 * * *', guardedCron('revenue-milestones', async () => {
+  try {
+    const milestones = [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
+
+    for (const appDef of config.apps) {
+      const slug = slugify(appDef.name);
+      const row = qLatestMetric.get(slug, 'mrr');
+      const mrr = (row?.value || 0) / 100;
+
+      for (const m of milestones) {
+        const key = `${slug}:${m}`;
+        if (mrr >= m && !revenueMilestonesChecked.has(key)) {
+          // Check if we already celebrated (stored in settings)
+          const celebrated = getSetting(`milestone:${key}`);
+          if (!celebrated) {
+            upsertSettingStmt.run(`milestone:${key}`, new Date().toISOString());
+            sendTelegram(`🎉 <b>Revenue Milestone!</b>\n${appDef.name} crossed €${m} MRR!\nCurrent: €${mrr.toFixed(0)}`);
+            addNotification('revenue', 'info', `${appDef.name} crossed €${m} MRR!`, `Current MRR: €${mrr.toFixed(0)}`, slug);
+          }
+          revenueMilestonesChecked.add(key);
+        }
+      }
+    }
+  } catch (err) { cronFail('Revenue milestones', err); }
+}));
+
+// Anomaly alert cron — every 30 minutes
+cron.schedule('*/30 * * * *', guardedCron('anomaly-check', async () => {
+  try {
+    const metrics = ['cpu_percent', 'mem_used_bytes', 'load_1m'];
+    for (const metric of metrics) {
+      const rows = db.prepare(`SELECT ${metric} as val FROM system_snapshots WHERE ts > datetime('now', '-7 days') ORDER BY ts ASC`).all();
+      if (rows.length < 20) continue;
+
+      const values = rows.map(r => r.val);
+      const mean = values.reduce((a, b) => a + b, 0) / values.length;
+      const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / values.length;
+      const stddev = Math.sqrt(variance);
+      if (stddev === 0) continue;
+
+      const latest = values[values.length - 1];
+      const zscore = (latest - mean) / stddev;
+
+      if (zscore >= 3) {
+        const label = metric.replace(/_/g, ' ').replace('percent', '%');
+        sendTelegram(`📊 <b>Anomaly Detected</b>\n${label}: ${zscore.toFixed(1)}σ above 7-day average\nCurrent vs avg: check /api/anomalies`);
+      }
+    }
+  } catch (err) { cronFail('Anomaly check', err); }
+}));
+
+// --- Real-Time Visitors Widget ---
+app.get('/api/realtime/visitors', asyncRoute(async (_req, res) => {
+  const apiKey = getPlausibleApiKey();
+  if (!apiKey) return res.json({ apps: [], total: 0 });
+
+  const baseUrl = `${getPlausibleUrl()}/api/v1/stats/realtime/visitors`;
+  const apps = [];
+  let total = 0;
+
+  await Promise.all(config.apps.filter(a => a.domain).map(async (appDef) => {
+    try {
+      const r = await fetch(`${baseUrl}?site_id=${appDef.domain}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      const count = r.ok ? parseInt(await r.text()) || 0 : 0;
+      if (count > 0) {
+        apps.push({ slug: slugify(appDef.name), name: appDef.name, domain: appDef.domain, visitors: count });
+        total += count;
+      }
+    } catch { /* silent */ }
+  }));
+
+  apps.sort((a, b) => b.visitors - a.visitors);
+  res.json({ apps, total, timestamp: new Date().toISOString() });
+}));
+
+// --- SLO / Error Budget Tracking ---
+app.get('/api/slo', asyncRoute((_req, res) => {
+  const slos = [];
+  const daysInMonth = 30;
+  const minutesInMonth = daysInMonth * 24 * 60;
+
+  for (const appDef of config.apps) {
+    if (!appDef.domain) continue;
+    const slug = slugify(appDef.name);
+
+    // Default SLO: 99.9% uptime
+    const targetUptime = 99.9;
+    const allowedDowntimeMinutes = +(minutesInMonth * (1 - targetUptime / 100)).toFixed(1); // ~43.2 min
+
+    // Calculate actual uptime from uptime_history (last 30 days)
+    const stats = db.prepare(`
+      SELECT COUNT(*) as total,
+             SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_count
+      FROM uptime_history
+      WHERE app_slug = ? AND checked_at > datetime('now', '-30 days')
+    `).get(slug);
+
+    const actualUptime = stats.total > 0 ? +(stats.up_count / stats.total * 100).toFixed(3) : 100;
+    const failedChecks = stats.total - (stats.up_count || 0);
+    // Each check is ~5 min apart
+    const downMinutes = failedChecks * 5;
+    const budgetUsedPct = allowedDowntimeMinutes > 0 ? +(downMinutes / allowedDowntimeMinutes * 100).toFixed(1) : 0;
+    const budgetRemaining = +(allowedDowntimeMinutes - downMinutes).toFixed(1);
+
+    // Response time SLO: p95 < 1000ms
+    const perfRow = db.prepare(`
+      SELECT AVG(p95_ms) as avg_p95
+      FROM perf_metrics
+      WHERE app_slug = ? AND hour > datetime('now', '-7 days')
+    `).get(slug);
+    const avgP95 = perfRow?.avg_p95 ? Math.round(perfRow.avg_p95) : null;
+
+    // Burn rate: budget consumption rate vs expected
+    const daysSoFar = Math.max(1, Math.min(30, Math.round((Date.now() - new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).getTime()) / (24 * 60 * 60 * 1000))));
+    const expectedBurnPct = +(daysSoFar / daysInMonth * 100).toFixed(1);
+    const burnRate = expectedBurnPct > 0 ? +(budgetUsedPct / expectedBurnPct).toFixed(2) : 0;
+
+    slos.push({
+      slug,
+      name: appDef.name,
+      uptime: {
+        target: targetUptime,
+        actual: actualUptime,
+        met: actualUptime >= targetUptime,
+        allowedDowntime: allowedDowntimeMinutes,
+        usedDowntime: downMinutes,
+        budgetUsedPct,
+        budgetRemaining: Math.max(0, budgetRemaining),
+        burnRate,
+        burnRateStatus: burnRate > 2 ? 'critical' : burnRate > 1.5 ? 'warning' : 'healthy',
+      },
+      responseTime: avgP95 ? {
+        target: 1000,
+        actual: avgP95,
+        met: avgP95 <= 1000,
+      } : null,
+      totalChecks: stats.total,
+    });
+  }
+
+  res.json({ slos, timestamp: new Date().toISOString() });
+}));
+
+// --- Solopreneur Focus Recommendations (AI-powered) ---
+app.get('/api/focus', asyncRoute(async (_req, res) => {
+  const apiKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.json({ recommendations: [], error: 'No API key' });
+
+  // Gather all app metrics for AI analysis
+  const appSummaries = [];
+  for (const appDef of config.apps) {
+    const slug = slugify(appDef.name);
+    const card = calculateAppReportCard(slug);
+    const mrrRow = qLatestMetric.get(slug, 'mrr');
+    const trafficRow = qLatestMetric.get(slug, 'pageviews_30d');
+    const seoRow = qLatestSEO.get(slug);
+
+    appSummaries.push({
+      name: appDef.name,
+      type: appDef.type,
+      score: card?.overall || 0,
+      grade: card?.grade || 'N/A',
+      mrr: mrrRow ? (mrrRow.value / 100).toFixed(0) : '0',
+      traffic: trafficRow?.value || 0,
+      seoScore: seoRow?.score || 0,
+      seoGrade: seoRow?.grade || 'N/A',
+    });
+  }
+
+  const systemPrompt = `You are a startup advisor for a solo developer running ${appSummaries.length} apps. Be concise and actionable. Return exactly 3 recommendations in this JSON format:
+[{"app":"AppName","action":"One sentence what to do","why":"One sentence why","effort":"low|medium|high","impact":"low|medium|high"}]
+Only return the JSON array, no markdown, no explanation.`;
+
+  const userMsg = `Here are my apps and their current metrics:
+${appSummaries.map(a => `- ${a.name} (${a.type}): Score ${a.score}/100 (${a.grade}), MRR €${a.mrr}, Traffic ${a.traffic} visits/30d, SEO ${a.seoGrade}`).join('\n')}
+
+Based on effort-to-impact ratio, what 3 things should I focus on this week?`;
+
+  try {
+    const result = await callAnthropic(apiKey, {
+      model: 'claude-haiku-4-5-20251001',
+      messages: [{ role: 'user', content: userMsg }],
+      system: systemPrompt,
+      maxTokens: 512,
+      timeout: 10000,
+    });
+
+    let recommendations = [];
+    try {
+      recommendations = JSON.parse(result.text);
+    } catch {
+      recommendations = [{ app: 'Portfolio', action: result.text, why: 'AI analysis', effort: 'medium', impact: 'high' }];
+    }
+
+    res.json({
+      recommendations,
+      tokens: result.tokens,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.json({ recommendations: [], error: err.message });
+  }
+}));
+
 // Health check endpoint
 app.get('/health', (_req, res) => res.send('ok'));
 

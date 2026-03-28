@@ -229,6 +229,81 @@
     .app-sparkline { display: flex; align-items: center; gap: 4px; }
     .app-sparkline svg { display: block; }
     .app-sparkline .spark-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .health-score-badge { position: absolute; top: 10px; right: 50px; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; letter-spacing: -0.5px; }
+    .health-score-badge.grade-a { background: rgba(34,197,94,0.15); color: var(--green); }
+    .health-score-badge.grade-b { background: rgba(59,130,246,0.15); color: #3b82f6; }
+    .health-score-badge.grade-c { background: rgba(234,179,8,0.15); color: #eab308; }
+    .health-score-badge.grade-d { background: rgba(249,115,22,0.15); color: #f97316; }
+    .health-score-badge.grade-f { background: rgba(239,68,68,0.15); color: var(--red); }
+    .app-card { position: relative; }
+    .pnl-panel { padding: 16px; margin-bottom: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+    .pnl-panel h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+    .pnl-summary { display: flex; gap: 24px; margin-bottom: 16px; flex-wrap: wrap; }
+    .pnl-stat { text-align: center; }
+    .pnl-stat-value { font-size: 22px; font-weight: 700; }
+    .pnl-stat-value.positive { color: var(--green); }
+    .pnl-stat-value.negative { color: var(--red); }
+    .pnl-stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+    .pnl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+    .pnl-app { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--surface2); border-radius: 8px; font-size: 12px; }
+    .pnl-app-name { font-weight: 600; flex: 1; }
+    .pnl-app-nums { display: flex; gap: 16px; font-variant-numeric: tabular-nums; }
+    .pnl-app-nums span { min-width: 60px; text-align: right; }
+    .pnl-profit { font-weight: 700; }
+    .pnl-profit.positive { color: var(--green); }
+    .pnl-profit.negative { color: var(--red); }
+    .anomaly-banner { padding: 12px 16px; margin-bottom: 12px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); border-radius: 10px; }
+    .anomaly-banner h4 { margin: 0 0 8px; font-size: 13px; color: var(--red); }
+    .anomaly-item { font-size: 12px; padding: 4px 0; color: var(--text-secondary); }
+    .anomaly-item.critical { color: var(--red); font-weight: 600; }
+    .heatmap-panel { padding: 16px; margin-bottom: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+    .heatmap-panel h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+    .heatmap-app { margin-bottom: 12px; }
+    .heatmap-app-name { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+    .heatmap-grid { display: flex; gap: 2px; flex-wrap: wrap; }
+    .heatmap-cell { width: 10px; height: 10px; border-radius: 2px; }
+    .heatmap-cell.up-100 { background: var(--green); }
+    .heatmap-cell.up-95 { background: rgba(34,197,94,0.6); }
+    .heatmap-cell.up-80 { background: var(--yellow); }
+    .heatmap-cell.up-low { background: var(--red); }
+    .heatmap-cell.no-data { background: rgba(255,255,255,0.05); }
+    .milestone-toast { position: fixed; bottom: 24px; right: 24px; padding: 16px 24px; background: var(--surface2); border: 1px solid var(--green); border-radius: 12px; font-size: 14px; z-index: 9999; animation: slideUp 0.3s ease, fadeOut 0.5s ease 4.5s forwards; }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes fadeOut { to { opacity: 0; } }
+    .realtime-bar { display: flex; gap: 16px; padding: 10px 16px; margin-bottom: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+    .realtime-total { font-size: 18px; font-weight: 700; color: var(--green); min-width: 50px; }
+    .realtime-app { display: flex; align-items: center; gap: 4px; }
+    .realtime-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .realtime-count { font-weight: 600; }
+    .slo-panel { padding: 16px; margin-bottom: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+    .slo-panel h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+    .slo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+    .slo-app { padding: 10px 12px; background: var(--surface2); border-radius: 8px; }
+    .slo-app-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .slo-app-name { font-size: 12px; font-weight: 600; }
+    .slo-badge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+    .slo-badge.met { background: rgba(34,197,94,0.15); color: var(--green); }
+    .slo-badge.violated { background: rgba(239,68,68,0.15); color: var(--red); }
+    .slo-budget-bar { height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; margin: 6px 0; }
+    .slo-budget-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+    .slo-budget-fill.healthy { background: var(--green); }
+    .slo-budget-fill.warning { background: var(--yellow); }
+    .slo-budget-fill.critical { background: var(--red); }
+    .slo-meta { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); }
+    .focus-panel { padding: 16px; margin-bottom: 16px; background: var(--surface); border: 1px solid rgba(139,92,246,0.2); border-radius: 12px; }
+    .focus-panel h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #8b5cf6; }
+    .focus-item { padding: 10px 12px; margin-bottom: 6px; background: var(--surface2); border-radius: 8px; font-size: 12px; }
+    .focus-action { font-weight: 600; margin-bottom: 4px; }
+    .focus-why { color: var(--text-muted); }
+    .focus-tags { margin-top: 4px; }
+    .focus-tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin-right: 4px; }
+    .focus-tag.effort-low { background: rgba(34,197,94,0.1); color: var(--green); }
+    .focus-tag.effort-medium { background: rgba(234,179,8,0.1); color: #eab308; }
+    .focus-tag.effort-high { background: rgba(239,68,68,0.1); color: var(--red); }
+    .focus-tag.impact-high { background: rgba(59,130,246,0.1); color: #3b82f6; }
+    .focus-tag.impact-medium { background: rgba(139,92,246,0.1); color: #8b5cf6; }
+    .focus-tag.impact-low { background: rgba(255,255,255,0.05); color: var(--text-muted); }
     .container-bar { flex: 1; height: 3px; border-radius: 2px; }
     .container-bar.healthy { background: var(--green); }
     .container-bar.running { background: var(--green); opacity: 0.6; }
@@ -1406,6 +1481,10 @@
         <span class="streak-icon">&#x1F6E1;</span>
         <span class="streak-label">Security: <span id="streakSecGrade" style="font-weight:700">--</span></span>
       </div>
+      <div class="streak-item">
+        <span class="streak-icon">&#x23F0;</span>
+        <span class="streak-label">Crons: <span id="cronStatusBadge" style="font-weight:700">--</span></span>
+      </div>
     </div>
 
     <div id="briefingPanel" class="briefing-panel">
@@ -1444,6 +1523,12 @@
     </div>
 
     <div class="savings-card" id="savingsCard" style="display:none"></div>
+    <div id="realtimeBar" class="realtime-bar" style="display:none"></div>
+    <div id="anomalyBanner" style="display:none"></div>
+    <div id="focusPanel" class="focus-panel" style="display:none"></div>
+    <div class="pnl-panel" id="pnlPanel" style="display:none"></div>
+    <div class="slo-panel" id="sloPanel" style="display:none"></div>
+    <div class="heatmap-panel" id="heatmapPanel" style="display:none"></div>
     <div class="filter-bar" id="filterBar">
       <button class="filter-btn active" data-filter="all" onclick="setTypeFilter('all',this)">All</button>
       <button class="filter-btn" data-filter="saas" onclick="setTypeFilter('saas',this)">SaaS</button>
@@ -2373,6 +2458,9 @@
     let envCache = {}; // slug -> env data
     let sparklineData = {};
     let lastSparklineUpdate = 0;
+    let healthScoresData = {};
+    let pnlData = null;
+    let uptimeStreaksData = {};
 
     async function logout() {
       await apiFetch('/api/auth/logout', { method: 'POST' });
@@ -2409,6 +2497,15 @@
         if (Date.now() - lastSparklineUpdate > 300000) {
           apiFetch('/api/charts/sparklines').then(r => r.ok ? r.json() : {}).then(d => { sparklineData = d; lastSparklineUpdate = Date.now(); renderApps(appData); }).catch(() => {});
         }
+        // Fetch health scores + P&L (non-blocking)
+        apiFetch('/api/apps/health-scores').then(r => r.ok ? r.json() : {}).then(d => { if (d.scores) { healthScoresData = d.scores; renderApps(appData); } }).catch(() => {});
+        apiFetch('/api/portfolio/pnl').then(r => r.ok ? r.json() : null).then(d => { if (d) { pnlData = d; renderPnlPanel(d); } }).catch(() => {});
+        apiFetch('/api/uptime/streaks').then(r => r.ok ? r.json() : {}).then(d => { if (d.streaks) { uptimeStreaksData = d.streaks; renderApps(appData); } }).catch(() => {});
+        apiFetch('/api/anomalies').then(r => r.ok ? r.json() : null).then(d => { if (d) renderAnomalies(d); }).catch(() => {});
+        apiFetch('/api/uptime/heatmap').then(r => r.ok ? r.json() : null).then(d => { if (d) renderHeatmap(d); }).catch(() => {});
+        apiFetch('/api/realtime/visitors').then(r => r.ok ? r.json() : null).then(d => { if (d) renderRealtimeVisitors(d); }).catch(() => {});
+        apiFetch('/api/slo').then(r => r.ok ? r.json() : null).then(d => { if (d) renderSloPanel(d); }).catch(() => {});
+        apiFetch('/api/focus').then(r => r.ok ? r.json() : null).then(d => { if (d) renderFocusPanel(d); }).catch(() => {});
         document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       } catch (err) {
         console.error('Fetch error:', err);
@@ -2437,6 +2534,117 @@
         ${counts.issues > 0 ? `<span class="hs-item"><span class="status-dot unhealthy" data-label="issues"></span><span class="hs-count">${counts.issues}</span> issues</span>` : ''}
         <span class="hs-item"><span class="status-dot static" data-label="static"></span><span class="hs-count">${counts.static}</span> static</span>
       `;
+    }
+
+    function renderPnlPanel(data) {
+      if (!data || !data.portfolio) return;
+      const p = data.portfolio;
+      const el = document.getElementById('pnlPanel');
+      const hasRevenue = p.totalRevenue > 0;
+      el.style.display = hasRevenue || data.apps.some(a => a.costs.total > 0) ? '' : 'none';
+      if (el.style.display === 'none') return;
+      const profitClass = p.totalProfit >= 0 ? 'positive' : 'negative';
+      let html = `<h3>Portfolio P&amp;L</h3>`;
+      html += `<div class="pnl-summary">`;
+      html += `<div class="pnl-stat"><div class="pnl-stat-value positive">&euro;${p.totalRevenue.toFixed(0)}</div><div class="pnl-stat-label">Revenue/mo</div></div>`;
+      html += `<div class="pnl-stat"><div class="pnl-stat-value negative">&euro;${p.totalCosts.toFixed(0)}</div><div class="pnl-stat-label">Costs/mo</div></div>`;
+      html += `<div class="pnl-stat"><div class="pnl-stat-value ${profitClass}">&euro;${p.totalProfit >= 0 ? '' : ''}${p.totalProfit.toFixed(0)}</div><div class="pnl-stat-label">Profit/mo</div></div>`;
+      html += `<div class="pnl-stat"><div class="pnl-stat-value">&euro;${p.vmCost.toFixed(0)}</div><div class="pnl-stat-label">VM Cost</div></div>`;
+      html += `</div>`;
+      html += `<div class="pnl-grid">`;
+      for (const app of data.apps) {
+        const pClass = app.profit >= 0 ? 'positive' : 'negative';
+        html += `<div class="pnl-app">`;
+        html += `<span class="pnl-app-name">${escapeHtml(app.name)}</span>`;
+        html += `<div class="pnl-app-nums">`;
+        html += `<span style="color:var(--green)">&euro;${app.revenue.toFixed(0)}</span>`;
+        html += `<span style="color:var(--text-muted)">&euro;${app.costs.total.toFixed(1)}</span>`;
+        html += `<span class="pnl-profit ${pClass}">&euro;${app.profit.toFixed(1)}</span>`;
+        html += `</div></div>`;
+      }
+      html += `</div>`;
+      el.innerHTML = html;
+    }
+
+    function renderRealtimeVisitors(data) {
+      const el = document.getElementById('realtimeBar');
+      if (!data || data.total === 0) { el.style.display = 'none'; return; }
+      el.style.display = 'flex';
+      let html = `<span class="realtime-total">${data.total}</span><span style="color:var(--text-muted)">visitors now</span>`;
+      for (const app of data.apps.slice(0, 6)) {
+        html += `<span class="realtime-app"><span class="realtime-dot"></span><span class="realtime-count">${app.visitors}</span> ${escapeHtml(app.name)}</span>`;
+      }
+      el.innerHTML = html;
+    }
+
+    function renderSloPanel(data) {
+      const el = document.getElementById('sloPanel');
+      if (!data || !data.slos || data.slos.length === 0) { el.style.display = 'none'; return; }
+      el.style.display = '';
+      let html = `<h3>SLO / Error Budget (30 days)</h3><div class="slo-grid">`;
+      for (const slo of data.slos) {
+        const u = slo.uptime;
+        const fillClass = u.burnRateStatus;
+        const fillPct = Math.min(100, u.budgetUsedPct);
+        html += `<div class="slo-app">`;
+        html += `<div class="slo-app-header"><span class="slo-app-name">${escapeHtml(slo.name)}</span>`;
+        html += `<span class="slo-badge ${u.met ? 'met' : 'violated'}">${u.actual}%</span></div>`;
+        html += `<div class="slo-budget-bar"><div class="slo-budget-fill ${fillClass}" style="width:${fillPct}%"></div></div>`;
+        html += `<div class="slo-meta"><span>${u.budgetRemaining.toFixed(0)}min budget left</span><span>Burn: ${u.burnRate}x</span></div>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
+      el.innerHTML = html;
+    }
+
+    function renderFocusPanel(data) {
+      const el = document.getElementById('focusPanel');
+      if (!data || !data.recommendations || data.recommendations.length === 0) { el.style.display = 'none'; return; }
+      el.style.display = '';
+      let html = `<h3>&#x1F3AF; Focus This Week</h3>`;
+      for (const r of data.recommendations) {
+        html += `<div class="focus-item">`;
+        html += `<div class="focus-action">${escapeHtml(r.app)}: ${escapeHtml(r.action)}</div>`;
+        html += `<div class="focus-why">${escapeHtml(r.why)}</div>`;
+        html += `<div class="focus-tags">`;
+        html += `<span class="focus-tag effort-${r.effort}">Effort: ${r.effort}</span>`;
+        html += `<span class="focus-tag impact-${r.impact}">Impact: ${r.impact}</span>`;
+        html += `</div></div>`;
+      }
+      el.innerHTML = html;
+    }
+
+    function renderAnomalies(data) {
+      const el = document.getElementById('anomalyBanner');
+      if (!data || !data.anomalies || data.anomalies.length === 0) { el.style.display = 'none'; return; }
+      el.style.display = '';
+      let html = `<div class="anomaly-banner"><h4>&#x1F4CA; Anomalies Detected</h4>`;
+      for (const a of data.anomalies) {
+        html += `<div class="anomaly-item ${a.severity}">${a.message}</div>`;
+      }
+      html += `</div>`;
+      el.innerHTML = html;
+    }
+
+    function renderHeatmap(data) {
+      const el = document.getElementById('heatmapPanel');
+      if (!data || !data.heatmap || Object.keys(data.heatmap).length === 0) { el.style.display = 'none'; return; }
+      // Only show apps that have data
+      const appsWithData = Object.entries(data.heatmap).filter(([, days]) => days.length > 0);
+      if (appsWithData.length === 0) { el.style.display = 'none'; return; }
+      el.style.display = '';
+      let html = `<h3>Uptime Heatmap (90 days)</h3>`;
+      for (const [slug, days] of appsWithData) {
+        const appDef = appData.find(a => (a.slug || slugify(a.name)) === slug);
+        const name = appDef?.name || slug;
+        html += `<div class="heatmap-app"><div class="heatmap-app-name">${escapeHtml(name)}</div><div class="heatmap-grid">`;
+        for (const d of days) {
+          const cls = d.uptime === null ? 'no-data' : d.uptime >= 100 ? 'up-100' : d.uptime >= 95 ? 'up-95' : d.uptime >= 80 ? 'up-80' : 'up-low';
+          html += `<div class="heatmap-cell ${cls}" title="${d.date}: ${d.uptime != null ? d.uptime + '%' : 'no data'}"></div>`;
+        }
+        html += `</div></div>`;
+      }
+      el.innerHTML = html;
     }
 
     function renderErrors(apps, sys) {
@@ -2667,8 +2875,11 @@
       }
 
       const maintBadge = inMaintenance ? `<span class="maintenance-badge" title="${escapeHtml(app.maintenance.reason || 'Maintenance mode')}">&#128295; Maintenance</span>` : '';
+      const hs = healthScoresData[slug];
+      const hsBadge = hs ? `<div class="health-score-badge grade-${hs.grade.toLowerCase().charAt(0)}" title="Health: ${hs.overall}/100 (${hs.grade})">${hs.overall}</div>` : '';
 
       let card = `<div class="app-card ${cardClass}" data-slug="${slug}" data-domain="${escapeHtml(app.domain || '')}" data-appname="${escapeHtml(app.name)}" onclick="openDetail('${escapeHtml(app.name)}')">
+        ${hsBadge}
         <div class="app-card-header">
           <span class="app-name"><span class="status-dot ${h}" data-label="${h}"></span>${app.name}</span>
           <div class="app-badges">
@@ -2710,6 +2921,10 @@
       if (ssl?.daysLeft != null && ssl.daysLeft <= 14) {
         const sColor = ssl.daysLeft <= 3 ? 'var(--red)' : 'var(--yellow)';
         card += `<span class="app-meta-item" style="color:${sColor}">SSL: ${ssl.daysLeft}d</span>`;
+      }
+      const streak = uptimeStreaksData[slug];
+      if (streak?.current >= 3) {
+        card += `<span class="app-meta-item" style="color:var(--green)" title="Best: ${streak.best}d">&#x1F525;${streak.current}d</span>`;
       }
       card += `</div>`;
 
@@ -7799,6 +8014,15 @@
         if (s && d.streak != null) s.textContent = d.streak;
         const g = document.getElementById('streakSecGrade');
         if (g && d.securityGrade) { g.textContent = d.securityGrade; g.style.color = d.securityGrade === 'A' ? 'var(--green)' : d.securityGrade === 'B' ? 'var(--green)' : d.securityGrade === 'F' ? 'var(--red)' : 'var(--yellow)'; }
+      }).catch(() => {});
+      // Fetch cron job status
+      apiFetch('/api/cron/status').then(r => r.ok ? r.json() : null).then(d => {
+        if (!d) return;
+        const el = document.getElementById('cronStatusBadge');
+        if (el) {
+          el.textContent = d.healthy ? 'OK' : `${d.overdueCount} overdue`;
+          el.style.color = d.healthy ? 'var(--green)' : 'var(--red)';
+        }
       }).catch(() => {});
     }
 
