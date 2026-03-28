@@ -431,6 +431,16 @@ export default function registerPortfolioRoutes({
     const anthropicKey = getAnthropicKey();
     if (!anthropicKey) return res.status(400).json({ error: 'No Anthropic API key configured' });
 
+    // Batch all Docker stats calls in parallel
+    const allContainerNames = config.apps.flatMap(a => a.containers || []);
+    const statsMap = new Map();
+    await Promise.allSettled(allContainerNames.map(async cName => {
+      try {
+        const stats = await docker.getContainer(cName).stats({ stream: false });
+        statsMap.set(cName, stats);
+      } catch { /* container may not be running */ }
+    }));
+
     const appSummaries = [];
     for (const appDef of config.apps) {
       const slug = slugify(appDef.name);
@@ -440,13 +450,12 @@ export default function registerPortfolioRoutes({
 
       let memMB = 0, cpuPct = 0;
       for (const cName of containers) {
-        try {
-          const stats = await docker.getContainer(cName).stats({ stream: false });
-          memMB += (stats.memory_stats?.usage || 0) / 1e6;
-          const cpuDelta = stats.cpu_stats?.cpu_usage?.total_usage - stats.precpu_stats?.cpu_usage?.total_usage;
-          const sysDelta = stats.cpu_stats?.system_cpu_usage - stats.precpu_stats?.system_cpu_usage;
-          if (sysDelta > 0) cpuPct += (cpuDelta / sysDelta) * 100;
-        } catch { /* container may not be running */ }
+        const stats = statsMap.get(cName);
+        if (!stats) continue;
+        memMB += (stats.memory_stats?.usage || 0) / 1e6;
+        const cpuDelta = stats.cpu_stats?.cpu_usage?.total_usage - stats.precpu_stats?.cpu_usage?.total_usage;
+        const sysDelta = stats.cpu_stats?.system_cpu_usage - stats.precpu_stats?.system_cpu_usage;
+        if (sysDelta > 0) cpuPct += (cpuDelta / sysDelta) * 100;
       }
 
       appSummaries.push({

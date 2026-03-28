@@ -2083,18 +2083,21 @@ cron.schedule('5 * * * *', guardedCron('container-metrics', async () => {
       }
     }
     let count = 0;
-    for (const c of containers) {
+    const results = await Promise.allSettled(containers.map(async c => {
       const name = c.Names?.[0]?.replace(/^\//, '') || c.Id.slice(0, 12);
-      try {
-        const s = await docker.getContainer(c.Id).stats({ stream: false });
-        const cpuDelta = s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage;
-        const systemDelta = s.cpu_stats.system_cpu_usage - s.precpu_stats.system_cpu_usage;
-        const cpuCount = s.cpu_stats.online_cpus || 1;
-        const cpu = systemDelta > 0 ? Math.round((cpuDelta / systemDelta) * cpuCount * 10000) / 100 : 0;
-        const memory = s.memory_stats.usage || 0;
-        insertMetric.run(name, appMap[name] || null, cpu, memory);
-        count++;
-      } catch { /* skip unavailable containers */ }
+      const s = await docker.getContainer(c.Id).stats({ stream: false });
+      return { name, s };
+    }));
+    for (const r of results) {
+      if (r.status !== 'fulfilled') continue;
+      const { name, s } = r.value;
+      const cpuDelta = s.cpu_stats.cpu_usage.total_usage - s.precpu_stats.cpu_usage.total_usage;
+      const systemDelta = s.cpu_stats.system_cpu_usage - s.precpu_stats.system_cpu_usage;
+      const cpuCount = s.cpu_stats.online_cpus || 1;
+      const cpu = systemDelta > 0 ? Math.round((cpuDelta / systemDelta) * cpuCount * 10000) / 100 : 0;
+      const memory = s.memory_stats.usage || 0;
+      insertMetric.run(name, appMap[name] || null, cpu, memory);
+      count++;
     }
     // Prune entries older than 48h
     db.prepare("DELETE FROM container_metrics WHERE ts < datetime('now', '-48 hours')").run();

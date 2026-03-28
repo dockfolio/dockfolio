@@ -609,6 +609,12 @@ app.get('/api/cost-analysis', asyncRoute(async (_req, res) => {
 app.get('/api/costs', asyncRoute(async (_req, res) => {
   const vmCost = parseFloat(process.env.VM_COST_MONTHLY || '12.48');
   const containers = await docker.listContainers();
+  // Batch all Docker stats calls in parallel
+  const statsMap = new Map();
+  const statsResults = await Promise.allSettled(containers.map(async c => {
+    const stats = await docker.getContainer(c.Id).stats({ stream: false });
+    statsMap.set(c.Id, stats);
+  }));
   let totalCpu = 0;
   let totalMem = 0;
   const appCosts = [];
@@ -616,14 +622,13 @@ app.get('/api/costs', asyncRoute(async (_req, res) => {
     const appContainers = containers.filter(c => (a.containers || []).some(n => containerName(c).includes(n)));
     let cpuPct = 0, memPct = 0;
     for (const c of appContainers) {
-      try {
-        const stats = await docker.getContainer(c.Id).stats({ stream: false });
-        const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - (stats.precpu_stats?.cpu_usage?.total_usage || 0);
-        const sysDelta = stats.cpu_stats.system_cpu_usage - (stats.precpu_stats?.system_cpu_usage || 0);
-        const cores = stats.cpu_stats.online_cpus || 1;
-        if (sysDelta > 0) cpuPct += (cpuDelta / sysDelta) * cores * 100;
-        if (stats.memory_stats.limit > 0) memPct += (stats.memory_stats.usage / stats.memory_stats.limit) * 100;
-      } catch { /* container might be stopped */ }
+      const stats = statsMap.get(c.Id);
+      if (!stats) continue;
+      const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - (stats.precpu_stats?.cpu_usage?.total_usage || 0);
+      const sysDelta = stats.cpu_stats.system_cpu_usage - (stats.precpu_stats?.system_cpu_usage || 0);
+      const cores = stats.cpu_stats.online_cpus || 1;
+      if (sysDelta > 0) cpuPct += (cpuDelta / sysDelta) * cores * 100;
+      if (stats.memory_stats.limit > 0) memPct += (stats.memory_stats.usage / stats.memory_stats.limit) * 100;
     }
     totalCpu += cpuPct;
     totalMem += memPct;
