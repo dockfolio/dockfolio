@@ -5505,9 +5505,14 @@ const HEALING_PLAYBOOKS = [
     execute: async () => {
       const pruneResult = await docker.pruneContainers();
       const imgResult = await docker.pruneImages();
-      const buildResult = await docker.pruneBuilderCache();
-      const freed = (pruneResult.SpaceReclaimed || 0) + (imgResult.SpaceReclaimed || 0) + (buildResult.SpaceReclaimed || 0);
-      return `Docker pruned, freed ${Math.round(freed / 1e6)}MB`;
+      let buildFreed = 0;
+      try {
+        const buildOutput = execSync('docker builder prune -f 2>&1', { timeout: TIMEOUT_HEAVY }).toString();
+        const match = buildOutput.match(/Total reclaimed space:\s*([\d.]+\s*[kMGT]?B)/i);
+        if (match) buildFreed = match[1];
+      } catch { /* builder prune may not be available */ }
+      const freed = (pruneResult.SpaceReclaimed || 0) + (imgResult.SpaceReclaimed || 0);
+      return `Docker pruned, freed ${Math.round(freed / 1e6)}MB${buildFreed ? ` + ${buildFreed} build cache` : ''}`;
     },
   },
   {
