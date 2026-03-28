@@ -6567,7 +6567,7 @@
         openDetail(r.name);
       } else if (r.type === 'action') {
         if (r.action === 'log') openDetail(r.app);
-        else if (r.action === 'restart') { if (confirm(`Restart ${r.app}?`)) fetch(`/api/containers/${r.slug}/restart`, { method: 'POST' }).then(() => fetchAll()); }
+        else if (r.action === 'restart') { if (confirm(`Restart ${r.app}?`)) fetch(`/api/containers/${r.slug}/restart`, { method: 'POST' }).then(() => fetchAll()).catch(err => alert(`Restart failed: ${err.message}`)); }
         else if (r.action === 'seo') { toggleMarketing(); setTimeout(() => switchMktTab('seo', document.querySelector('.mkt-tab:nth-child(4)')), 100); }
         else if (r.action === 'revenue') { toggleMarketing(); setTimeout(() => switchMktTab('revenue', document.querySelector('.mkt-tab:nth-child(2)')), 100); }
         else if (r.action === 'env') openDetail(r.app);

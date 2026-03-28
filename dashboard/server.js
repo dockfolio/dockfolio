@@ -2071,7 +2071,7 @@ function getPlausibleUrl() { return getSetting('PLAUSIBLE_URL') || process.env.P
 function getPlausibleApiKey() { return getSetting('PLAUSIBLE_API_KEY') || process.env.PLAUSIBLE_API_KEY || ''; }
 
 // Snapshot container CPU/memory metrics every hour (for sparklines)
-cron.schedule('5 * * * *', async () => {
+cron.schedule('5 * * * *', guardedCron('container-metrics', async () => {
   try {
     const containers = await docker.listContainers();
     const insertMetric = db.prepare('INSERT OR REPLACE INTO container_metrics (container_name, app_slug, ts, cpu, memory) VALUES (?, ?, datetime(\'now\'), ?, ?)');
@@ -2117,7 +2117,7 @@ cron.schedule('5 * * * *', async () => {
 
     console.log(`[CRON] Container metrics snapshot: ${count} containers`);
   } catch (err) { cronFail('Container metrics snapshot', err); }
-});
+}));
 
 // Playground routes — extracted to routes/misc.js
 
@@ -2527,17 +2527,17 @@ cron.schedule('*/15 * * * *', () => {
   } catch (err) { cronFail('Perf aggregation', err); }
 });
 
-// Daily 3:15 AM: Retention cleanup for error events (30d) and perf metrics (14d)
-cron.schedule('15 3 * * *', () => {
+// Daily 3:30 AM: Retention cleanup for error events (30d) and perf metrics (14d)
+cron.schedule('30 3 * * *', guardedCron('data-retention', () => {
   try {
     const deletedEvents = db.prepare("DELETE FROM error_events WHERE timestamp < datetime('now', '-30 days')").run();
     const deletedPerf = db.prepare("DELETE FROM perf_metrics WHERE hour < datetime('now', '-14 days')").run();
     console.log(`[CLEANUP] Pruned ${deletedEvents.changes} error events, ${deletedPerf.changes} perf metrics`);
   } catch (err) { cronFail('Data retention cleanup', err); }
-});
+}));
 
 // Daily 4:00 AM: Database maintenance (WAL checkpoint + cleanup)
-cron.schedule('0 4 * * *', () => {
+cron.schedule('0 4 * * *', guardedCron('db-maintenance', () => {
   try {
     db.pragma('wal_checkpoint(TRUNCATE)');
     authDb.pragma('wal_checkpoint(TRUNCATE)');
@@ -2546,7 +2546,7 @@ cron.schedule('0 4 * * *', () => {
     const deletedAudit = db.prepare("DELETE FROM audit_log WHERE created_at < datetime('now', '-180 days')").run();
     console.log(`[MAINT] WAL checkpoint done. Pruned ${deletedUptime.changes} uptime rows, ${deletedAudit.changes} audit rows`);
   } catch (err) { cronFail('DB maintenance', err); }
-});
+}));
 
 // Daily 5:00 AM: Backup freshness alerts
 cron.schedule('0 5 * * *', () => {
@@ -2570,7 +2570,7 @@ cron.schedule('0 5 * * *', () => {
 });
 
 // Daily 7:00 AM: SSL certificate expiry alerts
-cron.schedule('0 7 * * *', async () => {
+cron.schedule('0 7 * * *', guardedCron('ssl-expiry', async () => {
   try {
     const expiring = [];
     for (const a of config.apps) {
@@ -2591,7 +2591,7 @@ cron.schedule('0 7 * * *', async () => {
       console.log(`[SSL] ${expiring.length} certs expiring: ${expiring.join(', ')}`);
     }
   } catch (err) { cronFail('SSL expiry check', err); }
-});
+}));
 
 // Every 5 min: Uptime health checks
 const uptimePrevStatus = new Map(); // slug -> 'up'|'degraded'|'down'
@@ -2643,8 +2643,8 @@ function auditLog(req, action, target, details = {}) {
 
 // ========== SQLITE BACKUP CRON ==========
 
-// Daily 3 AM: backup data.db + auth.db
-cron.schedule('0 3 * * *', async () => {
+// Daily 2:45 AM: backup data.db + auth.db (before 3:30 cleanup)
+cron.schedule('45 2 * * *', guardedCron('sqlite-backup', async () => {
   try {
     const timestamp = new Date().toISOString().slice(0, 10);
     const backupDir = join(BACKUP_DIR, 'sqlite');
@@ -2663,7 +2663,7 @@ cron.schedule('0 3 * * *', async () => {
       }
     }
   } catch (err) { cronFail('SQLite backup', err); }
-});
+}));
 
 // ========== ENV FILE CHANGE MONITOR ==========
 
