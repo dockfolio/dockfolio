@@ -2361,6 +2361,40 @@
       <div id="alertRulesList" style="font-size:12px;color:var(--text-muted)">Click refresh to load rules</div>
     </div>
 
+    <!-- Maintenance Windows Panel -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
+        <h3>Maintenance Windows</h3>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="showMaintWindowForm()" style="color:var(--green);font-size:11px">+ New Window</button>
+          <button class="btn" onclick="loadMaintWindows()" style="color:var(--cyan);font-size:11px">&#8635; Refresh</button>
+        </div>
+      </div>
+      <div id="maintWindowForm" style="display:none;margin-bottom:12px;padding:12px;background:var(--bg-lighter);border-radius:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+          <div><label style="font-size:10px;color:var(--text-muted)">App</label>
+            <select id="mwApp" class="search-input" style="width:140px;display:block;margin-top:2px"></select></div>
+          <div><label style="font-size:10px;color:var(--text-muted)">Tag</label>
+            <select id="mwDay" class="search-input" style="width:110px;display:block;margin-top:2px">
+              <option value="1">Montag</option><option value="2">Dienstag</option><option value="3">Mittwoch</option>
+              <option value="4">Donnerstag</option><option value="5">Freitag</option><option value="6">Samstag</option><option value="0">Sonntag</option>
+            </select></div>
+          <div><label style="font-size:10px;color:var(--text-muted)">Start (Std)</label>
+            <input id="mwHour" type="number" min="0" max="23" class="search-input" style="width:60px;display:block;margin-top:2px" value="3"></div>
+          <div><label style="font-size:10px;color:var(--text-muted)">Start (Min)</label>
+            <input id="mwMinute" type="number" min="0" max="59" class="search-input" style="width:60px;display:block;margin-top:2px" value="0"></div>
+          <div><label style="font-size:10px;color:var(--text-muted)">Dauer (Min)</label>
+            <input id="mwDuration" type="number" min="1" class="search-input" style="width:70px;display:block;margin-top:2px" value="120"></div>
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <label style="font-size:10px;color:var(--text-muted)"><input type="checkbox" id="mwSuppress" checked> Alerts unterdruecken</label>
+          </div>
+          <button class="btn" onclick="createMaintWindow()" style="color:var(--green);padding:6px 12px">Speichern</button>
+          <button class="btn" onclick="document.getElementById('maintWindowForm').style.display='none'" style="color:var(--text-muted)">Abbrechen</button>
+        </div>
+      </div>
+      <div id="maintWindowsList" style="font-size:12px;color:var(--text-muted)">Klicke Refresh um Wartungsfenster zu laden</div>
+    </div>
+
     <!-- Audit Log Panel -->
     <div class="card" style="margin-top:16px">
       <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
@@ -6967,6 +7001,74 @@
 
     // Allow Enter key in What If input
     document.getElementById('whatIfInput')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') runWhatIf(); });
+
+    // --- Maintenance Windows ---
+    const MW_DAYS = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+
+    function showMaintWindowForm() {
+      const form = document.getElementById('maintWindowForm');
+      form.style.display = form.style.display === 'none' ? '' : 'none';
+      // Populate app dropdown from config
+      const sel = document.getElementById('mwApp');
+      if (sel.options.length <= 1) {
+        apiFetch('/api/config/apps').then(r => r.json()).then(apps => {
+          sel.innerHTML = apps.map(a => `<option value="${escapeHtml(a.slug)}">${escapeHtml(a.name)}</option>`).join('');
+        }).catch(() => {});
+      }
+    }
+
+    async function loadMaintWindows() {
+      const el = document.getElementById('maintWindowsList');
+      el.innerHTML = '<span style="color:var(--text-muted)">Laden...</span>';
+      try {
+        const res = await apiFetch('/api/maintenance');
+        const data = await res.json();
+        if (!data.windows || data.windows.length === 0) {
+          el.innerHTML = '<span style="color:var(--text-muted)">Keine Wartungsfenster konfiguriert.</span>';
+          return;
+        }
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="text-align:left;color:var(--text-muted);border-bottom:1px solid var(--border)">';
+        html += '<th style="padding:4px 8px">App</th><th style="padding:4px 8px">Tag</th><th style="padding:4px 8px">Zeit</th><th style="padding:4px 8px">Dauer</th><th style="padding:4px 8px">Alerts</th><th style="padding:4px 8px"></th></tr></thead><tbody>';
+        for (const w of data.windows) {
+          const day = MW_DAYS[w.day_of_week] || w.day_of_week;
+          const time = String(w.start_hour).padStart(2,'0') + ':' + String(w.start_minute).padStart(2,'0');
+          html += `<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:4px 8px;font-weight:500">${escapeHtml(w.app_name)}</td>
+            <td style="padding:4px 8px">${day}</td>
+            <td style="padding:4px 8px">${time} UTC</td>
+            <td style="padding:4px 8px">${w.duration_minutes} min</td>
+            <td style="padding:4px 8px;color:${w.suppress_alerts ? 'var(--yellow)' : 'var(--green)'}">${w.suppress_alerts ? 'unterdrueckt' : 'aktiv'}</td>
+            <td style="padding:4px 8px"><button class="btn" onclick="deleteMaintWindow(${w.id})" style="font-size:10px;color:var(--red)">Loeschen</button></td>
+          </tr>`;
+        }
+        html += '</tbody></table>';
+        el.innerHTML = html;
+      } catch { el.innerHTML = '<span style="color:var(--red)">Fehler beim Laden</span>'; }
+    }
+
+    async function createMaintWindow() {
+      const app_slug = document.getElementById('mwApp').value;
+      const day_of_week = parseInt(document.getElementById('mwDay').value);
+      const start_hour = parseInt(document.getElementById('mwHour').value);
+      const start_minute = parseInt(document.getElementById('mwMinute').value);
+      const duration_minutes = parseInt(document.getElementById('mwDuration').value);
+      const suppress_alerts = document.getElementById('mwSuppress').checked ? 1 : 0;
+
+      if (!app_slug) return alert('Bitte App auswaehlen');
+      try {
+        const res = await apiPost('/api/maintenance', { app_slug, day_of_week, start_hour, start_minute, duration_minutes, suppress_alerts });
+        const data = await res.json();
+        if (data.error) return alert(data.error);
+        document.getElementById('maintWindowForm').style.display = 'none';
+        loadMaintWindows();
+      } catch (err) { alert('Fehler: ' + err.message); }
+    }
+
+    async function deleteMaintWindow(id) {
+      if (!confirm('Wartungsfenster loeschen?')) return;
+      await fetch(`/api/maintenance/${id}`, { method: 'DELETE' });
+      loadMaintWindows();
+    }
 
     async function loadAuditLog() {
       const el = document.getElementById('auditLogEntries');

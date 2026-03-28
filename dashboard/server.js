@@ -572,6 +572,22 @@ function setMaintenance(slug, enabled, reason, durationMinutes) {
   persistMaintenanceState();
 }
 
+function isInMaintenanceWindow(appSlug) {
+  const now = new Date();
+  const dayOfWeek = now.getUTCDay(); // 0=Sunday
+  const minutesSinceMidnight = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const windows = db.prepare('SELECT * FROM maintenance_windows WHERE app_slug = ?').all(appSlug);
+  for (const w of windows) {
+    if (w.day_of_week !== dayOfWeek) continue;
+    const windowStart = w.start_hour * 60 + w.start_minute;
+    const windowEnd = windowStart + w.duration_minutes;
+    if (minutesSinceMidnight >= windowStart && minutesSinceMidnight < windowEnd) {
+      return { inMaintenance: true, window: w };
+    }
+  }
+  return { inMaintenance: false, window: null };
+}
+
 function getBannerForgeUrl() {
   const dbVal = getSetting('BANNERFORGE_URL');
   if (dbVal) return dbVal;
@@ -3079,6 +3095,20 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS maintenance_windows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL,
+    day_of_week INTEGER NOT NULL,
+    start_hour INTEGER NOT NULL,
+    start_minute INTEGER NOT NULL DEFAULT 0,
+    duration_minutes INTEGER NOT NULL DEFAULT 120,
+    suppress_alerts INTEGER NOT NULL DEFAULT 1,
+    auto_restart INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 // In-house analytics tables (replace Plausible dependency)
 db.exec(`
   CREATE TABLE IF NOT EXISTS page_views (
@@ -5268,6 +5298,13 @@ async function runHealingCheck() {
         // Skip apps in maintenance mode
         if (isInMaintenance(appSlug)) {
           console.log(`[HEALING] Skipped ${appSlug} — maintenance mode`);
+          continue;
+        }
+
+        // Skip apps in a scheduled maintenance window
+        const mwCheck = isInMaintenanceWindow(appSlug);
+        if (mwCheck.inMaintenance && mwCheck.window.suppress_alerts) {
+          console.log(`[HEALING] Skipped ${appSlug} — scheduled maintenance window`);
           continue;
         }
 
@@ -9823,6 +9860,44 @@ app.delete('/api/alerts/rules/:id', asyncRoute((req, res) => {
   res.json({ message: 'Rule deleted' });
 }));
 
+// --- Scheduled Maintenance Windows ---
+
+app.get('/api/maintenance', asyncRoute((_req, res) => {
+  const rows = db.prepare('SELECT * FROM maintenance_windows ORDER BY day_of_week, start_hour, start_minute').all();
+  const result = rows.map(w => {
+    const appDef = config.apps.find(a => slugify(a.name) === w.app_slug);
+    return { ...w, app_name: appDef ? appDef.name : w.app_slug };
+  });
+  res.json({ windows: result });
+}));
+
+app.post('/api/maintenance', asyncRoute((req, res) => {
+  const { app_slug, day_of_week, start_hour, start_minute, duration_minutes, suppress_alerts, auto_restart } = req.body;
+
+  if (!app_slug) return res.status(400).json({ error: 'app_slug is required' });
+  const day = parseInt(day_of_week, 10);
+  const hour = parseInt(start_hour, 10);
+  const minute = parseInt(start_minute || 0, 10);
+  const duration = parseInt(duration_minutes || 120, 10);
+
+  if (isNaN(day) || day < 0 || day > 6) return res.status(400).json({ error: 'day_of_week must be 0-6 (0=Sunday)' });
+  if (isNaN(hour) || hour < 0 || hour > 23) return res.status(400).json({ error: 'start_hour must be 0-23' });
+  if (isNaN(minute) || minute < 0 || minute > 59) return res.status(400).json({ error: 'start_minute must be 0-59' });
+  if (isNaN(duration) || duration <= 0) return res.status(400).json({ error: 'duration_minutes must be > 0' });
+
+  const result = db.prepare(
+    'INSERT INTO maintenance_windows (app_slug, day_of_week, start_hour, start_minute, duration_minutes, suppress_alerts, auto_restart) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(app_slug, day, hour, minute, duration, suppress_alerts ? 1 : 0, auto_restart ? 1 : 0);
+
+  res.json({ id: result.lastInsertRowid, message: 'Maintenance window created' });
+}));
+
+app.delete('/api/maintenance/:id', asyncRoute((req, res) => {
+  const result = db.prepare('DELETE FROM maintenance_windows WHERE id = ?').run(req.params.id);
+  if (result.changes === 0) return res.status(404).json({ error: 'Maintenance window not found' });
+  res.json({ message: 'Maintenance window deleted' });
+}));
+
 // Evaluate alert rules against current metrics
 async function evaluateAlertRules() {
   const rules = db.prepare('SELECT * FROM alert_rules WHERE enabled = 1').all();
@@ -9850,6 +9925,15 @@ async function evaluateAlertRules() {
   }
 
   for (const rule of rules) {
+    // Skip if app is in a scheduled maintenance window
+    if (rule.app_slug) {
+      const mw = isInMaintenanceWindow(rule.app_slug);
+      if (mw.inMaintenance && mw.window.suppress_alerts) {
+        console.log(`[ALERTS] Suppressed rule ${rule.id} for ${rule.app_slug} — scheduled maintenance window`);
+        continue;
+      }
+    }
+
     // Cooldown check
     if (rule.last_fired_at) {
       const lastFired = new Date(rule.last_fired_at + 'Z').getTime();
