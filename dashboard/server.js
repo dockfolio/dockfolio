@@ -1851,6 +1851,117 @@ app.get('/api/discover', asyncRoute(async (_req, res) => {
   res.json({ suggestions, trackedCount: trackedContainers.size, totalContainers: containers.length });
 }));
 
+// GET /api/dependencies — dependency health map
+let cachedDeps = null, lastDepsUpdate = 0;
+const DEPS_TTL = 5 * 60 * 1000; // 5 minutes
+
+app.get('/api/dependencies', asyncRoute(async (_req, res) => {
+  const now = Date.now();
+  if (cachedDeps && (now - lastDepsUpdate) < DEPS_TTL) {
+    return res.json(cachedDeps);
+  }
+
+  const containers = await docker.listContainers({ all: true });
+  const runningContainers = new Set();
+  for (const c of containers) {
+    if (c.State === 'running') {
+      const name = containerName(c);
+      if (name) runningContainers.add(name);
+    }
+  }
+
+  // Service detection rules: env var prefix -> service id
+  const envRules = [
+    { prefix: 'STRIPE_', id: 'stripe', name: 'Stripe' },
+    { prefix: 'ANTHROPIC_', id: 'anthropic', name: 'Anthropic' },
+    { prefix: 'CLAUDE_', id: 'anthropic', name: 'Anthropic' },
+    { prefix: 'RESEND_', id: 'resend', name: 'Resend' },
+    { prefix: 'PLAUSIBLE_', id: 'plausible', name: 'Plausible' },
+    { prefix: 'SENTRY_', id: 'sentry', name: 'Sentry' },
+  ];
+  const urlRules = [
+    { key: 'DATABASE_URL', match: 'postgres', id: 'postgres', name: 'PostgreSQL' },
+    { key: 'REDIS_URL', match: null, id: 'redis', name: 'Redis' },
+  ];
+
+  // Container name patterns -> infrastructure service
+  const infraPatterns = [
+    { pattern: 'postgres', id: 'postgres', name: 'PostgreSQL' },
+    { pattern: 'redis', id: 'redis', name: 'Redis' },
+  ];
+
+  const serviceMap = new Map(); // id -> { name, status, dependents Set }
+  const appsList = [];
+
+  for (const appDef of config.apps) {
+    const appSlug = appDef.slug || slugify(appDef.name);
+    const deps = new Set();
+
+    // 1. Check containers for infra deps (postgres, redis)
+    for (const cn of (appDef.containers || [])) {
+      for (const ip of infraPatterns) {
+        if (cn.toLowerCase().includes(ip.pattern)) {
+          deps.add(ip.id);
+          if (!serviceMap.has(ip.id)) serviceMap.set(ip.id, { name: ip.name, dependents: new Set() });
+          serviceMap.get(ip.id).dependents.add(appSlug);
+        }
+      }
+    }
+
+    // 2. Scan env vars for service deps
+    if (appDef.envFile) {
+      try {
+        const vars = parseEnvFile(appDef.envFile);
+        for (const v of vars) {
+          // Prefix rules
+          for (const rule of envRules) {
+            if (v.key.startsWith(rule.prefix) && v.value) {
+              deps.add(rule.id);
+              if (!serviceMap.has(rule.id)) serviceMap.set(rule.id, { name: rule.name, dependents: new Set() });
+              serviceMap.get(rule.id).dependents.add(appSlug);
+            }
+          }
+          // URL rules
+          for (const rule of urlRules) {
+            if (v.key === rule.key && v.value && (!rule.match || v.value.includes(rule.match))) {
+              deps.add(rule.id);
+              if (!serviceMap.has(rule.id)) serviceMap.set(rule.id, { name: rule.name, dependents: new Set() });
+              serviceMap.get(rule.id).dependents.add(appSlug);
+            }
+          }
+        }
+      } catch { /* env file missing or unreadable — skip */ }
+    }
+
+    if (deps.size > 0) {
+      appsList.push({ slug: appSlug, name: appDef.name, dependencies: [...deps] });
+    }
+  }
+
+  // Determine service status
+  const cbMap = { stripe: cbStripe, plausible: cbPlausible, anthropic: cbAnthropic, github: cbGitHub };
+  const services = [];
+  for (const [id, info] of serviceMap) {
+    let status = 'unknown';
+    if (cbMap[id]) {
+      const state = cbMap[id].state;
+      status = state === 'closed' ? 'healthy' : state === 'open' ? 'down' : 'degraded';
+    } else if (id === 'postgres' || id === 'redis') {
+      // Check if any container matching this pattern is running
+      const hasRunning = [...runningContainers].some(cn => cn.toLowerCase().includes(id));
+      status = hasRunning ? 'healthy' : 'down';
+    } else {
+      status = 'healthy'; // default for services without health checks (sentry, resend)
+    }
+    services.push({ id, name: info.name, status, dependents: [...info.dependents] });
+  }
+
+  services.sort((a, b) => a.name.localeCompare(b.name));
+  cachedDeps = { apps: appsList, services, timestamp: new Date().toISOString() };
+  lastDepsUpdate = now;
+  res.json(cachedDeps);
+}));
+
 // GET /api/backups — backup status for all apps
 app.get('/api/backups', asyncRoute((_req, res) => {
   const backupRoot = BACKUP_DIR;

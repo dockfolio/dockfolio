@@ -1310,6 +1310,7 @@
       <div class="shortcut-row"><span class="shortcut-key">d</span><span class="shortcut-desc">Morning briefing</span></div>
       <div class="shortcut-row"><span class="shortcut-key">h</span><span class="shortcut-desc">Auto-healing log</span></div>
       <div class="shortcut-row"><span class="shortcut-key">b</span><span class="shortcut-desc">Backups</span></div>
+      <div class="shortcut-row"><span class="shortcut-key">D</span><span class="shortcut-desc">Dependency health map</span></div>
       <div class="shortcut-row"><span class="shortcut-key">e</span><span class="shortcut-desc">Error tracking</span></div>
       <div class="shortcut-row"><span class="shortcut-key">s</span><span class="shortcut-desc">SSL certificates</span></div>
       <div class="shortcut-row"><span class="shortcut-key">k</span><span class="shortcut-desc">API key health</span></div>
@@ -1999,6 +2000,14 @@
         <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Database Backups</span>
       </div>
       <div class="key-health-grid" id="backupGrid"></div>
+    </div>
+
+    <div id="depsPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Dependency Health Map <kbd style="font-size:9px;background:var(--surface2);padding:1px 4px;border-radius:3px;margin-left:4px">D</kbd></span>
+        <button class="btn" onclick="fetchDependencies(true)">Refresh</button>
+      </div>
+      <div id="depsContent"><span style="font-size:12px;color:var(--text-muted)">Loading dependency map...</span></div>
     </div>
 
     <div id="predictionsPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
@@ -2969,6 +2978,7 @@
           fetchUptimeTimeline();
           fetchImageUpdates();
           fetchGitHub();
+          fetchDependencies();
           break;
         case 'security':
           if (!securityData) fetchSecurityStatus();
@@ -3688,6 +3698,73 @@
     }
 
     function toggleBackups() { switchView('infra'); }
+
+    // --- Dependency Health Map ---
+    let depsData = null;
+
+    async function fetchDependencies(force = false) {
+      try {
+        const el = document.getElementById('depsContent');
+        if (depsData && !force) { renderDependencies(); return; }
+        el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">Loading dependency map...</span>';
+        const res = await apiFetch('/api/dependencies');
+        depsData = await res.json();
+        renderDependencies();
+      } catch (err) {
+        document.getElementById('depsContent').innerHTML = `<span style="color:var(--red);font-size:12px">Error: ${escapeHtml(err.message)}</span>`;
+      }
+    }
+
+    function renderDependencies() {
+      const el = document.getElementById('depsContent');
+      if (!depsData || !depsData.services || depsData.services.length === 0) {
+        el.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">No dependencies detected</span>';
+        return;
+      }
+
+      const statusDot = (status) => {
+        const color = status === 'healthy' ? 'var(--green)' : status === 'down' ? 'var(--red)' : 'var(--yellow)';
+        return `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:6px" title="${status}"></span>`;
+      };
+
+      // Build app name lookup
+      const appNames = {};
+      for (const a of depsData.apps) appNames[a.slug] = a.name;
+
+      // Find which services are down for highlighting
+      const downServices = new Set(depsData.services.filter(s => s.status === 'down').map(s => s.id));
+      const affectedApps = new Set();
+      for (const s of depsData.services) {
+        if (s.status === 'down') {
+          for (const d of s.dependents) affectedApps.add(d);
+        }
+      }
+
+      let html = '<div style="display:grid;grid-template-columns:200px 1fr;gap:1px;font-size:12px">';
+      html += '<div style="padding:6px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Service</div>';
+      html += '<div style="padding:6px 8px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Dependent Apps</div>';
+
+      for (const svc of depsData.services) {
+        const isDown = svc.status === 'down';
+        const rowBg = isDown ? 'rgba(255,59,48,0.08)' : 'transparent';
+        html += `<div style="padding:6px 8px;display:flex;align-items:center;background:${rowBg};border-bottom:1px solid var(--border)">${statusDot(svc.status)}<span style="font-weight:500;color:var(--text)">${escapeHtml(svc.name)}</span><span style="margin-left:6px;font-size:10px;color:var(--text-muted)">${svc.dependents.length}</span></div>`;
+        html += `<div style="padding:6px 8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;background:${rowBg};border-bottom:1px solid var(--border)">`;
+        for (const slug of svc.dependents) {
+          const appAffected = isDown;
+          const color = appAffected ? 'var(--red)' : 'var(--text-dim)';
+          const bg = appAffected ? 'rgba(255,59,48,0.15)' : 'var(--surface2)';
+          const name = appNames[slug] || slug;
+          html += `<span style="padding:2px 8px;border-radius:10px;font-size:11px;color:${color};background:${bg};font-weight:${appAffected ? '600' : '400'}">${escapeHtml(name)}</span>`;
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+
+      if (depsData.timestamp) {
+        html += `<div style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:6px">Updated: ${new Date(depsData.timestamp).toLocaleTimeString()}</div>`;
+      }
+      el.innerHTML = html;
+    }
 
     // --- Marketing Manager (tabbed) ---
     let mktRevenueData = null;
@@ -9084,6 +9161,7 @@
       if (e.key === 'o') toggleOps();
       if (e.key === 'e') toggleErrors();
       if (e.key === 'g') { switchView('infra'); fetchGitHub(true); }
+      if (e.key === 'D') { switchView('infra'); fetchDependencies(true); }
       if (e.key === 'n') toggleNotifications();
       if (e.key === 'A') toggleADHDMode();
       if (e.key === 'x') { switchView('revenue'); setTimeout(() => switchMktTab('crosspromo', document.querySelector('.mkt-tab:nth-child(7)')), 100); }
