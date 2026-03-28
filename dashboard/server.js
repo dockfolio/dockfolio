@@ -2452,7 +2452,7 @@ async function startEventWatcher() {
               const container = docker.getContainer(event.Actor.ID);
               const logs = await container.logs({ stdout: true, stderr: true, tail: 20 });
               lastLogs = (typeof logs === 'string' ? logs : logs.toString('utf8')).replace(/^.{8}/gm, '');
-            } catch (e) { console.error('[ERROR_WATCH] Failed to fetch dying container logs:', e.message); }
+            } catch (e) { if (!e.message?.includes('409')) console.error('[ERROR_WATCH] Failed to fetch dying container logs:', e.message); }
             ingestError({ app: appSlug, message: `Container ${name} died with exit code ${exitCode}`, stack: lastLogs || null, severity: 'critical', source: 'docker_event', container: name });
           }
         } else if (event.Action === 'health_status: unhealthy') {
