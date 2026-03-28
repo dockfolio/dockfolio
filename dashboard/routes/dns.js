@@ -52,6 +52,11 @@ export default function registerDnsRoutes({ app, config, getSetting, auditLog, s
     if (!domain || !type || !name || !content) {
       return res.status(400).json({ error: 'domain, type, name, and content are required' });
     }
+    // Validate domain is in our config (prevent managing arbitrary zones)
+    const configuredDomains = config.apps.map(a => a.domain).filter(Boolean);
+    if (!configuredDomains.includes(domain)) {
+      return res.status(403).json({ error: 'Domain not in configured apps. Add the app first.' });
+    }
     const ALLOWED_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SRV', 'CAA'];
     if (!ALLOWED_TYPES.includes(type.toUpperCase())) {
       return res.status(400).json({ error: `Invalid record type. Allowed: ${ALLOWED_TYPES.join(', ')}` });

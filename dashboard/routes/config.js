@@ -439,6 +439,13 @@ export default function registerConfigRoutes({
     if (idx === -1) return res.status(404).json({ error: 'App not found' });
 
     const { name, type, domain, port, health, containers, description, tech, envFile, composeFile } = req.body;
+    // Validate path fields to prevent command injection via config manipulation
+    const SAFE_PATH_RE = /^[a-zA-Z0-9\/_. -]+$/;
+    for (const [field, val] of [['envFile', envFile], ['composeFile', composeFile]]) {
+      if (val !== undefined && val && (!SAFE_PATH_RE.test(val) || val.includes('..'))) {
+        return res.status(400).json({ error: `Invalid ${field}: must be a safe file path` });
+      }
+    }
     const appDef = config.apps[idx];
     if (name) appDef.name = name.trim();
     if (type) appDef.type = type;
