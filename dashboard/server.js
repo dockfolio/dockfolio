@@ -2131,7 +2131,7 @@ const HEALING_PLAYBOOKS = [
         name: containerName(c),
         id: c.Id,
         status: c.Status,
-      })).filter(c => !c.name.includes('dockfolio'));  // Don't self-heal the dashboard
+      })).filter(c => !c.name.includes('dockfolio') && !c.name.includes('whisper') && !c.name.includes('demucs'));
     },
     action: 'restart',
     confidence: 'high',
@@ -2152,7 +2152,7 @@ const HEALING_PLAYBOOKS = [
         name: containerName(c),
         id: c.Id,
         status: c.Status,
-      })).filter(c => !c.name.includes('dockfolio'));
+      })).filter(c => !c.name.includes('dockfolio') && !c.name.includes('whisper') && !c.name.includes('demucs'));
     },
     action: 'log_only',
     confidence: 'low',
@@ -2197,7 +2197,7 @@ const HEALING_PLAYBOOKS = [
       return containers
         .filter(c => {
           const name = containerName(c);
-          if (!tracked.has(name) || name.includes('dockfolio')) return false;
+          if (!tracked.has(name) || name.includes('dockfolio') || name.includes('whisper') || name.includes('demucs')) return false;
           const exitCode = c.Status?.match(/Exited \((\d+)\)/)?.[1];
           return exitCode && exitCode !== '0';
         })
