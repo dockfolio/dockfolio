@@ -256,6 +256,18 @@
     .anomaly-banner h4 { margin: 0 0 8px; font-size: 13px; color: var(--red); }
     .anomaly-item { font-size: 12px; padding: 4px 0; color: var(--text-secondary); }
     .anomaly-item.critical { color: var(--red); font-weight: 600; }
+    .prediction-panel { padding: 12px 16px; margin-bottom: 12px; background: rgba(251,191,36,0.06); border: 1px solid rgba(251,191,36,0.2); border-radius: 10px; }
+    .prediction-panel h4 { margin: 0 0 8px; font-size: 13px; color: var(--yellow); }
+    .prediction-item { font-size: 12px; padding: 4px 0; display: flex; justify-content: space-between; align-items: center; }
+    .prediction-item.critical { color: var(--red); font-weight: 600; }
+    .prediction-item.warning { color: var(--yellow); }
+    .prediction-item.info { color: var(--text-muted); }
+    .prediction-bar { height: 4px; background: var(--bg-lighter); border-radius: 2px; margin-top: 2px; flex: 1; margin-left: 8px; max-width: 100px; }
+    .prediction-bar-fill { height: 100%; border-radius: 2px; }
+    .incident-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+    .incident-modal-content { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; }
+    .incident-modal-content h3 { margin: 0 0 12px; font-size: 16px; }
+    .incident-modal-content pre { background: var(--bg-lighter); padding: 12px; border-radius: 8px; font-size: 12px; white-space: pre-wrap; overflow-x: auto; }
     .heatmap-panel { padding: 16px; margin-bottom: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
     .heatmap-panel h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
     .heatmap-app { margin-bottom: 12px; }
@@ -1525,6 +1537,7 @@
     <div class="savings-card" id="savingsCard" style="display:none"></div>
     <div id="realtimeBar" class="realtime-bar" style="display:none"></div>
     <div id="anomalyBanner" style="display:none"></div>
+    <div id="predictionsPanel" style="display:none"></div>
     <div id="focusPanel" class="focus-panel" style="display:none"></div>
     <div class="pnl-panel" id="pnlPanel" style="display:none"></div>
     <div class="slo-panel" id="sloPanel" style="display:none"></div>
@@ -2523,6 +2536,7 @@
         apiFetch('/api/portfolio/pnl').then(r => r.ok ? r.json() : null).then(d => { if (d) { pnlData = d; renderPnlPanel(d); } }).catch(() => {});
         apiFetch('/api/uptime/streaks').then(r => r.ok ? r.json() : {}).then(d => { if (d.streaks) { uptimeStreaksData = d.streaks; renderApps(appData); } }).catch(() => {});
         apiFetch('/api/anomalies').then(r => r.ok ? r.json() : null).then(d => { if (d) renderAnomalies(d); }).catch(() => {});
+        apiFetch('/api/predictions').then(r => r.ok ? r.json() : null).then(d => { if (d) renderPredictions(d); }).catch(() => {});
         apiFetch('/api/uptime/heatmap').then(r => r.ok ? r.json() : null).then(d => { if (d) renderHeatmap(d); }).catch(() => {});
         apiFetch('/api/realtime/visitors').then(r => r.ok ? r.json() : null).then(d => { if (d) renderRealtimeVisitors(d); }).catch(() => {});
         apiFetch('/api/slo').then(r => r.ok ? r.json() : null).then(d => { if (d) renderSloPanel(d); }).catch(() => {});
@@ -2645,6 +2659,54 @@
       }
       html += `</div>`;
       el.innerHTML = html;
+    }
+
+    function renderPredictions(data) {
+      const el = document.getElementById('predictionsPanel');
+      if (!data || !data.predictions || data.predictions.length === 0) { el.style.display = 'none'; return; }
+      el.style.display = '';
+      let html = `<div class="prediction-panel"><h4>&#9888; Resource Predictions</h4>`;
+      for (const p of data.predictions) {
+        const barColor = p.severity === 'critical' ? 'var(--red)' : p.severity === 'warning' ? 'var(--yellow)' : 'var(--green)';
+        const pct = p.currentPct || p.currentPercent || 0;
+        html += `<div class="prediction-item ${p.severity}">
+          <span>${escapeHtml(p.message)}</span>
+          <div class="prediction-bar"><div class="prediction-bar-fill" style="width:${Math.min(pct, 100)}%;background:${barColor}"></div></div>
+        </div>`;
+      }
+      html += `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">Based on ${data.dataPoints} data points</div></div>`;
+      el.innerHTML = html;
+    }
+
+    async function analyzeIncident(containerName, appSlug) {
+      const modal = document.createElement('div');
+      modal.className = 'incident-modal';
+      modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+      modal.innerHTML = `<div class="incident-modal-content">
+        <h3>Analyzing ${escapeHtml(containerName)}...</h3>
+        <pre style="color:var(--text-muted)">Gathering logs, metrics, and healing history...\nRunning AI root cause analysis...</pre>
+      </div>`;
+      document.body.appendChild(modal);
+
+      try {
+        const res = await apiPost('/api/incidents/analyze', { containerName, appSlug });
+        const data = await res.json();
+        if (data.error) {
+          modal.querySelector('pre').textContent = 'Error: ' + data.error;
+          return;
+        }
+        modal.querySelector('.incident-modal-content').innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <h3>Incident Analysis: ${escapeHtml(containerName)}</h3>
+            <button class="btn" onclick="this.closest('.incident-modal').remove()" style="color:var(--text-muted)">Close</button>
+          </div>
+          <pre>${escapeHtml(data.analysis)}</pre>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:8px">
+            Context: ${data.context.logLines} log lines, ${data.context.metricsPoints} metric points, ${data.context.healingEvents} healing events
+          </div>`;
+      } catch (err) {
+        modal.querySelector('pre').textContent = 'Error: ' + err.message;
+      }
     }
 
     function renderHeatmap(data) {
@@ -3150,6 +3212,7 @@
               <button class="btn" onclick="viewLogs('${escapeHtml(c.name)}')">View Logs</button>
               <button class="btn" onclick="viewLogs('${escapeHtml(c.name)}', 200)">Last 200 lines</button>
               <button class="btn" onclick="diagnoseContainer('${escapeHtml(c.name)}')">Diagnose</button>
+              <button class="btn" onclick="analyzeIncident('${escapeHtml(c.name)}', '${escapeHtml(app.slug || slugify(app.name))}')" style="color:var(--purple)">AI Analyze</button>
               <button class="btn" onclick="restartContainer('${escapeHtml(c.name)}', this)" style="margin-left:auto;color:var(--yellow)">Restart</button>
             </div>
           </div>`;

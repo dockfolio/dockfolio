@@ -9044,6 +9044,101 @@ cron.schedule('*/30 * * * *', guardedCron('anomaly-check', async () => {
   } catch (err) { cronFail('Anomaly check', err); }
 }));
 
+// --- AI Incident Responder ---
+
+app.post('/api/incidents/analyze', asyncRoute(async (req, res) => {
+  const { containerName, appSlug } = req.body;
+  if (!containerName) return res.status(400).json({ error: 'containerName is required' });
+
+  const anthropicKey = getSetting('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) return res.status(400).json({ error: 'No Anthropic API key configured' });
+
+  // Gather context: logs, system metrics, healing history, uptime
+  let logSnippet = '';
+  try {
+    const container = docker.getContainer(containerName);
+    const logs = await container.logs({ stdout: true, stderr: true, tail: 200 });
+    logSnippet = (typeof logs === 'string' ? logs : logs.toString('utf8')).replace(/^.{8}/gm, '').trim().slice(-4000);
+  } catch { logSnippet = '(Container logs unavailable)'; }
+
+  const slug = appSlug || containerName;
+
+  // Recent system metrics
+  const recentMetrics = db.prepare(
+    "SELECT ts, cpu_percent, mem_used_bytes, mem_total_bytes, disk_used_bytes, disk_total_bytes, load_1m FROM system_snapshots WHERE ts > datetime('now', '-6 hours') ORDER BY ts DESC LIMIT 20"
+  ).all();
+
+  // Recent healing events for this app
+  const recentHealing = db.prepare(
+    "SELECT condition, action_taken, result, timestamp FROM healing_log WHERE app_slug = ? ORDER BY timestamp DESC LIMIT 5"
+  ).all(slug);
+
+  // Uptime history
+  const uptimeHistory = db.prepare(
+    "SELECT status, checked_at FROM uptime_history WHERE app_slug = ? ORDER BY checked_at DESC LIMIT 20"
+  ).all(slug);
+
+  const metricsStr = recentMetrics.slice(0, 5).map(m =>
+    `${m.ts}: CPU ${m.cpu_percent.toFixed(1)}%, Mem ${(m.mem_used_bytes / m.mem_total_bytes * 100).toFixed(1)}%, Disk ${(m.disk_used_bytes / m.disk_total_bytes * 100).toFixed(1)}%, Load ${m.load_1m}`
+  ).join('\n');
+
+  const healingStr = recentHealing.map(h =>
+    `${h.timestamp}: ${h.condition} → ${h.action_taken} (${h.result})`
+  ).join('\n');
+
+  const uptimeStr = uptimeHistory.slice(0, 10).map(u =>
+    `${u.checked_at}: ${u.status}`
+  ).join('\n');
+
+  const prompt = `You are a DevOps incident responder analyzing a container issue. Provide a root cause analysis.
+
+Container: ${containerName}
+App: ${slug}
+
+## Recent Logs (last 200 lines)
+${logSnippet}
+
+## System Metrics (last 6 hours)
+${metricsStr || '(No metrics available)'}
+
+## Recent Healing Events
+${healingStr || '(None)'}
+
+## Uptime History
+${uptimeStr || '(No data)'}
+
+Provide your analysis in this format:
+1. **Root Cause**: Most likely reason for the issue (1-2 sentences)
+2. **Evidence**: What in the logs/metrics supports this conclusion
+3. **Impact**: What users/services are affected
+4. **Fix**: Specific actionable steps to resolve
+5. **Prevention**: How to prevent recurrence
+
+Be concise and actionable. Focus on the most likely root cause.`;
+
+  try {
+    const ai = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
+      maxTokens: 500,
+      timeout: 15000,
+      messages: [{ role: 'user', content: prompt }],
+    }));
+
+    res.json({
+      analysis: ai.text,
+      context: {
+        logLines: logSnippet.split('\n').length,
+        metricsPoints: recentMetrics.length,
+        healingEvents: recentHealing.length,
+        uptimeChecks: uptimeHistory.length,
+      },
+      tokens: ai.tokens,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}));
+
 // --- Real-Time Visitors Widget ---
 app.get('/api/realtime/visitors', asyncRoute(async (_req, res) => {
   const apiKey = getPlausibleApiKey();
