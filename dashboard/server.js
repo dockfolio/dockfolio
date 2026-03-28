@@ -70,7 +70,8 @@ eventLoopHistogram.enable();
 let eventLoopLagAlertedAt = 0; // dedup: max 1 alert per hour
 
 // Reset histogram every 5 minutes to keep readings fresh
-setInterval(() => { eventLoopHistogram.reset(); }, 5 * 60_000);
+const _intervals = [];
+_intervals.push(setInterval(() => { eventLoopHistogram.reset(); }, 5 * 60_000));
 
 function getEventLoopMetrics() {
   return {
@@ -262,7 +263,7 @@ function cleanExpiredSessions() {
   authDb.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
 }
 cleanExpiredSessions();
-setInterval(cleanExpiredSessions, MS_PER_HOUR);
+_intervals.push(setInterval(cleanExpiredSessions, MS_PER_HOUR));
 
 const SESSION_TTL_DAYS = 7;
 
@@ -389,12 +390,12 @@ function checkRateLimit(ip) {
 }
 
 // Clean rate limit map every 30 minutes
-setInterval(() => {
+_intervals.push(setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of loginAttempts) {
     if (now > entry.resetAt) loginAttempts.delete(ip);
   }
-}, 30 * 60_000);
+}, 30 * 60_000));
 
 // --- Demo Mode: auto-create demo user ---
 if (DEMO_MODE && isSetupComplete() === false) {
@@ -2812,6 +2813,11 @@ const server = app.listen(port, '0.0.0.0', () => {
 // --- Graceful Shutdown ---
 function gracefulShutdown(signal) {
   console.log(`[SHUTDOWN] ${signal} received, shutting down gracefully...`);
+  // Stop all cron jobs
+  for (const [, task] of cron.getTasks()) { try { task.stop(); } catch { /* already stopped */ } }
+  // Clear all intervals
+  for (const id of _intervals) clearInterval(id);
+  // Destroy Docker event stream
   if (eventStream) try { eventStream.destroy(); } catch (e) { console.error('[SHUTDOWN] Event stream destroy error:', e.message); }
   server.close(() => {
     console.log('[SHUTDOWN] HTTP server closed');
