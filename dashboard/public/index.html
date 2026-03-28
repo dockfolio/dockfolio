@@ -1544,6 +1544,14 @@
     <div id="anomalyBanner" style="display:none"></div>
     <div id="predictionsPanel" style="display:none"></div>
     <div id="focusPanel" class="focus-panel" style="display:none"></div>
+    <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn" onclick="switchView('infra'); fetchDomainOverview()" style="font-size:11px;padding:4px 10px">Domain Overview</button>
+      <button class="btn" onclick="switchView('infra'); document.getElementById('logSearchInput').focus()" style="font-size:11px;padding:4px 10px">Search Logs</button>
+      <button class="btn" onclick="switchView('infra'); document.getElementById('troubleshootPanel').scrollIntoView({behavior:'smooth'})" style="font-size:11px;padding:4px 10px">Troubleshoot</button>
+      <button class="btn" onclick="const s=prompt('App slug for launch mode:');if(s)startLaunchMode(s.trim())" style="font-size:11px;padding:4px 10px">Launch Mode</button>
+      <button class="btn" onclick="switchView('infra'); document.getElementById('execPanel').scrollIntoView({behavior:'smooth'}); document.getElementById('execCmd').focus()" style="font-size:11px;padding:4px 10px">Container Exec</button>
+      <button class="btn" onclick="openCommandPalette()" style="font-size:11px;padding:4px 10px;color:var(--accent)">? Command Palette</button>
+    </div>
     <div class="card" style="margin-bottom:12px">
       <div style="display:flex;gap:8px;align-items:center">
         <input id="whatIfInput" class="search-input" style="flex:1" placeholder="What if I shut down SacredLens? What if I upgrade to 32GB RAM?">
@@ -2149,6 +2157,14 @@
       </div>
       <div id="imageUpdatesSummary" style="display:flex;gap:8px;margin-bottom:8px"></div>
       <div id="imageUpdatesList"></div>
+    </div>
+
+    <div id="containerComparePanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Container Resources</span>
+        <button class="btn" onclick="fetchContainerCompare()">Refresh</button>
+      </div>
+      <div id="containerCompareContent" style="font-size:12px;color:var(--text-muted)">Loading container resources...</div>
     </div>
 
     <div id="execPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
@@ -3110,6 +3126,7 @@
           initDNSPanel();
           initTroubleshootPanel();
           fetchDomainOverview();
+          fetchContainerCompare();
           fetchCronStatus();
           initExecPanel();
           checkLaunchMode();
@@ -3898,6 +3915,40 @@
         html += `<div style="font-size:10px;color:var(--text-muted);text-align:right;margin-top:6px">Updated: ${new Date(depsData.timestamp).toLocaleTimeString()}</div>`;
       }
       el.innerHTML = html;
+    }
+
+    // --- Container Resource Comparison ---
+    async function fetchContainerCompare() {
+      const el = document.getElementById('containerCompareContent');
+      el.innerHTML = '<span style="color:var(--text-muted)">Collecting container stats...</span>';
+      try {
+        const res = await apiFetch('/api/containers/compare');
+        const data = await res.json();
+        if (!data.containers?.length) { el.innerHTML = '<span style="color:var(--text-muted)">No running containers.</span>'; return; }
+
+        let html = `<div style="margin-bottom:6px;color:var(--text-muted)">${data.totals.count} containers | Total: ${data.totals.memMB} MB RAM, ${data.totals.cpu}% CPU</div>`;
+        html += '<div style="display:grid;grid-template-columns:160px 70px 90px 70px 80px 80px;gap:1px;font-size:11px">';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Container</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">CPU %</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Memory</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Mem %</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Net RX</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Net TX</div>';
+
+        for (const c of data.containers) {
+          const cpuColor = c.cpu > 50 ? 'var(--red)' : c.cpu > 20 ? 'var(--yellow)' : 'var(--text)';
+          const memColor = c.memPercent > 80 ? 'var(--red)' : c.memPercent > 60 ? 'var(--yellow)' : 'var(--text)';
+          const memBar = `<div style="height:3px;background:var(--border);border-radius:2px;margin-top:2px"><div style="height:100%;width:${Math.min(c.memPercent, 100)}%;background:${memColor};border-radius:2px"></div></div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:var(--cyan)">${escapeHtml(c.name)}${c.appSlug ? '<span style="color:var(--text-muted);font-size:9px;margin-left:4px">' + escapeHtml(c.appSlug) + '</span>' : ''}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:${cpuColor};font-weight:500">${c.cpu.toFixed(1)}%</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border)">${c.memMB} MB${memBar}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:${memColor}">${c.memPercent}%</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:var(--text-dim)">${c.netRxMB} MB</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:var(--text-dim)">${c.netTxMB} MB</div>`;
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
     }
 
     // --- Domain Overview ---

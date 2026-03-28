@@ -10882,6 +10882,49 @@ app.get('/api/logs/stats', asyncRoute(async (req, res) => {
   res.json({ stats, total });
 }));
 
+// === Feature: Container Comparison (ranked resource usage) ===
+
+app.get('/api/containers/compare', asyncRoute(async (_req, res) => {
+  const containers = await docker.listContainers();
+  const results = [];
+
+  await Promise.all(containers.map(async (c) => {
+    const name = containerName(c);
+    try {
+      const stats = await docker.getContainer(c.Id).stats({ stream: false });
+      const cpuDelta = stats.cpu_stats.cpu_usage.total_usage - stats.precpu_stats.cpu_usage.total_usage;
+      const systemDelta = stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
+      const cpuCount = stats.cpu_stats.online_cpus || 1;
+      const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * cpuCount * 100 : 0;
+      const memUsage = stats.memory_stats.usage || 0;
+      const memLimit = stats.memory_stats.limit || 0;
+      const memPercent = memLimit > 0 ? (memUsage / memLimit) * 100 : 0;
+      const netRx = stats.networks ? Object.values(stats.networks).reduce((s, n) => s + n.rx_bytes, 0) : 0;
+      const netTx = stats.networks ? Object.values(stats.networks).reduce((s, n) => s + n.tx_bytes, 0) : 0;
+
+      const resolved = resolveContainerApp(name);
+      results.push({
+        name, appSlug: resolved?.slug || null,
+        cpu: +cpuPercent.toFixed(2),
+        memMB: Math.round(memUsage / 1024 / 1024),
+        memLimitMB: Math.round(memLimit / 1024 / 1024),
+        memPercent: +memPercent.toFixed(1),
+        netRxMB: +(netRx / 1024 / 1024).toFixed(1),
+        netTxMB: +(netTx / 1024 / 1024).toFixed(1),
+        status: c.State, uptime: c.Status,
+      });
+    } catch { /* container may have stopped */ }
+  }));
+
+  // Sort by memory usage descending (biggest consumers first)
+  results.sort((a, b) => b.memMB - a.memMB);
+
+  const totalMemMB = results.reduce((s, r) => s + r.memMB, 0);
+  const totalCpu = results.reduce((s, r) => s + r.cpu, 0);
+
+  res.json({ containers: results, totals: { memMB: totalMemMB, cpu: +totalCpu.toFixed(2), count: results.length }, timestamp: new Date().toISOString() });
+}));
+
 // === Feature: Domain Overview (unified per-domain dashboard) ===
 
 app.get('/api/domains/overview', asyncRoute(async (_req, res) => {
