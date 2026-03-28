@@ -2126,6 +2126,14 @@
       <div id="deploysList"></div>
     </div>
 
+    <div id="snapshotsPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">Snapshots</span>
+        <button class="btn" onclick="fetchSnapshots()">Refresh</button>
+      </div>
+      <div id="snapshotsList" style="font-size:12px;color:var(--text-muted)">Loading snapshots...</div>
+    </div>
+
     <div id="githubPanel" class="view-panel" style="padding:12px 32px;border-bottom:1px solid var(--border);background:var(--surface)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);font-weight:600">GitHub <kbd style="font-size:9px;background:var(--surface2);padding:1px 4px;border-radius:3px;margin-left:4px">g</kbd></span>
@@ -6896,6 +6904,44 @@
       } else {
         el.innerHTML = svg + perfectHtml + legend;
       }
+    }
+
+    // === Snapshots Panel ===
+    async function fetchSnapshots() {
+      const el = document.getElementById('snapshotsList');
+      try {
+        const res = await apiFetch('/api/snapshots?limit=20');
+        const data = await res.json();
+        if (!data.snapshots?.length) { el.innerHTML = '<span style="color:var(--text-muted)">No snapshots yet. Snapshots are created automatically before each deploy.</span>'; return; }
+        let html = '<div style="display:grid;grid-template-columns:150px 200px 100px 120px 60px;gap:1px;font-size:11px">';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Container</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Image</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Label</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Created</div>';
+        html += '<div style="padding:4px 6px;font-weight:600;color:var(--text-muted);border-bottom:1px solid var(--border)">Action</div>';
+        for (const s of data.snapshots) {
+          const time = new Date(s.created_at + (s.created_at.includes('Z') ? '' : 'Z')).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+          const labelColor = s.label === 'pre-deploy' ? 'var(--blue)' : s.label === 'pre-rollback' ? 'var(--yellow)' : 'var(--text-muted)';
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:var(--cyan)">${escapeHtml(s.container_name)}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:var(--text-dim);font-family:monospace;font-size:10px;word-break:break-all">${escapeHtml(s.image_tag || s.image_id.slice(0, 16))}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:${labelColor}">${escapeHtml(s.label || '-')}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border);color:var(--text-muted);font-size:10px">${time}</div>`;
+          html += `<div style="padding:3px 6px;border-bottom:1px solid var(--border)"><button class="btn" style="font-size:9px;padding:1px 6px" onclick="rollbackSnapshot(${s.id})">Rollback</button></div>`;
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
+    }
+
+    async function rollbackSnapshot(id) {
+      if (!confirm('Rollback to this snapshot? This will tag the old image for manual restart.')) return;
+      try {
+        const res = await apiFetch(`/api/snapshots/${id}/rollback`, { method: 'POST' });
+        const data = await res.json();
+        if (data.error) { showToast(data.error, 'error'); return; }
+        showToast(`Rollback prepared: ${data.rollbackTag}. ${data.message}`, 'success');
+        fetchSnapshots();
+      } catch (err) { showToast('Rollback failed: ' + err.message, 'error'); }
     }
 
     // === Deploy History Panel ===

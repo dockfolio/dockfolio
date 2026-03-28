@@ -5933,6 +5933,9 @@ async function onContainerDeploy(containerName) {
   const recent = db.prepare("SELECT id FROM deploy_log WHERE app_slug = ? AND timestamp > datetime('now', '-5 minutes')").get(appSlug);
   if (recent) return;
 
+  // Auto-snapshot before logging deploy (capture pre-deploy state)
+  await snapshotContainer(containerName, appSlug, 'pre-deploy').catch(() => {});
+
   // Read recent git commits from the repo
   let commits = [];
   try {
@@ -5967,6 +5970,102 @@ async function onContainerDeploy(containerName) {
 
   console.log(`[CHANGELOG] Deploy detected: ${appSlug} (${commits.length} commits)`);
 }
+
+// === Feature: Snapshot & Rollback ===
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL,
+    container_name TEXT NOT NULL,
+    image_id TEXT NOT NULL,
+    image_tag TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    label TEXT,
+    auto INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_snapshots_app ON snapshots(app_slug, created_at);
+`);
+
+// Auto-snapshot: capture current image before deploy
+async function snapshotContainer(containerName, appSlug, label) {
+  try {
+    const containers = await docker.listContainers({ all: true });
+    const target = containers.find(c => containerName(c) === containerName);
+    if (!target) return null;
+    const inspect = await docker.getContainer(target.Id).inspect();
+    const imageId = inspect.Image;
+    const imageTag = inspect.Config?.Image || target.Image;
+    db.prepare('INSERT INTO snapshots (app_slug, container_name, image_id, image_tag, label, auto) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(appSlug, containerName, imageId, imageTag, label || 'auto', label ? 0 : 1);
+    console.log(`[SNAPSHOT] Captured ${containerName} -> ${imageTag} (${imageId.slice(0, 12)})`);
+    return { imageId, imageTag };
+  } catch (err) {
+    console.error(`[SNAPSHOT] Failed for ${containerName}:`, err.message);
+    return null;
+  }
+}
+
+// GET /api/snapshots — List snapshots per app
+app.get('/api/snapshots', asyncRoute((_req, res) => {
+  const slug = _req.query.app;
+  const limit = Math.min(parseInt(_req.query.limit) || 50, 200);
+  const snapshots = slug
+    ? db.prepare('SELECT * FROM snapshots WHERE app_slug = ? ORDER BY created_at DESC LIMIT ?').all(slug, limit)
+    : db.prepare('SELECT * FROM snapshots ORDER BY created_at DESC LIMIT ?').all(limit);
+  res.json({ snapshots });
+}));
+
+// POST /api/snapshots — Create a manual snapshot
+app.post('/api/snapshots', asyncRoute(async (req, res) => {
+  const { container, label } = req.body;
+  if (!container) return res.status(400).json({ error: 'container is required' });
+
+  const resolved = resolveContainerApp(container);
+  const appSlug = resolved?.slug || 'unknown';
+  const result = await snapshotContainer(container, appSlug, label || 'manual');
+  if (!result) return res.status(404).json({ error: 'Container not found or not inspectable' });
+
+  auditLog(req, 'snapshot.create', container, { label, imageTag: result.imageTag });
+  res.json({ ok: true, imageId: result.imageId, imageTag: result.imageTag });
+}));
+
+// POST /api/snapshots/:id/rollback — Rollback to a snapshot
+app.post('/api/snapshots/:id/rollback', asyncRoute(async (req, res) => {
+  const snapshot = db.prepare('SELECT * FROM snapshots WHERE id = ?').get(req.params.id);
+  if (!snapshot) return res.status(404).json({ error: 'Snapshot not found' });
+
+  // First, snapshot current state (so we can rollback the rollback)
+  await snapshotContainer(snapshot.container_name, snapshot.app_slug, 'pre-rollback');
+
+  // Find the running container
+  const containers = await docker.listContainers({ all: true });
+  const target = containers.find(c => containerName(c) === snapshot.container_name);
+  if (!target) return res.status(404).json({ error: `Container ${snapshot.container_name} not found` });
+
+  // Stop current container, start with old image
+  const container = docker.getContainer(target.Id);
+
+  // Tag the snapshot image so we can reference it
+  const rollbackTag = `${snapshot.container_name}:rollback-${snapshot.id}`;
+  try {
+    const image = docker.getImage(snapshot.image_id);
+    await image.tag({ repo: snapshot.container_name, tag: `rollback-${snapshot.id}` });
+  } catch (err) {
+    return res.status(400).json({ error: `Cannot find image ${snapshot.image_id.slice(0, 12)}. It may have been pruned.` });
+  }
+
+  auditLog(req, 'snapshot.rollback', snapshot.container_name, { snapshotId: snapshot.id, imageTag: snapshot.image_tag });
+
+  // Note: actual rollback via docker compose is safer than raw container manipulation
+  // Return the info needed for the operator to execute
+  res.json({
+    ok: true,
+    message: `Image tagged as ${rollbackTag}. To complete rollback, run: docker compose up -d ${snapshot.container_name}`,
+    snapshot: { id: snapshot.id, container: snapshot.container_name, imageTag: snapshot.image_tag, imageId: snapshot.image_id },
+    rollbackTag,
+  });
+}));
 
 // API: Get deploy history
 app.get('/api/deploys', asyncRoute((_req, res) => {
