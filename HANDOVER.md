@@ -1,12 +1,12 @@
 # Handover
 
-**Date:** 2026-03-29 (Session 2)
+**Date:** 2026-03-29 (Session 2, continued)
 
 ## Summary
 
-Implemented config-driven cross-promo pairing system, fixed BannerForge render auth, migrated all 14 confirm() dialogs to custom modal, added IntersectionObserver for infra panels, and fixed AbschlussCheck timeout bug on 68+ page documents. 5 commits to Dockfolio, 3 to BannerForge, 1 to AbschlussCheck — all pushed and deployed. 18 cross-promo placements now live across 13 source apps.
+Implemented config-driven cross-promo pairing system, fixed BannerForge render auth, migrated all 14 confirm() dialogs to custom modal, added IntersectionObserver for infra panels, fixed AbschlussCheck timeout bug on 68+ page documents, cleaned up old banner data, upgraded all cross-promo banners to BannerForge-rendered PNG images, and freed 37GB disk space. 6 commits to Dockfolio, 3 to BannerForge, 1 to AbschlussCheck — all pushed and deployed. 18 cross-promo placements live with professional rendered banners. Disk 76%→54%. 37/37 containers healthy.
 
-**Most important for next session:** Stripe webhook cross-contamination (task #11) still needs manual fix in Stripe dashboard. 18 remaining project tasks. The cross-promo banners are simple gradient+text — can be upgraded to BannerForge-rendered images now that the render endpoint is public.
+**Most important for next session:** Stripe webhook cross-contamination (task #11) still needs manual fix in Stripe dashboard. 17 remaining project tasks (AbschlussCheck timeout fixed + marked done).
 
 ## Completed
 
@@ -38,6 +38,12 @@ Implemented config-driven cross-promo pairing system, fixed BannerForge render a
 - [x] Scaled reconciliation stuck threshold: 15min for ≤60 pages, 30min for >60 pages
 - [x] Deployed and healthy
 
+### Production Cleanup (no git commits — DB + Docker ops)
+- [x] Deleted 39 old paused placements and 7 old banners from previous undirected system
+- [x] Upgraded all 11 cross-promo banners from custom_html to BannerForge-rendered PNG images (~45-51KB each)
+- [x] Freed 37GB disk space: build cache 45GB→2.7GB, images 74GB→39GB (disk 76%→54%)
+- [x] Marked AbschlussCheck timeout task (#13) as done in project_tasks
+
 ## In Progress
 
 Nothing — all work committed, pushed, and deployed.
@@ -57,17 +63,15 @@ Nothing — all work committed, pushed, and deployed.
 
 - **Stripe webhook cross-contamination** (task #11) — Stale webhook in AbschlussCheck Stripe account pointing to bewerbungsfotos-ai.de. Must delete manually in Stripe dashboard.
 - **GitHub Actions billing** — CI/CD builds still failing. Deploy manually.
-- **Old 33 banner placements still paused** — From previous session. Can be deleted now that new cross-promo system is live.
-- **Cross-promo banners are text-only** — Simple gradient+CTA. Can upgrade to BannerForge image banners now that render endpoint is public.
+- **Disk climbs to ~76% between prune cycles** — Weekly Docker prune cron runs Sunday 3:45 AM but images accumulate from frequent rebuilds. Consider more aggressive pruning or image cleanup.
 - **PromoForge worker OOM** — Ongoing, self-heals via restart.
 
 ## Next Steps (Priority Order)
 
 1. **Delete stale Stripe webhook** — Manual: Stripe dashboard > AbschlussCheck account > Developers > Webhooks > delete endpoint pointing to bewerbungsfotos-ai.de
-2. **Clean up old 33 paused placements** — `DELETE FROM banner_placements WHERE id < 41 AND status='paused'` in dockfolio container
-3. **Upgrade cross-promo banners to BannerForge images** — Now possible since render endpoint is public. Call regenerate or create new bannerforge-type banners.
-4. **Create GitHub fine-grained token** — Manual: GitHub > Settings > Developer settings
-5. **Address remaining 18 project tasks** — SEO content, Sentry setup, landing page optimization, etc.
+2. **Create GitHub fine-grained token** — Manual: GitHub > Settings > Developer settings
+3. **Configure off-site backup** — Order Hetzner Storage Box, set env vars (script already exists: `scripts/backup-offsite.sh`)
+4. **Address remaining 17 project tasks** — Sentry setup (#7), BannerForge Stripe billing (#10), SEO content, landing page optimization, etc.
 
 ## Rollback Info
 
