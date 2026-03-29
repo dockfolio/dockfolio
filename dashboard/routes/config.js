@@ -80,7 +80,11 @@ export default function registerConfigRoutes({
     }
 
     const newVars = Array.from(varMap.entries()).map(([key, value]) => ({ key, value }));
-    writeFileSync(appDef.envFile, serializeEnvVars(newVars), 'utf8');
+    try {
+      writeFileSync(appDef.envFile, serializeEnvVars(newVars), 'utf8');
+    } catch (err) {
+      return res.status(500).json({ error: `Failed to write env file: ${err.message}` });
+    }
 
     res.json({ ok: true, message: `Updated ${appDef.name} env file` });
   }));

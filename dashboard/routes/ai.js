@@ -561,9 +561,12 @@ app.get('/api/cost-analysis', asyncRoute(async (_req, res) => {
   }
 
   // System totals
-  const memInfo = readFileSync('/proc/meminfo', 'utf8');
-  const memTotalKB = parseInt(memInfo.match(/MemTotal:\s+(\d+)/)?.[1] || '0');
-  const memAvailKB = parseInt(memInfo.match(/MemAvailable:\s+(\d+)/)?.[1] || '0');
+  let memTotalKB = 0, memAvailKB = 0;
+  try {
+    const memInfo = readFileSync('/proc/meminfo', 'utf8');
+    memTotalKB = parseInt(memInfo.match(/MemTotal:\s+(\d+)/)?.[1] || '0');
+    memAvailKB = parseInt(memInfo.match(/MemAvailable:\s+(\d+)/)?.[1] || '0');
+  } catch {}
   const dfParts = getDiskParts();
   const totalMemGB = Math.round(memTotalKB / 1024 / 1024 * 10) / 10;
   const usedMemGB = Math.round((memTotalKB - memAvailKB) / 1024 / 1024 * 10) / 10;

@@ -43,7 +43,7 @@ export default function registerDnsRoutes({ app, config, getSetting, auditLog, s
     } catch (err) {
       res.status(err.message.includes('not configured') ? 503 : 500).json({ error: err.message });
     } finally {
-      if (cookie) inwxCall('account.logout', {}, cookie).catch(() => {});
+      if (cookie) inwxCall('account.logout', {}, cookie).catch(e => { if (process.env.DEBUG) console.warn('INWX logout failed:', e.message); });
     }
   }));
 
@@ -73,7 +73,7 @@ export default function registerDnsRoutes({ app, config, getSetting, auditLog, s
     } catch (err) {
       res.status(err.message.includes('not configured') ? 503 : 500).json({ error: err.message });
     } finally {
-      if (cookie) inwxCall('account.logout', {}, cookie).catch(() => {});
+      if (cookie) inwxCall('account.logout', {}, cookie).catch(e => { if (process.env.DEBUG) console.warn('INWX logout failed:', e.message); });
     }
   }));
 
@@ -95,7 +95,7 @@ export default function registerDnsRoutes({ app, config, getSetting, auditLog, s
     } catch (err) {
       res.status(err.message.includes('not configured') ? 503 : 500).json({ error: err.message });
     } finally {
-      if (cookie) inwxCall('account.logout', {}, cookie).catch(() => {});
+      if (cookie) inwxCall('account.logout', {}, cookie).catch(e => { if (process.env.DEBUG) console.warn('INWX logout failed:', e.message); });
     }
   }));
 
@@ -112,7 +112,7 @@ export default function registerDnsRoutes({ app, config, getSetting, auditLog, s
     } catch (err) {
       res.status(err.message.includes('not configured') ? 503 : 500).json({ error: err.message });
     } finally {
-      if (cookie) inwxCall('account.logout', {}, cookie).catch(() => {});
+      if (cookie) inwxCall('account.logout', {}, cookie).catch(e => { if (process.env.DEBUG) console.warn('INWX logout failed:', e.message); });
     }
   }));
 

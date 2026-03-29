@@ -17,7 +17,8 @@ export default function registerErrorRoutes({ app, db, ingestError, rlErrorInges
       const lines = (typeof req.body === 'string' ? req.body : '').split('\n').filter(Boolean);
       if (lines.length < 2) return res.status(400).json({ error: 'invalid envelope' });
 
-      const header = JSON.parse(lines[0]);
+      let header;
+      try { header = JSON.parse(lines[0]); } catch { return res.status(400).json({ error: 'invalid envelope header' }); }
       let appSlug = 'unknown';
       if (header.dsn) {
         const dsnPath = new URL(header.dsn).pathname.replace(/^\//, '');
@@ -25,9 +26,10 @@ export default function registerErrorRoutes({ app, db, ingestError, rlErrorInges
       }
 
       for (let i = 1; i < lines.length - 1; i += 2) {
-        const itemHeader = JSON.parse(lines[i]);
+        let itemHeader, payload;
+        try { itemHeader = JSON.parse(lines[i]); } catch { continue; }
         if (itemHeader.type !== 'event' && itemHeader.type !== 'error') continue;
-        const payload = JSON.parse(lines[i + 1]);
+        try { payload = JSON.parse(lines[i + 1]); } catch { continue; }
 
         const exc = payload.exception?.values?.[0];
         const message = exc ? `${exc.type || 'Error'}: ${exc.value || ''}` : payload.message || 'Unknown error';
@@ -122,7 +124,7 @@ export default function registerErrorRoutes({ app, db, ingestError, rlErrorInges
     let sql = 'SELECT e.*, i.title as issue_title, i.severity FROM error_events e JOIN error_issues i ON e.issue_id = i.id WHERE 1=1';
     const params = [];
     if (appFilter) { sql += ' AND e.app_slug = ?'; params.push(appFilter); }
-    if (issue_id) { sql += ' AND e.issue_id = ?'; params.push(parseInt(issue_id)); }
+    if (issue_id) { const id = parseInt(issue_id); if (!isNaN(id)) { sql += ' AND e.issue_id = ?'; params.push(id); } }
     sql += ' ORDER BY e.timestamp DESC LIMIT ? OFFSET ?';
     params.push(Math.min(parseInt(limit) || 50, 200), parseInt(offset) || 0);
     const events = db.prepare(sql).all(...params);
