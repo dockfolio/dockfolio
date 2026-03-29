@@ -507,6 +507,59 @@ describe('Auth boundary - banner endpoints', () => {
   });
 });
 
+// ── Auth boundary - cross-promo endpoints ────────────────────────────
+
+describe('Auth boundary - cross-promo endpoints', () => {
+  it('GET /api/crosspromo/banner is public (no 401)', async () => {
+    const saved = sessionCookie;
+    sessionCookie = null;
+    const res = await req('/api/crosspromo/banner?app=test');
+    assert.notEqual(res.status, 401, 'crosspromo/banner should be public');
+    sessionCookie = saved;
+  });
+
+  it('POST /api/crosspromo/0/view is public (no 401)', async () => {
+    const saved = sessionCookie;
+    sessionCookie = null;
+    const res = await req('/api/crosspromo/0/view', { method: 'POST' });
+    assert.notEqual(res.status, 401, 'crosspromo view tracking should be public');
+    sessionCookie = saved;
+  });
+
+  it('GET /api/crosspromo/0/click is public (no 401)', async () => {
+    const saved = sessionCookie;
+    sessionCookie = null;
+    const res = await req('/api/crosspromo/0/click', { redirect: 'manual' });
+    assert.notEqual(res.status, 401, 'crosspromo click tracking should be public');
+    sessionCookie = saved;
+  });
+
+  it('Path traversal via /api/crosspromo/../marketing/banners returns 401', async () => {
+    const saved = sessionCookie;
+    sessionCookie = null;
+    const res = await req('/api/crosspromo/../marketing/banners');
+    assert.ok([401, 404].includes(res.status), `Expected 401/404, got ${res.status}`);
+    sessionCookie = saved;
+  });
+});
+
+// ── CSRF protection ─────────────────────────────────────────────────
+
+describe('CSRF protection', () => {
+  it('POST with mismatched CSRF header and cookie returns 403', async () => {
+    const res = await req('/api/apps', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': 'wrong-token',
+        Cookie: `${sessionCookie}; _csrf=different-token`,
+      },
+      body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 403, 'mismatched CSRF should return 403');
+  });
+});
+
 // ── Edge cases ───────────────────────────────────────────────────────
 
 describe('Edge cases', () => {
