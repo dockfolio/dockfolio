@@ -3139,19 +3139,8 @@
           fetchBackups();
           fetchDependencies();
           checkLaunchMode();
-          // Below-fold panels — defer to avoid flooding the server
-          setTimeout(() => {
-            fetchHealingLog();
-            fetchPredictions();
-            fetchImageUpdates();
-            fetchGitHub();
-            fetchDomainOverview();
-            fetchContainerCompare();
-            fetchCronStatus();
-            initDNSPanel();
-            initTroubleshootPanel();
-            initExecPanel();
-          }, 300);
+          // Below-fold panels — lazy-load when scrolled into view
+          observeInfraPanels();
           break;
         case 'security':
           if (!securityData) fetchSecurityStatus();
@@ -3162,6 +3151,42 @@
           loadSettings();
           if (!projOverviewData) fetchProjectsOverview();
           break;
+      }
+    }
+
+    // Lazy-load below-fold infra panels via IntersectionObserver
+    const infraPanelLoaders = {
+      healingPanel: fetchHealingLog,
+      predictionsPanel: fetchPredictions,
+      imageUpdatesPanel: fetchImageUpdates,
+      githubPanel: fetchGitHub,
+      domainOverviewPanel: fetchDomainOverview,
+      containerComparePanel: fetchContainerCompare,
+      cronPanel: fetchCronStatus,
+      dnsPanel: initDNSPanel,
+      troubleshootPanel: initTroubleshootPanel,
+      execPanel: initExecPanel,
+    };
+    const infraPanelsLoaded = new Set();
+    let infraObserver = null;
+
+    function observeInfraPanels() {
+      if (infraObserver) infraObserver.disconnect();
+      infraObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const id = entry.target.id;
+          if (infraPanelsLoaded.has(id)) continue;
+          infraPanelsLoaded.add(id);
+          const loader = infraPanelLoaders[id];
+          if (loader) loader();
+          infraObserver.unobserve(entry.target);
+        }
+      }, { rootMargin: '200px' });
+
+      for (const id of Object.keys(infraPanelLoaders)) {
+        const el = document.getElementById(id);
+        if (el && !infraPanelsLoaded.has(id)) infraObserver.observe(el);
       }
     }
 
