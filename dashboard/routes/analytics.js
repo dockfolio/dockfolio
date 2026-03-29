@@ -2,13 +2,14 @@ import { asyncRoute, slugify, todayString, formatDateISO, hashValue, safeJSON, i
 
 export default function registerAnalyticsRoutes({
   app, db, cron,
-  rlPublicRead, TRANSPARENT_GIF,
+  rlPublicRead, TRANSPARENT_GIF, setCORS,
   cronFail,
   MS_PER_HOUR, MS_PER_DAY,
 }) {
 
   // Public: tracking pixel
   app.get('/api/analytics/pixel.gif', rlPublicRead, (req, res) => {
+    setCORS(res);
     const { app: appSlug, url, ref } = req.query;
     if (!appSlug) { res.setHeader('Content-Type', 'image/gif'); return res.send(TRANSPARENT_GIF); }
     const ua = req.headers['user-agent'] || '';
@@ -28,6 +29,7 @@ export default function registerAnalyticsRoutes({
   app.get('/api/analytics/track.js', rlPublicRead, (req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'public, max-age=3600');
+    setCORS(res);
     const host = process.env.DASHBOARD_URL || req.get('host');
     res.send(`(function(){var s=document.currentScript&&document.currentScript.dataset.app;if(!s)return;var i=new Image();i.src='https://${host}/api/analytics/pixel.gif?app='+s+'&url='+encodeURIComponent(location.pathname)+'&ref='+encodeURIComponent(document.referrer);})();`);
   });

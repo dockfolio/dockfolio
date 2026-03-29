@@ -629,6 +629,7 @@ function setCORS(res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Max-Age', '86400');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
 }
 
 function addNotification(category, severity, title, message, appSlug) {
@@ -2772,7 +2773,7 @@ registerLogRoutes({ app, db });
 registerExportRoutes({ app, db, config });
 registerAnalyticsRoutes({
   app, db, cron,
-  rlPublicRead, TRANSPARENT_GIF,
+  rlPublicRead, TRANSPARENT_GIF, setCORS,
   cronFail,
   MS_PER_HOUR, MS_PER_DAY,
 });
