@@ -88,8 +88,6 @@ crossPromo:
   # German community/lifestyle
   - source: best-age
     targets: [schenkungsplaner]
-  - source: agorahoch3
-    targets: [best-age]
 
   # English maker/creative cluster
   - source: promoforge
