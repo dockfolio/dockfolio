@@ -4,13 +4,14 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
 
   // GET /api/status — public status summary
   app.get('/api/status', rlPublicRead, asyncRoute(async (_req, res) => {
-    const results = [];
     const dayAgo = new Date(Date.now() - MS_PER_DAY).toISOString();
-    for (const a of config.apps) {
+    const uptimeStmt = db.prepare('SELECT COUNT(*) as total, SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as up_count FROM uptime_history WHERE app_slug = ? AND checked_at > ?');
+
+    const results = await Promise.all(config.apps.map(async (a) => {
       let status = 'unknown';
       let response_ms = null;
       try {
-        if (a.health && a.domain) {
+        if (a.health && a.domain && !/^\d+\.\d+\.\d+\.\d+$/.test(a.domain)) {
           const healthUrl = `https://${a.domain}${a.health}`;
           const start = Date.now();
           const r = await fetch(healthUrl, { signal: AbortSignal.timeout(TIMEOUT_QUICK) });
@@ -20,10 +21,11 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
           status = 'up';
         }
       } catch { status = 'down'; }
-      const checks = db.prepare('SELECT COUNT(*) as total, SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as up_count FROM uptime_history WHERE app_slug = ? AND checked_at > ?').get('up', slugify(a.name), dayAgo);
+      const checks = uptimeStmt.get('up', slugify(a.name), dayAgo);
       const uptime_24h = checks.total > 0 ? Math.round((checks.up_count / checks.total) * 10000) / 100 : null;
-      results.push({ name: a.name, domain: a.domain, status, response_ms, uptime_24h });
-    }
+      return { name: a.name, domain: a.domain, status, response_ms, uptime_24h };
+    }));
+
     res.json({ generated_at: new Date().toISOString(), apps: results });
   }));
 
@@ -185,6 +187,7 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>System Status — Dockfolio</title>
+  <meta http-equiv="refresh" content="60">
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
