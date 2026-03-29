@@ -3346,7 +3346,7 @@
       }
 
       if (!filtered.length && !searchTerm && !filterSearchTerm && activeTypeFilter === 'all') {
-        document.getElementById('content').innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted)">
+        document.getElementById('appSections').innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted)">
           <h3>No apps configured</h3>
           <p>Click <b>Settings</b> (or press <b>s</b>) to discover and add your Docker containers.</p>
         </div>`;
@@ -5526,12 +5526,13 @@
     // Marketing Playbook
     // =============================================
 
+    let playbookFilterRetries = 0;
     function initPlaybookFilter() {
       const sel = document.getElementById('playbookAppFilter');
       if (!appData || appData.length === 0) {
         sel.innerHTML = '<option value="">Loading apps...</option>';
         playbookFilterInit = false;
-        setTimeout(initPlaybookFilter, 500);
+        if (++playbookFilterRetries < 20) setTimeout(initPlaybookFilter, 500);
         return;
       }
       if (playbookFilterInit) return;
@@ -6306,7 +6307,7 @@
       try {
         const res = await apiFetch('/api/ssl/renew', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ domain }) });
         const data = await res.json();
-        if (data.ok) { showToast(`SSL renewed for ${domain}`); cachedSSL = null; setTimeout(() => { sslData = {}; apiFetch('/api/ssl').then(r => r.json()).then(d => { sslData = d; renderSSLPanel(); }); }, 2000); }
+        if (data.ok) { showToast(`SSL renewed for ${domain}`); sslData = {}; setTimeout(() => { apiFetch('/api/ssl').then(r => r.json()).then(d => { sslData = d; renderSSLPanel(); }); }, 2000); }
         else showToast(`Renewal failed: ${data.error}`, 'error');
       } catch (e) { showToast('Renewal failed: ' + e.message, 'error'); }
     }
@@ -6317,8 +6318,6 @@
     document.getElementById('modal').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) closeModal();
     });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
-
     async function dockerPrune(btn) {
       if (!confirm('Run Docker prune? This removes stopped containers, dangling images, and build cache.')) return;
       const orig = btn.textContent;
@@ -6567,7 +6566,7 @@
         openDetail(r.name);
       } else if (r.type === 'action') {
         if (r.action === 'log') openDetail(r.app);
-        else if (r.action === 'restart') { if (confirm(`Restart ${r.app}?`)) fetch(`/api/containers/${r.slug}/restart`, { method: 'POST' }).then(() => fetchAll()).catch(err => alert(`Restart failed: ${err.message}`)); }
+        else if (r.action === 'restart') { if (confirm(`Restart ${r.app}?`)) apiFetch(`/api/containers/${r.slug}/restart`, { method: 'POST' }).then(() => fetchAll()).catch(err => alert(`Restart failed: ${err.message}`)); }
         else if (r.action === 'seo') { toggleMarketing(); setTimeout(() => switchMktTab('seo', document.querySelector('.mkt-tab:nth-child(4)')), 100); }
         else if (r.action === 'revenue') { toggleMarketing(); setTimeout(() => switchMktTab('revenue', document.querySelector('.mkt-tab:nth-child(2)')), 100); }
         else if (r.action === 'env') openDetail(r.app);
@@ -7696,7 +7695,7 @@
 
     async function deleteAlertRule(id) {
       if (!confirm('Delete this alert rule?')) return;
-      await fetch(`/api/alerts/rules/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/alerts/rules/${id}`, { method: 'DELETE' });
       loadAlertRules();
     }
 
@@ -7791,7 +7790,7 @@
 
     async function deleteMaintWindow(id) {
       if (!confirm('Wartungsfenster loeschen?')) return;
-      await fetch(`/api/maintenance/${id}`, { method: 'DELETE' });
+      await apiFetch(`/api/maintenance/${id}`, { method: 'DELETE' });
       loadMaintWindows();
     }
 
@@ -9771,9 +9770,9 @@
         const data = await res.json();
         const el = document.getElementById('savingsCard');
         if (el) {
-          el.innerHTML = `<div class="savings-amount">$${data.monthly_savings}/mo</div>
-            <div class="savings-label">saved by self-hosting (${data.percent_saved}% less than SaaS)</div>
-            <div style="font-size:10px;color:var(--text-dim);margin-top:6px">SaaS equivalent: $${data.monthly_if_saas}/mo | Your cost: $${data.actual_cost}/mo</div>`;
+          el.innerHTML = `<div class="savings-amount">$${escapeHtml(String(data.monthly_savings))}/mo</div>
+            <div class="savings-label">saved by self-hosting (${escapeHtml(String(data.percent_saved))}% less than SaaS)</div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:6px">SaaS equivalent: $${escapeHtml(String(data.monthly_if_saas))}/mo | Your cost: $${escapeHtml(String(data.actual_cost))}/mo</div>`;
         }
       } catch { /* savings card is optional */ }
     }
@@ -9826,6 +9825,7 @@
     // Auto-refresh with countdown
     let nextRefresh = 30;
     function tick() {
+      if (document.hidden) return;
       nextRefresh--;
       if (nextRefresh <= 0) { fetchAll(); nextRefresh = 30; }
       const cd = document.getElementById('countdown'); if (cd) cd.textContent = nextRefresh + 's';

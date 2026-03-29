@@ -1520,7 +1520,7 @@ export default function registerMarketingRoutes({
 })();`);
   });
 
-  app.get('/api/crosspromo/banner', asyncRoute((req, res) => {
+  app.get('/api/crosspromo/banner', rlBannerServe, asyncRoute((req, res) => {
     setCORS(res);
     const app = req.query.app;
     if (!app) return res.status(400).json({ error: 'app query param required' });
@@ -1532,7 +1532,7 @@ export default function registerMarketingRoutes({
     res.json(campaign);
   }));
 
-  app.post('/api/crosspromo/:id/view', asyncRoute((req, res) => {
+  app.post('/api/crosspromo/:id/view', rlBannerTrack, asyncRoute((req, res) => {
     setCORS(res);
     const id = parseId(req.params.id);
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
@@ -1540,7 +1540,7 @@ export default function registerMarketingRoutes({
     res.json({ ok: true });
   }));
 
-  app.get('/api/crosspromo/:id/click', (req, res) => {
+  app.get('/api/crosspromo/:id/click', rlBannerTrack, (req, res) => {
     try {
       const id = parseId(req.params.id);
       if (isNaN(id)) return res.redirect('/');

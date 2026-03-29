@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -15,7 +15,7 @@ const c = {
 const CONFIG_PATH = join(homedir(), '.dockfolio.json');
 const args = process.argv.slice(2);
 const jsonMode = args.includes('--json');
-const filteredArgs = args.filter(a => a !== '--json');
+const filteredArgs = args.filter(a => a !== '--json' && a !== '-y' && a !== '--yes');
 const command = filteredArgs[0] || 'help';
 const subArgs = filteredArgs.slice(1);
 
@@ -26,7 +26,8 @@ function loadConfig() {
 }
 
 function saveConfig(cfg) {
-  writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+  writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+  try { chmodSync(CONFIG_PATH, 0o600); } catch {}
 }
 
 // --- API helpers ---
@@ -38,11 +39,12 @@ function authHeader(cfg) {
 async function api(path, cfg, method = 'GET') {
   const url = `${cfg.url.replace(/\/$/, '')}${path}`;
   try {
-    const res = await fetch(url, { method, headers: authHeader(cfg) });
+    const res = await fetch(url, { method, headers: authHeader(cfg), signal: AbortSignal.timeout(15000) });
     if (res.status === 401) { error('Authentication failed. Run: dockfolio init'); process.exit(1); }
     if (!res.ok) { error(`API error: ${res.status} ${res.statusText}`); process.exit(1); }
-    return await res.json();
+    try { return await res.json(); } catch { error('Invalid JSON response from server'); process.exit(1); }
   } catch (e) {
+    if (e.name === 'TimeoutError') { error('Request timed out (15s)'); process.exit(1); }
     error(`Connection failed: ${e.message}`);
     process.exit(1);
   }
@@ -80,26 +82,29 @@ function prompt(rl, question) {
 // --- Commands ---
 async function cmdInit() {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const existing = loadConfig();
-  heading('Dockfolio CLI Setup');
-  const url = (await prompt(rl, `Dashboard URL [${existing?.url || 'https://admin.crelvo.dev'}]: `))
-    || existing?.url || 'https://admin.crelvo.dev';
-  const username = (await prompt(rl, `Username [${existing?.username || ''}]: `)) || existing?.username || '';
-  const password = (await prompt(rl, `Password: `)) || existing?.password || '';
-  rl.close();
-  if (!username || !password) { error('Username and password are required.'); process.exit(1); }
-  const cfg = { url, username, password };
-  // Test connection
-  out(`\n${c.dim}Testing connection...${c.reset}`);
   try {
-    const res = await fetch(`${url.replace(/\/$/, '')}/api/health`, { headers: authHeader(cfg) });
-    if (!res.ok) throw new Error(`${res.status}`);
-    out(`${c.green}Connected successfully.${c.reset}`);
-  } catch (e) {
-    out(`${c.yellow}Warning: Could not verify connection (${e.message}). Config saved anyway.${c.reset}`);
+    const existing = loadConfig();
+    heading('Dockfolio CLI Setup');
+    const url = (await prompt(rl, `Dashboard URL [${existing?.url || 'https://admin.crelvo.dev'}]: `))
+      || existing?.url || 'https://admin.crelvo.dev';
+    const username = (await prompt(rl, `Username [${existing?.username || ''}]: `)) || existing?.username || '';
+    const password = (await prompt(rl, `Password: `)) || existing?.password || '';
+    if (!username || !password) { error('Username and password are required.'); process.exit(1); }
+    const cfg = { url, username, password };
+    // Test connection
+    out(`\n${c.dim}Testing connection...${c.reset}`);
+    try {
+      const res = await fetch(`${url.replace(/\/$/, '')}/api/health`, { headers: authHeader(cfg), signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new Error(`${res.status}`);
+      out(`${c.green}Connected successfully.${c.reset}`);
+    } catch (e) {
+      out(`${c.yellow}Warning: Could not verify connection (${e.message}). Config saved anyway.${c.reset}`);
+    }
+    saveConfig(cfg);
+    out(`${c.green}Config saved to ${CONFIG_PATH}${c.reset}\n`);
+  } finally {
+    rl.close();
   }
-  saveConfig(cfg);
-  out(`${c.green}Config saved to ${CONFIG_PATH}${c.reset}\n`);
 }
 
 async function cmdStatus() {
@@ -221,7 +226,7 @@ async function cmdSsl() {
 
 async function cmdPredictions() {
   const cfg = requireConfig();
-  const data = await api('/api/predictions', cfg);
+  const data = await api('/api/focus', cfg);
   if (jsonMode) return out(JSON.stringify(data, null, 2));
   heading('Resource Predictions');
   out(typeof data === 'string' ? data : JSON.stringify(data, null, 2));
@@ -258,7 +263,7 @@ async function cmdSearch() {
 
 async function cmdPerf() {
   const cfg = requireConfig();
-  const data = await api('/api/performance', cfg);
+  const data = await api('/api/perf', cfg);
   if (jsonMode) return out(JSON.stringify(data, null, 2));
   heading('API Performance');
   out(typeof data === 'string' ? data : JSON.stringify(data, null, 2));
@@ -280,7 +285,7 @@ async function cmdNotifications() {
 
 async function cmdCost() {
   const cfg = requireConfig();
-  const data = await api('/api/cost', cfg);
+  const data = await api('/api/portfolio/pnl', cfg);
   if (jsonMode) return out(JSON.stringify(data, null, 2));
   heading('Cost Analysis');
   out(typeof data === 'string' ? data : JSON.stringify(data, null, 2));
@@ -327,4 +332,9 @@ if (!handler) {
   out(`Run ${c.bold}dockfolio help${c.reset} for usage.\n`);
   process.exit(1);
 }
-await handler();
+try {
+  await handler();
+} catch (e) {
+  error(e.message || 'Unexpected error');
+  process.exit(1);
+}
