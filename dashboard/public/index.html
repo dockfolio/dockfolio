@@ -1345,7 +1345,7 @@
   <div class="audit-panel" id="auditPanel">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <h3 style="margin:0;font-size:14px">Audit Log</h3>
-      <button onclick="document.getElementById('auditPanel').classList.remove('visible')" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:16px">&times;</button>
+      <button onclick="document.getElementById('auditPanel').classList.remove('visible')" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:16px" aria-label="Close audit panel">&times;</button>
     </div>
     <div id="auditList"></div>
   </div>
@@ -1354,7 +1354,7 @@
   <div class="status-panel" id="statusPanel">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <h3 style="margin:0;font-size:14px">Status Page</h3>
-      <button onclick="document.getElementById('statusPanel').classList.remove('visible')" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:16px">&times;</button>
+      <button onclick="document.getElementById('statusPanel').classList.remove('visible')" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:16px" aria-label="Close status panel">&times;</button>
     </div>
     <div id="statusList"></div>
   </div>
@@ -1365,11 +1365,11 @@
       <div class="health-summary" id="healthSummary"></div>
     </div>
     <div class="header-right">
-      <button class="header-btn" onclick="toggleTheme()" id="themeToggleBtn" title="Toggle light/dark theme">&#9788;</button>
+      <button class="header-btn" onclick="toggleTheme()" id="themeToggleBtn" title="Toggle light/dark theme" aria-label="Toggle light/dark theme">&#9788;</button>
       <input class="search-input" id="searchInput" type="text" placeholder="Search apps... (/)" oninput="filterApps(this.value)">
       <span class="last-updated" id="lastUpdated"><span class="refresh-dot"></span><span id="countdown"></span></span>
       <span class="notif-btn-wrap" id="notifWrap">
-        <button class="header-btn" onclick="toggleNotifications()" id="notifBtn" title="Notifications (n)"><kbd>n</kbd>&#128276;<span class="notif-badge" id="notifBadge"></span></button>
+        <button class="header-btn" onclick="toggleNotifications()" id="notifBtn" title="Notifications (n)" aria-label="Notifications"><kbd>n</kbd>&#128276;<span class="notif-badge" id="notifBadge"></span></button>
         <div class="notif-dropdown" id="notifDropdown">
           <div class="notif-header">
             <span class="notif-header-title">Notifications</span>
@@ -2549,10 +2549,10 @@
   </div>
 
   <div class="modal-overlay" id="modal">
-    <div class="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <div class="modal-header">
         <h2 id="modalTitle"></h2>
-        <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+        <button class="modal-close" onclick="closeModal()" aria-label="Close">&#x2715;</button>
       </div>
       <div class="modal-body" id="modalBody"></div>
     </div>
@@ -3119,23 +3119,27 @@
         case 'infra':
           syncInfraMetrics();
           renderSSLPanel();
-          fetchKeyHealth();
-          fetchBackups();
-          fetchHealingLog();
-          fetchPredictions();
+          // Above-fold panels — fetch immediately
           fetchActivity();
           fetchContainerGraph();
           fetchUptimeTimeline();
-          fetchImageUpdates();
-          fetchGitHub();
+          fetchKeyHealth();
+          fetchBackups();
           fetchDependencies();
-          initDNSPanel();
-          initTroubleshootPanel();
-          fetchDomainOverview();
-          fetchContainerCompare();
-          fetchCronStatus();
-          initExecPanel();
           checkLaunchMode();
+          // Below-fold panels — defer to avoid flooding the server
+          setTimeout(() => {
+            fetchHealingLog();
+            fetchPredictions();
+            fetchImageUpdates();
+            fetchGitHub();
+            fetchDomainOverview();
+            fetchContainerCompare();
+            fetchCronStatus();
+            initDNSPanel();
+            initTroubleshootPanel();
+            initExecPanel();
+          }, 300);
           break;
         case 'security':
           if (!securityData) fetchSecurityStatus();
@@ -3261,10 +3265,10 @@
       let card = `<div class="app-card ${cardClass}" data-slug="${slug}" data-domain="${escapeHtml(app.domain || '')}" data-appname="${escapeHtml(app.name)}" onclick="openDetail('${escapeHtml(app.name)}')">
         ${hsBadge}
         <div class="app-card-header">
-          <span class="app-name"><span class="status-dot ${h}" data-label="${h}"></span>${escapeHtml(app.name)}</span>
+          <span class="app-name"><span class="status-dot ${h}" data-label="${h}" aria-label="${h}"></span>${escapeHtml(app.name)}</span>
           <div class="app-badges">
             ${maintBadge}
-            <button class="app-fav-btn ${isFav ? 'is-fav' : ''}" onclick="toggleFavorite('${slug}', event)" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">&#9733;</button>
+            <button class="app-fav-btn ${isFav ? 'is-fav' : ''}" onclick="toggleFavorite('${slug}', event)" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}" aria-label="${isFav ? 'Remove from favorites' : 'Add to favorites'}">&#9733;</button>
             <span class="badge ${typeBadge[app.type]}">${typeShort[app.type]}</span>
             ${app.hasEnvFile ? '<span class="badge-env" title="Has .env file">ENV</span>' : ''}
           </div>
@@ -3439,7 +3443,7 @@
       currentModalSlug = slugify(app.name);
 
       const h = app.overallHealth || 'unknown';
-      document.getElementById('modalTitle').innerHTML = `<span class="status-dot ${h}"></span> ${escapeHtml(app.name)}`;
+      document.getElementById('modalTitle').innerHTML = `<span class="status-dot ${h}" aria-label="${h}"></span> ${escapeHtml(app.name)}`;
 
       // Build tab bar
       const hasTabs = app.hasEnvFile;
@@ -3459,7 +3463,7 @@
         <dt>Domain</dt><dd><a href="https://${escapeHtml(app.domain || '')}" target="_blank">${escapeHtml(app.domain || '')}</a></dd>
         <dt>Type</dt><dd><span class="badge ${typeBadge[app.type]}">${typeShort[app.type]}</span></dd>
         <dt>Tech</dt><dd>${escapeHtml(app.tech || 'N/A')}</dd>
-        <dt>Status</dt><dd><span class="status-dot ${h}"></span> ${h}</dd>
+        <dt>Status</dt><dd><span class="status-dot ${h}" aria-label="${h}"></span> ${h}</dd>
         ${app.port ? `<dt>Port</dt><dd>${app.port}</dd>` : ''}
         ${app.repo ? `<dt>Path</dt><dd style="font-family:monospace;font-size:12px">${app.repo}</dd>` : ''}
         ${um?.uptime24h != null ? `<dt>Uptime (24h)</dt><dd style="color:${um.uptime24h >= 99.9 ? 'var(--green)' : um.uptime24h >= 95 ? 'var(--yellow)' : 'var(--red)'}">${um.uptime24h}%</dd>` : ''}
@@ -3559,6 +3563,7 @@
 
       document.getElementById('modalBody').innerHTML = body;
       document.getElementById('modal').classList.add('active');
+      openModalFocus();
 
       // Pre-fetch env data
       if (hasTabs) loadEnvTab(currentModalSlug);
@@ -6318,9 +6323,26 @@
       } catch (e) { showToast('Renewal failed: ' + e.message, 'error'); }
     }
 
+    let modalPreviousFocus = null;
     function closeModal() {
       document.getElementById('modal').classList.remove('active');
+      if (modalPreviousFocus) { modalPreviousFocus.focus(); modalPreviousFocus = null; }
     }
+    function openModalFocus() {
+      modalPreviousFocus = document.activeElement;
+      const modal = document.getElementById('modal');
+      const close = modal.querySelector('.modal-close');
+      if (close) close.focus();
+    }
+    document.getElementById('modal').addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const modal = document.querySelector('#modal .modal');
+      const focusable = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
     document.getElementById('modal').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) closeModal();
     });
