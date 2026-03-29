@@ -2647,10 +2647,22 @@
     }
 
     // Gradient fill helper for area charts
+    function colorToRgba(color, alpha) {
+      if (color.startsWith('#')) {
+        const hex = color.slice(1);
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        return `rgba(${r},${g},${b},${alpha})`;
+      }
+      if (color.startsWith('rgba')) return color.replace(/,\s*[\d.]+\)$/, `,${alpha})`);
+      if (color.startsWith('rgb')) return color.replace(')', `,${alpha})`).replace('rgb', 'rgba');
+      return color;
+    }
     function chartGradient(ctx, color, height = 200) {
       const gradient = ctx.createLinearGradient(0, 0, 0, height);
-      gradient.addColorStop(0, color.replace(')', ', 0.3)').replace('rgb', 'rgba'));
-      gradient.addColorStop(1, color.replace(')', ', 0.0)').replace('rgb', 'rgba'));
+      gradient.addColorStop(0, colorToRgba(color, 0.3));
+      gradient.addColorStop(1, colorToRgba(color, 0.0));
       return gradient;
     }
 
@@ -2839,9 +2851,9 @@
       }
       const el = document.getElementById('healthSummary');
       el.innerHTML = `
-        <span class="hs-item"><span class="status-dot healthy" data-label="healthy"></span><span class="hs-count">${counts.healthy}</span> healthy</span>
-        ${counts.issues > 0 ? `<span class="hs-item"><span class="status-dot unhealthy" data-label="issues"></span><span class="hs-count">${counts.issues}</span> issues</span>` : ''}
-        <span class="hs-item"><span class="status-dot static" data-label="static"></span><span class="hs-count">${counts.static}</span> static</span>
+        <span class="hs-item"><span class="status-dot healthy" data-label="healthy" aria-hidden="true"></span><span class="hs-count">${counts.healthy}</span> healthy</span>
+        ${counts.issues > 0 ? `<span class="hs-item"><span class="status-dot unhealthy" data-label="issues" aria-hidden="true"></span><span class="hs-count">${counts.issues}</span> issues</span>` : ''}
+        <span class="hs-item"><span class="status-dot static" data-label="static" aria-hidden="true"></span><span class="hs-count">${counts.static}</span> static</span>
       `;
     }
 
@@ -3262,7 +3274,7 @@
       const hs = healthScoresData[slug];
       const hsBadge = hs ? `<div class="health-score-badge grade-${hs.grade.toLowerCase().charAt(0)}" title="Health: ${hs.overall}/100 (${hs.grade})">${hs.overall}</div>` : '';
 
-      let card = `<div class="app-card ${cardClass}" data-slug="${slug}" data-domain="${escapeHtml(app.domain || '')}" data-appname="${escapeHtml(app.name)}" onclick="openDetail('${escapeHtml(app.name)}')">
+      let card = `<div class="app-card ${cardClass}" data-slug="${slug}" data-domain="${escapeHtml(app.domain || '')}" data-appname="${escapeHtml(app.name)}" role="button" tabindex="0" onclick="openDetail('${escapeHtml(app.name)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail('${escapeHtml(app.name)}')}">
         ${hsBadge}
         <div class="app-card-header">
           <span class="app-name"><span class="status-dot ${h}" data-label="${h}" aria-label="${h}"></span>${escapeHtml(app.name)}</span>
@@ -3374,7 +3386,7 @@
         const favKey = '_favorites';
         const favCollapsed = collapsedSections[favKey] ? 'collapsed' : '';
         html += `<div class="section favorites-section">
-          <div class="section-header ${favCollapsed}" onclick="toggleSection('${favKey}', this)">
+          <div class="section-header ${favCollapsed}" role="button" tabindex="0" onclick="toggleSection('${favKey}', this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSection('${favKey}', this)}">
             <span class="section-title"><span class="section-collapse-icon">&#9660;</span>&#9733; Favorites</span>
             <span class="section-count">${favApps.length}</span>
           </div>
@@ -3400,7 +3412,7 @@
         const sKey = 'type_' + type;
         const sCollapsed = collapsedSections[sKey] ? 'collapsed' : '';
         html += `<div class="section">
-          <div class="section-header ${sCollapsed}" onclick="toggleSection('${sKey}', this)">
+          <div class="section-header ${sCollapsed}" role="button" tabindex="0" onclick="toggleSection('${sKey}', this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSection('${sKey}', this)}">
             <span class="section-title"><span class="section-collapse-icon">&#9660;</span>${typeLabels[type] || type}</span>
             <span class="section-count">${group.length}</span>
           </div>
@@ -3415,7 +3427,7 @@
         const sKey = 'type_other';
         const sCollapsed = collapsedSections[sKey] ? 'collapsed' : '';
         html += `<div class="section">
-          <div class="section-header ${sCollapsed}" onclick="toggleSection('${sKey}', this)">
+          <div class="section-header ${sCollapsed}" role="button" tabindex="0" onclick="toggleSection('${sKey}', this)" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleSection('${sKey}', this)}">
             <span class="section-title"><span class="section-collapse-icon">&#9660;</span>Other</span>
             <span class="section-count">${group.length}</span>
           </div>
@@ -3500,7 +3512,7 @@
           }
           overview += `<div class="container-detail">
             <div class="container-detail-header">
-              <span class="container-detail-name"><span class="status-dot ${c.health}"></span>${c.name}</span>
+              <span class="container-detail-name"><span class="status-dot ${c.health}" aria-label="${c.health}"></span>${c.name}</span>
               <span class="container-detail-uptime">${c.uptime || ''}</span>
             </div>
             <div class="container-detail-stats">
@@ -9773,7 +9785,7 @@
         }
         document.getElementById('statusList').innerHTML = data.apps.map(a =>
           `<div class="status-row">
-            <div><span class="status-dot ${a.status}"></span>${escapeHtml(a.name)}${a.domain ? ` <span style="color:var(--text-dim);font-size:10px">${a.domain}</span>` : ''}</div>
+            <div><span class="status-dot ${a.status}" aria-label="${a.status}"></span>${escapeHtml(a.name)}${a.domain ? ` <span style="color:var(--text-dim);font-size:10px">${a.domain}</span>` : ''}</div>
             <div style="display:flex;gap:12px;align-items:center">
               ${a.response_ms !== null ? `<span style="font-size:10px;color:var(--text-dim)">${a.response_ms}ms</span>` : ''}
               ${a.uptime_24h !== null ? `<span style="font-size:10px;font-weight:500;color:${a.uptime_24h >= 99.5 ? 'var(--green)' : a.uptime_24h >= 95 ? 'var(--yellow)' : 'var(--red)'}">${a.uptime_24h}%</span>` : ''}
