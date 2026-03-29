@@ -10,9 +10,10 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
       let status = 'unknown';
       let response_ms = null;
       try {
-        if (a.health) {
+        if (a.health && a.domain) {
+          const healthUrl = `https://${a.domain}${a.health}`;
           const start = Date.now();
-          const r = await fetch(a.health, { signal: AbortSignal.timeout(TIMEOUT_QUICK) });
+          const r = await fetch(healthUrl, { signal: AbortSignal.timeout(TIMEOUT_QUICK) });
           response_ms = Date.now() - start;
           status = r.ok ? 'up' : 'degraded';
         } else {
