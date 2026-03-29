@@ -914,7 +914,7 @@ app.get('/api/ssl', asyncRoute(async (_req, res) => {
 
   const https = await import('https');
   const domains = config.apps
-    .filter(a => a.domain && a.type !== 'redirect')
+    .filter(a => a.domain && a.type !== 'redirect' && !/^\d+\.\d+\.\d+\.\d+$/.test(a.domain))
     .map(a => a.domain);
 
   const results = {};
@@ -2590,7 +2590,7 @@ cron.schedule('0 7 * * *', guardedCron('ssl-expiry', async () => {
   try {
     const expiring = [];
     for (const a of config.apps) {
-      if (!a.domain) continue;
+      if (!a.domain || /^\d+\.\d+\.\d+\.\d+$/.test(a.domain)) continue;
       try {
         assertSafeDomain(a.domain);
         const result = execSync(`echo | openssl s_client -servername "${a.domain}" -connect "${a.domain}:443" 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null`, { timeout: TIMEOUT_MEDIUM }).toString().trim();
