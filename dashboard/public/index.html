@@ -5073,10 +5073,15 @@
       const sel = document.getElementById('contentAppFilter');
       if (!sel || sel.options.length > 1) return;
       const marketable = (appData || []).filter(a => a.type === 'saas' || a.type === 'tool');
+      const frag = document.createDocumentFragment();
       for (const app of marketable) {
         const slug = app.name.toLowerCase().replace(/\s+/g, '-');
-        sel.innerHTML += `<option value="${slug}">${escapeHtml(app.name)}</option>`;
+        const opt = document.createElement('option');
+        opt.value = slug;
+        opt.textContent = app.name;
+        frag.appendChild(opt);
       }
+      sel.appendChild(frag);
     }
 
     function renderMktContent() {

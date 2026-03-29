@@ -3,7 +3,8 @@
 import { readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // --- ANSI colors ---
 const c = {
@@ -12,8 +13,11 @@ const c = {
   blue: '\x1b[34m', cyan: '\x1b[36m', white: '\x1b[37m',
 };
 
+const __clidir = dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = join(homedir(), '.dockfolio.json');
+const VERSION = JSON.parse(readFileSync(join(__clidir, 'package.json'), 'utf8')).version;
 const args = process.argv.slice(2);
+if (args.includes('--version') || args.includes('-V')) { console.log(`dockfolio ${VERSION}`); process.exit(0); }
 const jsonMode = args.includes('--json');
 const filteredArgs = args.filter(a => a !== '--json' && a !== '-y' && a !== '--yes');
 const command = filteredArgs[0] || 'help';
@@ -342,8 +346,9 @@ function cmdHelp() {
   ];
   for (const [cmd, desc] of cmds) out(`  ${c.green}${cmd.padEnd(22)}${c.reset}${desc}`);
   out(`\n  ${c.dim}Options:${c.reset}`);
-  out(`    ${c.yellow}--json${c.reset}    Output raw JSON`);
-  out(`    ${c.yellow}-y, --yes${c.reset} Skip confirmation prompts\n`);
+  out(`    ${c.yellow}--json${c.reset}       Output raw JSON`);
+  out(`    ${c.yellow}-y, --yes${c.reset}    Skip confirmation prompts`);
+  out(`    ${c.yellow}-V, --version${c.reset} Show version\n`);
   out(`  ${c.dim}Config: ${CONFIG_PATH}${c.reset}\n`);
 }
 
