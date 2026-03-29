@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -25,7 +25,6 @@ const subArgs = filteredArgs.slice(1);
 
 // --- Config ---
 function loadConfig() {
-  if (!existsSync(CONFIG_PATH)) return null;
   try { return JSON.parse(readFileSync(CONFIG_PATH, 'utf8')); } catch { return null; }
 }
 
