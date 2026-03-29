@@ -3746,7 +3746,7 @@
     }
 
     async function recreateContainer(slug, btn) {
-      if (!confirm('This will recreate the container with the new environment. Continue?')) return;
+      confirmAction('Recreate Container', 'This will recreate the container with the new environment. Continue?', async () => {
       const orig = btn.textContent;
       btn.textContent = 'Recreating...';
       btn.disabled = true;
@@ -3767,6 +3767,7 @@
         btn.style.color = 'var(--red)';
       }
       setTimeout(() => { btn.textContent = orig; btn.style.color = 'var(--blue)'; btn.disabled = false; }, 5000);
+      });
     }
 
     // --- API Key Health ---
@@ -5262,15 +5263,16 @@
       fetchCrosspromo();
     }
 
-    async function deleteCrosspromo(id) {
-      if (!confirm('Delete this campaign?')) return;
-      try {
-        const res = await apiFetch('/api/marketing/crosspromo/' + id, { method: 'DELETE' });
-        if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Delete failed'); }
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-      fetchCrosspromo();
+    function deleteCrosspromo(id) {
+      confirmAction('Delete Campaign', 'Delete this campaign?', async () => {
+        try {
+          const res = await apiFetch('/api/marketing/crosspromo/' + id, { method: 'DELETE' });
+          if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Delete failed'); }
+        } catch (err) {
+          showToast(err.message, 'error');
+        }
+        fetchCrosspromo();
+      });
     }
 
     function showCrosspromoForm() {
@@ -5447,14 +5449,15 @@
       finally { btn.disabled = false; btn.textContent = 'Create'; }
     }
 
-    async function deleteBanner(id) {
-      if (!confirm('Delete this banner and all its placements?')) return;
-      try {
-        const res = await apiFetch('/api/marketing/banners/' + id, { method: 'DELETE' });
-        if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Delete failed'); }
-        showToast('Banner deleted', 'success');
-      } catch (err) { showToast(err.message, 'error'); }
-      bannersData = null; fetchBanners();
+    function deleteBanner(id) {
+      confirmAction('Delete Banner', 'Delete this banner and all its placements?', async () => {
+        try {
+          const res = await apiFetch('/api/marketing/banners/' + id, { method: 'DELETE' });
+          if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Delete failed'); }
+          showToast('Banner deleted', 'success');
+        } catch (err) { showToast(err.message, 'error'); }
+        bannersData = null; fetchBanners();
+      });
     }
 
     async function regenerateBanner(id) {
@@ -5666,13 +5669,14 @@
       } catch (err) { showToast(err.message, 'error'); }
     }
 
-    async function deletePlaybookEntry(id) {
-      if (!confirm('Delete this playbook entry?')) return;
-      try {
-        const res = await apiFetch('/api/marketing/playbooks/' + id, { method: 'DELETE' });
-        if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Failed'); }
-        playbookData = null; fetchPlaybook();
-      } catch (err) { showToast(err.message, 'error'); }
+    function deletePlaybookEntry(id) {
+      confirmAction('Delete Entry', 'Delete this playbook entry?', async () => {
+        try {
+          const res = await apiFetch('/api/marketing/playbooks/' + id, { method: 'DELETE' });
+          if (!res.ok) { const err = await res.json(); throw new Error(err.error || 'Failed'); }
+          playbookData = null; fetchPlaybook();
+        } catch (err) { showToast(err.message, 'error'); }
+      });
     }
 
     async function generatePlaybook() {
@@ -6102,27 +6106,28 @@
       }
     }
 
-    async function restartContainer(name, btn) {
-      if (!confirm(`Restart container "${name}"?`)) return;
-      const orig = btn.textContent;
-      btn.textContent = 'Restarting...';
-      btn.disabled = true;
-      try {
-        const res = await apiFetch(`/api/containers/${name}/restart`, { method: 'POST' });
-        const data = await res.json();
-        if (data.ok) {
-          btn.textContent = 'Restarted';
-          btn.style.color = 'var(--green)';
-          setTimeout(() => fetchAll(), 3000);
-        } else {
-          btn.textContent = 'Failed';
+    function restartContainer(name, btn) {
+      confirmAction('Restart Container', `Restart container "${name}"?`, async () => {
+        const orig = btn.textContent;
+        btn.textContent = 'Restarting...';
+        btn.disabled = true;
+        try {
+          const res = await apiFetch(`/api/containers/${name}/restart`, { method: 'POST' });
+          const data = await res.json();
+          if (data.ok) {
+            btn.textContent = 'Restarted';
+            btn.style.color = 'var(--green)';
+            setTimeout(() => fetchAll(), 3000);
+          } else {
+            btn.textContent = 'Failed';
+            btn.style.color = 'var(--red)';
+          }
+        } catch (err) {
+          btn.textContent = 'Error';
           btn.style.color = 'var(--red)';
         }
-      } catch (err) {
-        btn.textContent = 'Error';
-        btn.style.color = 'var(--red)';
-      }
-      setTimeout(() => { btn.textContent = orig; btn.style.color = 'var(--yellow)'; btn.disabled = false; }, 5000);
+        setTimeout(() => { btn.textContent = orig; btn.style.color = 'var(--yellow)'; btn.disabled = false; }, 5000);
+      });
     }
 
     function escapeHtml(str) {
@@ -6196,18 +6201,19 @@
         }
       }
 
-      async function restartAllContainers() {
+      function restartAllContainers() {
         const app = appData.find(a => (a.slug || slugify(a.name)) === ctxSlug);
         if (!app?.containerStatuses?.length) return;
         const names = app.containerStatuses.map(c => c.name).join(', ');
-        if (!confirm('Restart all containers for ' + app.name + '?\n\n' + names)) return;
-        for (const c of app.containerStatuses) {
-          try {
-            await apiFetch('/api/containers/' + c.name + '/restart', { method: 'POST' });
-          } catch (e) { /* continue */ }
-        }
-        showToast('Restarted all containers for ' + app.name, 'success');
-        setTimeout(() => fetchAll(), 3000);
+        confirmAction('Restart All Containers', 'Restart all containers for ' + app.name + '?\n\n' + names, async () => {
+          for (const c of app.containerStatuses) {
+            try {
+              await apiFetch('/api/containers/' + c.name + '/restart', { method: 'POST' });
+            } catch (e) { /* continue */ }
+          }
+          showToast('Restarted all containers for ' + app.name, 'success');
+          setTimeout(() => fetchAll(), 3000);
+        });
       }
 
       async function runCtxSeoAudit() {
@@ -6330,14 +6336,15 @@
       }).join('');
     }
 
-    async function renewSSL(domain) {
-      if (!confirm(`Renew SSL certificate for ${domain}?`)) return;
-      try {
-        const res = await apiFetch('/api/ssl/renew', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ domain }) });
-        const data = await res.json();
-        if (data.ok) { showToast(`SSL renewed for ${domain}`); sslData = {}; setTimeout(() => { apiFetch('/api/ssl').then(r => r.json()).then(d => { sslData = d; renderSSLPanel(); }); }, 2000); }
-        else showToast(`Renewal failed: ${data.error}`, 'error');
-      } catch (e) { showToast('Renewal failed: ' + e.message, 'error'); }
+    function renewSSL(domain) {
+      confirmAction('Renew SSL', `Renew SSL certificate for ${domain}?`, async () => {
+        try {
+          const res = await apiFetch('/api/ssl/renew', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ domain }) });
+          const data = await res.json();
+          if (data.ok) { showToast(`SSL renewed for ${domain}`); sslData = {}; setTimeout(() => { apiFetch('/api/ssl').then(r => r.json()).then(d => { sslData = d; renderSSLPanel(); }); }, 2000); }
+          else showToast(`Renewal failed: ${data.error}`, 'error');
+        } catch (e) { showToast('Renewal failed: ' + e.message, 'error'); }
+      });
     }
 
     let modalPreviousFocus = null;
@@ -6363,25 +6370,26 @@
     document.getElementById('modal').addEventListener('click', (e) => {
       if (e.target === e.currentTarget) closeModal();
     });
-    async function dockerPrune(btn) {
-      if (!confirm('Run Docker prune? This removes stopped containers, dangling images, and build cache.')) return;
-      const orig = btn.textContent;
-      btn.textContent = 'Pruning...';
-      btn.disabled = true;
-      try {
-        const res = await apiFetch('/api/actions/prune', { method: 'POST' });
-        const data = await res.json();
-        if (data.ok) {
-          const freed = data.spaceReclaimed > 0 ? ' Freed ' + fmt(data.spaceReclaimed) : '';
-          btn.textContent = 'Done!' + freed;
-          btn.style.color = 'var(--green)';
-          setTimeout(() => fetchAll(), 2000);
-        } else {
-          btn.textContent = 'Failed';
-          btn.style.color = 'var(--red)';
-        }
-      } catch { btn.textContent = 'Error'; btn.style.color = 'var(--red)'; }
-      setTimeout(() => { btn.textContent = orig; btn.style.color = ''; btn.disabled = false; }, 5000);
+    function dockerPrune(btn) {
+      confirmAction('Docker Prune', 'Run Docker prune? This removes stopped containers, dangling images, and build cache.', async () => {
+        const orig = btn.textContent;
+        btn.textContent = 'Pruning...';
+        btn.disabled = true;
+        try {
+          const res = await apiFetch('/api/actions/prune', { method: 'POST' });
+          const data = await res.json();
+          if (data.ok) {
+            const freed = data.spaceReclaimed > 0 ? ' Freed ' + fmt(data.spaceReclaimed) : '';
+            btn.textContent = 'Done!' + freed;
+            btn.style.color = 'var(--green)';
+            setTimeout(() => fetchAll(), 2000);
+          } else {
+            btn.textContent = 'Failed';
+            btn.style.color = 'var(--red)';
+          }
+        } catch { btn.textContent = 'Error'; btn.style.color = 'var(--red)'; }
+        setTimeout(() => { btn.textContent = orig; btn.style.color = ''; btn.disabled = false; }, 5000);
+      });
     }
 
     // Search/filter
@@ -6611,7 +6619,7 @@
         openDetail(r.name);
       } else if (r.type === 'action') {
         if (r.action === 'log') openDetail(r.app);
-        else if (r.action === 'restart') { if (confirm(`Restart ${r.app}?`)) apiFetch(`/api/containers/${r.slug}/restart`, { method: 'POST' }).then(() => fetchAll()).catch(err => alert(`Restart failed: ${err.message}`)); }
+        else if (r.action === 'restart') { confirmAction('Restart', `Restart ${r.app}?`, () => { apiFetch(`/api/containers/${r.slug}/restart`, { method: 'POST' }).then(() => fetchAll()).catch(err => showToast(`Restart failed: ${err.message}`, 'error')); }); }
         else if (r.action === 'seo') { toggleMarketing(); setTimeout(() => switchMktTab('seo', document.querySelector('.mkt-tab:nth-child(4)')), 100); }
         else if (r.action === 'revenue') { toggleMarketing(); setTimeout(() => switchMktTab('revenue', document.querySelector('.mkt-tab:nth-child(2)')), 100); }
         else if (r.action === 'env') openDetail(r.app);
@@ -7028,15 +7036,16 @@
       } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
     }
 
-    async function rollbackSnapshot(id) {
-      if (!confirm('Rollback to this snapshot? This will tag the old image for manual restart.')) return;
-      try {
-        const res = await apiFetch(`/api/snapshots/${id}/rollback`, { method: 'POST' });
-        const data = await res.json();
-        if (data.error) { showToast(data.error, 'error'); return; }
-        showToast(`Rollback prepared: ${data.rollbackTag}. ${data.message}`, 'success');
-        fetchSnapshots();
-      } catch (err) { showToast('Rollback failed: ' + err.message, 'error'); }
+    function rollbackSnapshot(id) {
+      confirmAction('Rollback Snapshot', 'Rollback to this snapshot? This will tag the old image for manual restart.', async () => {
+        try {
+          const res = await apiFetch(`/api/snapshots/${id}/rollback`, { method: 'POST' });
+          const data = await res.json();
+          if (data.error) { showToast(data.error, 'error'); return; }
+          showToast(`Rollback prepared: ${data.rollbackTag}. ${data.message}`, 'success');
+          fetchSnapshots();
+        } catch (err) { showToast('Rollback failed: ' + err.message, 'error'); }
+      });
     }
 
     // === Deploy History Panel ===
@@ -7738,10 +7747,11 @@
       loadAlertRules();
     }
 
-    async function deleteAlertRule(id) {
-      if (!confirm('Delete this alert rule?')) return;
-      await apiFetch(`/api/alerts/rules/${id}`, { method: 'DELETE' });
-      loadAlertRules();
+    function deleteAlertRule(id) {
+      confirmAction('Delete Alert Rule', 'Delete this alert rule?', async () => {
+        await apiFetch(`/api/alerts/rules/${id}`, { method: 'DELETE' });
+        loadAlertRules();
+      });
     }
 
     // --- What If Simulator ---
@@ -7833,10 +7843,11 @@
       } catch (err) { alert('Fehler: ' + err.message); }
     }
 
-    async function deleteMaintWindow(id) {
-      if (!confirm('Wartungsfenster loeschen?')) return;
-      await apiFetch(`/api/maintenance/${id}`, { method: 'DELETE' });
-      loadMaintWindows();
+    function deleteMaintWindow(id) {
+      confirmAction('Delete Window', 'Wartungsfenster loeschen?', async () => {
+        await apiFetch(`/api/maintenance/${id}`, { method: 'DELETE' });
+        loadMaintWindows();
+      });
     }
 
     async function loadAuditLog() {
@@ -8141,13 +8152,14 @@
       }
     }
 
-    async function removeApp(slug) {
-      if (!confirm('Remove this app from the dashboard? (This does not stop the container)')) return;
-      try {
-        await apiFetch('/api/config/apps/' + slug, { method: 'DELETE' });
-        loadSettings();
-        fetchAll();
-      } catch {}
+    function removeApp(slug) {
+      confirmAction('Remove App', 'Remove this app from the dashboard? (This does not stop the container)', async () => {
+        try {
+          await apiFetch('/api/config/apps/' + slug, { method: 'DELETE' });
+          loadSettings();
+          fetchAll();
+        } catch {}
+      });
     }
 
     // --- App Config Wizard ---
@@ -8933,7 +8945,7 @@
 
     async function completeTask(id) { try { await apiFetch('/api/projects/tasks/' + id + '/complete', { method: 'POST' }); fetchProjectTasks(); fetchProjectsOverview(true); } catch {} }
     async function updateTaskStatus(id, status) { try { await apiPost('/api/projects/tasks/' + id, { status }, 'PUT'); fetchProjectTasks(); } catch {} }
-    async function deleteTask(id) { if (!confirm('Delete this task?')) return; try { await apiFetch('/api/projects/tasks/' + id, { method: 'DELETE' }); fetchProjectTasks(); fetchProjectsOverview(true); showToast('Task deleted', 'success'); } catch {} }
+    function deleteTask(id) { confirmAction('Delete Task', 'Delete this task?', async () => { try { await apiFetch('/api/projects/tasks/' + id, { method: 'DELETE' }); fetchProjectTasks(); fetchProjectsOverview(true); showToast('Task deleted', 'success'); } catch {} }); }
 
     // --- Roadmap ---
     async function fetchProjectRoadmap() {
