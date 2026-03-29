@@ -1594,14 +1594,16 @@ export default function registerMarketingRoutes({
       const bfUrl = getBannerForgeUrl();
       if (!bfUrl) return res.status(400).json({ error: 'BannerForge not configured. Set BANNERFORGE_URL or add BannerForge to your apps.' });
       try {
+        const defaultColors = { primary: '#1a1a2e', secondary: '#e94560', accent: '#0f3460', background: '#ffffff', text: '#1a1a2e' };
         const renderResp = await fetch(bfUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             layout: bfc.layout || 'centered-bold',
-            brand: bfc.brand || { companyName: name, colors: ['#1a1a2e', '#e94560', '#0f3460'] },
-            copy: bfc.copy || { headline: name, cta: 'Learn More' },
-            size: { width: w, height: h },
+            brand: bfc.brand || { name, tagline: name, description: '', colors: defaultColors, logoUrl: null, screenshotUrl: null, ctas: ['Learn More'], headlines: [name], favicon: null },
+            copy: bfc.copy || { headline: name, subheading: '', cta: 'Learn More', emotionalAngle: 'curiosity' },
+            size: { name: `${w}x${h}`, width: w, height: h },
+            colors: bfc.colors || defaultColors,
             format: 'png',
           }),
           signal: AbortSignal.timeout(TIMEOUT_MEDIUM),
@@ -1673,14 +1675,16 @@ export default function registerMarketingRoutes({
     const bfc = safeJSON(banner.bannerforge_config, {});
     const bfUrl = getBannerForgeUrl();
     if (!bfUrl) return res.status(400).json({ error: 'BannerForge not configured. Set BANNERFORGE_URL or add BannerForge to your apps.' });
+    const defaultColors = { primary: '#1a1a2e', secondary: '#e94560', accent: '#0f3460', background: '#ffffff', text: '#1a1a2e' };
     const renderResp = await fetch(bfUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         layout: bfc.layout || 'centered-bold',
-        brand: bfc.brand || { companyName: banner.name, colors: ['#1a1a2e', '#e94560', '#0f3460'] },
-        copy: bfc.copy || { headline: banner.name, cta: 'Learn More' },
-        size: { width: banner.width, height: banner.height },
+        brand: bfc.brand || { name: banner.name, tagline: banner.name, description: '', colors: defaultColors, logoUrl: null, screenshotUrl: null, ctas: ['Learn More'], headlines: [banner.name], favicon: null },
+        copy: bfc.copy || { headline: banner.name, subheading: '', cta: 'Learn More', emotionalAngle: 'curiosity' },
+        size: { name: `${banner.width}x${banner.height}`, width: banner.width, height: banner.height },
+        colors: bfc.colors || defaultColors,
         format: 'png',
       }),
       signal: AbortSignal.timeout(TIMEOUT_MEDIUM),
