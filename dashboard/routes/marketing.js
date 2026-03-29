@@ -1993,24 +1993,95 @@ export default function registerMarketingRoutes({
   }));
 
   // =============================================
-  // Auto-Place
+  // Cross-Promo Pairings (config-driven)
   // =============================================
 
-  app.post('/api/marketing/crosspromo/auto-place', asyncRoute(async (req, res) => {
-    const traffic = db.prepare("SELECT app_slug, SUM(visitors) as visitors FROM analytics_daily WHERE date >= date('now', '-30 days') GROUP BY app_slug ORDER BY visitors DESC").all();
-    const banners = db.prepare("SELECT * FROM banners WHERE status = 'active'").all();
-    const placements = [];
-    for (const appDef of traffic) {
-      const otherBanners = banners.filter(b => b.app_slug !== appDef.app_slug);
-      if (otherBanners.length === 0) continue;
-      const sorted = otherBanners.sort((a, b) => {
-        const aT = traffic.find(t => t.app_slug === a.app_slug)?.visitors || 0;
-        const bT = traffic.find(t => t.app_slug === b.app_slug)?.visitors || 0;
-        return aT - bT;
-      }).slice(0, 2);
-      for (const banner of sorted) placements.push({ app_slug: appDef.app_slug, banner_id: banner.id });
+  // GET pairings from config.yml crossPromo section
+  app.get('/api/marketing/crosspromo/pairings', asyncRoute((_req, res) => {
+    const pairings = config.crossPromo || [];
+    const result = pairings.map(p => {
+      const sourceApp = findAppBySlug(p.source);
+      const targetApps = (p.targets || []).map(t => {
+        const app = findAppBySlug(t);
+        return { slug: t, name: app?.name || t, domain: app?.domain || null };
+      });
+      return {
+        source: p.source,
+        sourceName: sourceApp?.name || p.source,
+        sourceDomain: sourceApp?.domain || null,
+        targets: targetApps,
+      };
+    });
+    res.json(result);
+  }));
+
+  // Provision banners + placements from config pairings.
+  // Creates a text banner per target app (if not exists) and a placement per source→target pair.
+  // Dry-run by default; pass { "activate": true } to set placements to active.
+  app.post('/api/marketing/crosspromo/provision', asyncRoute((_req, res) => {
+    const pairings = config.crossPromo || [];
+    if (pairings.length === 0) return res.status(400).json({ error: 'No crossPromo pairings in config.yml' });
+
+    const activate = _req.body.activate === true;
+    const created = { banners: [], placements: [] };
+    const skipped = { banners: [], placements: [] };
+
+    // Collect all unique target slugs that need banners
+    const targetSlugs = new Set();
+    for (const p of pairings) {
+      for (const t of (p.targets || [])) targetSlugs.add(t);
     }
-    res.json({ placements, count: placements.length });
+
+    // Ensure a banner exists for each target app (tagged with "crosspromo,{slug}")
+    const bannerMap = new Map(); // slug -> banner id
+    for (const slug of targetSlugs) {
+      const tag = `crosspromo,${slug}`;
+      const existing = db.prepare("SELECT id FROM banners WHERE tags LIKE ?").get(`%${tag}%`);
+      if (existing) {
+        bannerMap.set(slug, existing.id);
+        skipped.banners.push(slug);
+        continue;
+      }
+
+      const appDef = findAppBySlug(slug);
+      const name = appDef?.name || slug;
+      const domain = appDef?.domain || '#';
+      const tagline = appDef?.marketing?.tagline || name;
+      const colors = ['#1a1a2e', '#0f3460'];
+      const content = `<div style="width:728px;height:90px;background:linear-gradient(135deg,${colors[0]},${colors[1]});display:flex;align-items:center;justify-content:center;color:#fff;font-family:system-ui;border-radius:8px;padding:12px"><strong>${tagline}</strong>&nbsp;&mdash;&nbsp;Check it out &rarr;</div>`;
+
+      const result = db.prepare(`
+        INSERT INTO banners (name, type, width, height, content, click_url, tags)
+        VALUES (?, 'custom_html', 728, 90, ?, ?, ?)
+      `).run(`Cross-promo: ${name}`, content, `https://${domain}`, tag);
+      bannerMap.set(slug, result.lastInsertRowid);
+      created.banners.push({ slug, bannerId: result.lastInsertRowid });
+    }
+
+    // Create placements for each source→target pair
+    for (const p of pairings) {
+      for (const target of (p.targets || [])) {
+        const bannerId = bannerMap.get(target);
+        if (!bannerId) continue;
+
+        const existing = db.prepare(
+          "SELECT id FROM banner_placements WHERE banner_id = ? AND app_slug = ?"
+        ).get(bannerId, p.source);
+        if (existing) {
+          skipped.placements.push({ source: p.source, target });
+          continue;
+        }
+
+        const status = activate ? 'active' : 'draft';
+        const result = db.prepare(`
+          INSERT INTO banner_placements (banner_id, app_slug, position, status, weight)
+          VALUES (?, ?, 'default', ?, 100)
+        `).run(bannerId, p.source, status);
+        created.placements.push({ source: p.source, target, placementId: result.lastInsertRowid, status });
+      }
+    }
+
+    res.json({ created, skipped, activate });
   }));
 
   // =============================================

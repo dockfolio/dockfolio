@@ -65,3 +65,42 @@ apps:
     redirectTo: new-domain.com
     containers: []
     description: Domain redirect
+
+# Cross-promotion pairings: which apps promote which.
+# Each entry maps a source app (where the banner appears) to target apps (what gets promoted).
+# - source: app slug where the banner is displayed
+# - targets: list of app slugs to promote on that source (max 2 recommended)
+# - Each target needs a banner in the banners table; use POST /api/marketing/crosspromo/provision to auto-create them.
+# Rules: same-language only, no self-promo, max 2 targets per source.
+crossPromo:
+  # German career/finance cluster
+  - source: abschlusscheck
+    targets: [lohncheck, headshot-ai]
+  - source: lohncheck
+    targets: [abfindungsoptimizer, headshot-ai]
+  - source: headshot-ai
+    targets: [abschlusscheck, lohncheck]
+  - source: abfindungsoptimizer
+    targets: [lohncheck, schenkungsplaner]
+  - source: schenkungsplaner
+    targets: [abfindungsoptimizer, best-age]
+
+  # German community/lifestyle
+  - source: best-age
+    targets: [schenkungsplaner]
+  - source: agorahoch3
+    targets: [best-age]
+
+  # English maker/creative cluster
+  - source: promoforge
+    targets: [bannerforge]
+  - source: bannerforge
+    targets: [promoforge]
+  - source: old-world-logos
+    targets: [sacredlens]
+  - source: creative-programmer
+    targets: [code-with-rigor]
+  - source: code-with-rigor
+    targets: [creative-programmer]
+  - source: theadhdmind
+    targets: [creative-programmer]
