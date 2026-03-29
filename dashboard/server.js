@@ -150,7 +150,7 @@ function resolveContainerApp(containerName) {
 }
 
 function getAuditDomains() {
-  return (config.apps || []).filter(a => a.domain && a.type !== 'redirect').map(a => ({ domain: a.domain, slug: slugify(a.name) }));
+  return (config.apps || []).filter(a => a.domain && a.type !== 'redirect' && !/^\d+\.\d+\.\d+\.\d+$/.test(a.domain)).map(a => ({ domain: a.domain, slug: slugify(a.name) }));
 }
 
 app.use(helmet({
@@ -171,6 +171,10 @@ app.use(helmet({
   }
 }));
 app.use(express.json({ limit: '1mb', verify: (req, _res, buf) => { req.rawBody = buf; } }));
+app.use((err, req, res, next) => {
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON' });
+  next(err);
+});
 app.use(cookieParser());
 
 // --- Request duration ring buffer ---
@@ -2539,6 +2543,14 @@ cron.schedule('30 3 * * *', guardedCron('data-retention', () => {
     console.log(`[CLEANUP] Pruned ${deletedEvents.changes} error events, ${deletedPerf.changes} perf metrics`);
   } catch (err) { cronFail('Data retention cleanup', err); }
 }));
+
+// Weekly Sunday 3:45 AM: Docker build cache prune
+cron.schedule('45 3 * * 0', () => {
+  try {
+    const result = execSync('docker builder prune --filter until=168h -f 2>&1 | tail -1', { timeout: TIMEOUT_HEAVY }).toString().trim();
+    console.log(`[CLEANUP] Docker build cache prune: ${result}`);
+  } catch (err) { cronFail('Docker build cache prune', err); }
+});
 
 // Daily 4:00 AM: Database maintenance (WAL checkpoint + cleanup)
 cron.schedule('0 4 * * *', guardedCron('db-maintenance', () => {
