@@ -4,7 +4,7 @@
 
 ## Summary
 
-Completed all cross-promo banner deployment work from session 2. Deployed BannerForge and Headshot AI to VM. Fixed CSP across 7 nginx site configs to allow admin.crelvo.dev scripts. Fixed PromoForge banner delivery (React SPA strips body scripts — moved embed.js to `<head>`, rebuilt Docker image). Removed agorahoch3 from cross-promo system (not user's website). All 11 sites with banner placements now verified working.
+Completed all cross-promo banner deployment work from session 2. Deployed BannerForge, Headshot AI, and PromoForge to VM. Fixed CSP across 7 nginx site configs. Fixed PromoForge banner delivery (React body replacement). Removed agorahoch3 from cross-promo (not user's website). All 11 owned sites with banner placements verified working. Fixed /api/status endpoint (was showing 29/31 apps as "down"), parallelized health checks (155s → 1s), added 90-day uptime heatmap to public status page, fixed duplicate security headers on BannerForge/AbschlussCheck, standardized X-Frame-Options across all sites, exposed public API endpoints through nginx. Pruned Docker build cache (77% → 53% disk).
 
 ## Completed
 
@@ -49,6 +49,16 @@ Completed all cross-promo banner deployment work from session 2. Deployed Banner
 ## In Progress
 
 Nothing actively in progress.
+
+### Also completed this session (after initial handover update)
+- [x] **Fixed /api/status endpoint** — Was fetching bare health paths (e.g. `/health`) without constructing URLs. Now uses `https://DOMAIN/health`. All 31 apps show correct status
+- [x] **Parallelized status health checks** — Changed from sequential to Promise.all. Response time ~155s → ~1s
+- [x] **Skip bare IPs in status checks** — "The Stones Cry Out" (domain=91.99.104.132) no longer falsely shows as down
+- [x] **Auto-refresh on public status page** — Added `<meta http-equiv="refresh" content="60">`
+- [x] **90-day uptime heatmap** — New `GET /api/status/heatmap` endpoint + visual heatmap bars on `/status` page. Color coded: green (99.9%+), light green (99%+), yellow (95%+), red (<95%)
+- [x] **Fixed duplicate security headers** — BannerForge and AbschlussCheck had nginx + Helmet both setting headers. Removed nginx-level duplicates
+- [x] **Standardized X-Frame-Options** — Changed theadhdmind + creativeprogrammer from SAMEORIGIN to DENY for consistency
+- [x] **Exposed public nginx endpoints** — Added auth_basic off for /status, /api/status, /api/status-page, /health, /api/health, /login, /api/auth/ in appmanager nginx config
 
 ## Decisions Made
 
@@ -102,8 +112,9 @@ Nothing actively in progress.
 
 ## Files Modified This Session
 
-### Dockfolio (uncommitted)
+### Dockfolio (4 commits: 5b100e3 through b14b26d — all pushed + deployed)
 - `dashboard/config.example.yml` — Removed agorahoch3 from crossPromo pairings
+- `dashboard/routes/status.js` — Fixed /api/status URL construction, parallelized health checks, skip bare IPs, auto-refresh, 90-day heatmap API + visualization
 - `HANDOVER.md` — This file
 
 ### PromoForge (2 commits: 7e9e3fc, 2c013cc — both pushed)
@@ -119,5 +130,10 @@ Nothing actively in progress.
 - `/home/deploy/nginx-configs/sites/lohnpruefung` — Added admin.crelvo.dev to CSP
 - `/home/deploy/nginx-configs/sites/sacredlens` — Added admin.crelvo.dev to CSP + unsafe-inline
 - `/home/deploy/nginx-configs/sites/agorahoch3` — Removed embed.js/track.js injection
+- `/home/deploy/nginx-configs/sites/bannerforge` — Removed duplicate security headers (app Helmet handles them)
+- `/home/deploy/nginx-configs/sites/abschlusscheck.de` — Removed duplicate security headers
+- `/home/deploy/nginx-configs/sites/theadhdmind` — X-Frame-Options SAMEORIGIN → DENY
+- `/home/deploy/nginx-configs/sites/creativeprogrammer` — X-Frame-Options SAMEORIGIN → DENY
+- `/home/deploy/nginx-configs/sites/appmanager` — Added auth_basic off for public endpoints (/status, /api/status, /api/health, /login, /api/auth/)
 - `/home/deploy/appmanager/dashboard/config.yml` — Removed agorahoch3 from crossPromo
 - `/opt/promoforge/web/index.html` — Added embed.js to head
