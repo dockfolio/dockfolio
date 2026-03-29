@@ -124,6 +124,34 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
     });
   }));
 
+  // GET /api/status/heatmap — 90-day uptime heatmap data per app
+  app.get('/api/status/heatmap', rlPublicRead, asyncRoute(async (req, res) => {
+    const days = Math.min(parseInt(req.query.days) || 90, 365);
+    const slug = req.query.app;
+
+    const rows = db.prepare(`
+      SELECT app_slug, date(checked_at) as day, COUNT(*) as total,
+        SUM(CASE WHEN status IN ('up','healthy') THEN 1 ELSE 0 END) as up_count
+      FROM uptime_history
+      WHERE checked_at > datetime('now', '-' || ? || ' days')
+      ${slug ? 'AND app_slug = ?' : ''}
+      GROUP BY app_slug, day
+      ORDER BY app_slug, day
+    `).all(...(slug ? [days, slug] : [days]));
+
+    const heatmap = {};
+    for (const row of rows) {
+      if (!heatmap[row.app_slug]) heatmap[row.app_slug] = [];
+      heatmap[row.app_slug].push({
+        date: row.day,
+        uptime: +(row.up_count / row.total * 100).toFixed(2),
+        checks: row.total,
+      });
+    }
+
+    res.json({ days, generated_at: new Date().toISOString(), apps: heatmap });
+  }));
+
   // GET /status — public status page HTML
   app.get('/status', (_req, res) => {
     res.send(generateStatusPageHTML());
@@ -144,6 +172,19 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
       incidentsByApp[row.app_slug].push(row);
     }
 
+    // Daily uptime for 90-day heatmap bars
+    const dailyUptime = db.prepare(`
+      SELECT app_slug, date(checked_at) as day, COUNT(*) as total,
+        SUM(CASE WHEN status IN ('up','healthy') THEN 1 ELSE 0 END) as up_count
+      FROM uptime_history WHERE checked_at > datetime('now', '-90 days')
+      GROUP BY app_slug, day ORDER BY day
+    `).all();
+    const dailyByApp = {};
+    for (const row of dailyUptime) {
+      if (!dailyByApp[row.app_slug]) dailyByApp[row.app_slug] = {};
+      dailyByApp[row.app_slug][row.day] = +(row.up_count / row.total * 100).toFixed(1);
+    }
+
     const apps = [];
     for (const appDef of config.apps) {
       if (!appDef.domain) continue;
@@ -156,28 +197,47 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
 
       const recentIncidents = (incidentsByApp[slug] || []).slice(0, 3);
 
-      apps.push({ name: appDef.name, domain: appDef.domain, uptimePct, incidents: recentIncidents });
+      apps.push({ name: appDef.name, domain: appDef.domain, slug, uptimePct, incidents: recentIncidents, daily: dailyByApp[slug] || {} });
     }
 
     const allOperational = apps.every(a => !a.incidents.length);
     const overallStatus = allOperational ? 'All Systems Operational' : 'Some Systems Have Recent Incidents';
     const overallColor = allOperational ? '#22c55e' : '#eab308';
 
+    // Generate 90 dates for heatmap
+    const heatmapDates = [];
+    for (let i = 89; i >= 0; i--) {
+      const d = new Date(Date.now() - i * MS_PER_DAY);
+      heatmapDates.push(d.toISOString().split('T')[0]);
+    }
+
     let appRows = '';
     for (const app of apps) {
       const uptime = app.uptimePct ? `${app.uptimePct}%` : 'N/A';
       const color = !app.uptimePct ? '#6b7280' : app.uptimePct >= 99.9 ? '#22c55e' : app.uptimePct >= 99 ? '#eab308' : '#ef4444';
       const statusDot = app.incidents.length > 0 ? '#eab308' : '#22c55e';
+
+      // Build heatmap bars
+      let bars = '';
+      for (const date of heatmapDates) {
+        const pct = app.daily[date];
+        const barColor = pct === undefined ? '#1e293b' : pct >= 99.9 ? '#22c55e' : pct >= 99 ? '#86efac' : pct >= 95 ? '#eab308' : '#ef4444';
+        bars += `<span class="hm" style="background:${barColor}" title="${date}: ${pct !== undefined ? pct + '%' : 'no data'}"></span>`;
+      }
+
       appRows += `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1f2937">
-          <div>
-            <div style="font-weight:600;font-size:14px">${htmlEscape(app.name)}</div>
-            <div style="font-size:12px;color:#9ca3af">${htmlEscape(app.domain)}</div>
+        <div style="padding:12px 0;border-bottom:1px solid #1f2937">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <div>
+              <div style="font-weight:600;font-size:14px">${htmlEscape(app.name)}</div>
+              <div style="font-size:12px;color:#9ca3af">${htmlEscape(app.domain)}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <span style="font-size:13px;color:${color};font-weight:500">${uptime}</span>
+              <span style="width:10px;height:10px;border-radius:50%;background:${statusDot};display:inline-block"></span>
+            </div>
           </div>
-          <div style="display:flex;align-items:center;gap:12px">
-            <span style="font-size:13px;color:${color};font-weight:500">${uptime}</span>
-            <span style="width:10px;height:10px;border-radius:50%;background:${statusDot};display:inline-block"></span>
-          </div>
+          <div class="heatmap">${bars}</div>
         </div>`;
     }
 
@@ -196,6 +256,8 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
     .header h1{font-size:24px;font-weight:700;margin-bottom:8px}
     .status-badge{display:inline-block;padding:6px 16px;border-radius:20px;font-size:14px;font-weight:600}
     .card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px 20px;margin-bottom:16px}
+    .heatmap{display:flex;gap:1px;height:12px;border-radius:2px;overflow:hidden}
+    .hm{flex:1;min-width:0;border-radius:1px}
     .footer{text-align:center;margin-top:32px;font-size:12px;color:#64748b}
   </style>
 </head>
@@ -208,6 +270,16 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
     <div class="card">
       <h2 style="font-size:14px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Services</h2>
       ${appRows}
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#64748b;padding:0 4px;margin-bottom:16px">
+      <span>90 days ago</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="width:8px;height:8px;background:#22c55e;border-radius:1px;display:inline-block"></span>99.9%+
+        <span style="width:8px;height:8px;background:#86efac;border-radius:1px;display:inline-block"></span>99%+
+        <span style="width:8px;height:8px;background:#eab308;border-radius:1px;display:inline-block"></span>95%+
+        <span style="width:8px;height:8px;background:#ef4444;border-radius:1px;display:inline-block"></span>&lt;95%
+      </div>
+      <span>Today</span>
     </div>
     <div class="footer">
       <p>Last updated: ${new Date().toISOString().replace('T', ' ').split('.')[0]} UTC</p>
