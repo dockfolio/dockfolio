@@ -79,6 +79,34 @@ function prompt(rl, question) {
   return new Promise(resolve => rl.question(question, resolve));
 }
 
+function promptSecret(question) {
+  return new Promise(resolve => {
+    process.stdout.write(question);
+    const stdin = process.stdin;
+    const wasRaw = stdin.isRaw;
+    if (stdin.isTTY) stdin.setRawMode(true);
+    let input = '';
+    const onData = (ch) => {
+      const s = ch.toString();
+      if (s === '\n' || s === '\r' || s === '\u0004') {
+        if (stdin.isTTY) stdin.setRawMode(wasRaw || false);
+        stdin.removeListener('data', onData);
+        process.stdout.write('\n');
+        resolve(input);
+      } else if (s === '\u007f' || s === '\b') {
+        if (input.length > 0) { input = input.slice(0, -1); process.stdout.write('\b \b'); }
+      } else if (s === '\u0003') {
+        process.exit(130);
+      } else {
+        input += s;
+        process.stdout.write('*');
+      }
+    };
+    stdin.resume();
+    stdin.on('data', onData);
+  });
+}
+
 // --- Commands ---
 async function cmdInit() {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -88,7 +116,8 @@ async function cmdInit() {
     const url = (await prompt(rl, `Dashboard URL [${existing?.url || 'https://admin.crelvo.dev'}]: `))
       || existing?.url || 'https://admin.crelvo.dev';
     const username = (await prompt(rl, `Username [${existing?.username || ''}]: `)) || existing?.username || '';
-    const password = (await prompt(rl, `Password: `)) || existing?.password || '';
+    rl.close();
+    const password = (await promptSecret(`Password: `)) || existing?.password || '';
     if (!username || !password) { error('Username and password are required.'); process.exit(1); }
     const cfg = { url, username, password };
     // Test connection
