@@ -16,6 +16,8 @@ const SEO_CHECKS = [
   { id: 'sitemap', label: 'Sitemap.xml', weight: 8 },
   { id: 'robots', label: 'Robots.txt', weight: 7 },
   { id: 'favicon', label: 'Favicon', weight: 5 },
+  { id: 'www_redirect', label: 'WWW Redirect', weight: 5 },
+  { id: 'hreflang', label: 'Hreflang Tags', weight: 5 },
 ];
 
 async function auditSEO(domain, TIMEOUT_STANDARD, TIMEOUT_QUICK) {
@@ -80,6 +82,14 @@ async function auditSEO(domain, TIMEOUT_STANDARD, TIMEOUT_QUICK) {
     results.favicon = !!favicon;
     if (!favicon) issues.push({ severity: 'low', msg: 'Missing favicon link tag' });
 
+    // Hreflang check (for multi-language sites)
+    const hreflangTags = html.match(/<link[^>]*hreflang=["'][^"']*["'][^>]*/gi);
+    results.hreflang = !!(hreflangTags && hreflangTags.length > 0);
+    // Don't penalize single-language sites — only flag if lang suggests localization exists
+    if (!results.hreflang && html.match(/\/(de|es|fr|it|pt|nl|pl)\//)) {
+      issues.push({ severity: 'medium', msg: 'Multi-language paths detected but no hreflang tags found' });
+    }
+
   } catch (err) {
     issues.push({ severity: 'high', msg: `Failed to fetch homepage: ${err.message}` });
   }
@@ -106,6 +116,22 @@ async function auditSEO(domain, TIMEOUT_STANDARD, TIMEOUT_QUICK) {
   } catch {
     results.robots = false;
     issues.push({ severity: 'medium', msg: 'No robots.txt found' });
+  }
+
+  // WWW redirect check — www.domain should 301 to domain (or vice versa)
+  try {
+    const wwwRes = await fetch(`https://www.${domain}`, {
+      signal: AbortSignal.timeout(TIMEOUT_QUICK),
+      redirect: 'manual',
+    });
+    const isRedirect = wwwRes.status >= 300 && wwwRes.status < 400;
+    results.www_redirect = isRedirect;
+    if (!isRedirect) {
+      issues.push({ severity: 'high', msg: `www.${domain} serves content (HTTP ${wwwRes.status}) instead of redirecting — causes duplicate content in Google` });
+    }
+  } catch {
+    // www subdomain doesn't resolve — that's fine, treat as passing
+    results.www_redirect = true;
   }
 
   let earned = 0;
