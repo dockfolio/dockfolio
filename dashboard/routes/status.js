@@ -157,6 +157,36 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
     res.send(generateStatusPageHTML());
   });
 
+  function generateSystemHealthSection(db) {
+    try {
+      const row = db.prepare("SELECT * FROM system_snapshots ORDER BY ts DESC LIMIT 1").get();
+      if (!row) return '';
+      const diskPct = row.disk_total_bytes > 0 ? (row.disk_used_bytes / row.disk_total_bytes * 100).toFixed(1) : null;
+      const memPct = row.mem_total_bytes > 0 ? (row.mem_used_bytes / row.mem_total_bytes * 100).toFixed(1) : null;
+      const cpuPct = row.cpu_percent || 0;
+
+      const bar = (label, pct) => {
+        if (pct === null) return '';
+        const color = pct < 60 ? '#22c55e' : pct < 80 ? '#eab308' : '#ef4444';
+        return `<div style="margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+            <span>${label}</span><span style="color:${color};font-weight:600">${pct}%</span>
+          </div>
+          <div style="background:#0f172a;border-radius:4px;height:6px;overflow:hidden">
+            <div style="width:${Math.min(pct, 100)}%;height:100%;background:${color};border-radius:4px;transition:width 0.3s"></div>
+          </div>
+        </div>`;
+      };
+
+      return `<div class="card" style="margin-bottom:16px">
+        <h2 style="font-size:14px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Infrastructure</h2>
+        ${bar('CPU', cpuPct)}
+        ${bar('Memory', memPct)}
+        ${bar('Disk', diskPct)}
+      </div>`;
+    } catch { return ''; }
+  }
+
   function generateStatusPageHTML() {
     const allUptime = db.prepare("SELECT app_slug, status FROM uptime_history WHERE checked_at > datetime('now', '-30 days')").all();
     const uptimeByApp = {};
@@ -293,6 +323,7 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
       </div>
       <span>Today</span>
     </div>
+    ${generateSystemHealthSection(db)}
     <div class="footer">
       <p>Last updated: ${new Date().toISOString().replace('T', ' ').split('.')[0]} UTC</p>
       <p style="margin-top:4px">Powered by <a href="https://github.com/Crelvo/appManager" style="color:#60a5fa;text-decoration:none">Dockfolio</a></p>
