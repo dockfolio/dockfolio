@@ -82,6 +82,19 @@ describe('Public endpoints', () => {
     assert.equal(status, 200);
     assert.ok(Array.isArray(body.apps) || typeof body === 'object', 'should return status data');
   });
+
+  it('GET /status includes health score badges', async () => {
+    const res = await req('/status');
+    const text = await res.text();
+    assert.ok(text.includes('Infrastructure'), 'Status page should include Infrastructure section');
+  });
+
+  it('GET /api/status/heatmap returns heatmap data', async () => {
+    const { status, body } = await json('/api/status/heatmap?days=7');
+    assert.equal(status, 200);
+    assert.ok(typeof body.apps === 'object', 'should return apps heatmap data');
+    assert.ok(body.days === 7, 'should respect days parameter');
+  });
 });
 
 // ── Auth enforcement ─────────────────────────────────────────────────
@@ -231,6 +244,26 @@ describe('Authenticated endpoints', { skip: !AUTH_PASS ? 'No TEST_PASS set — s
     const { status, body } = await json('/api/backups');
     assert.equal(status, 200);
     assert.ok(typeof body === 'object');
+  });
+
+  it('GET /api/alerts/predictions returns resource projections', async () => {
+    const { status, body } = await json('/api/alerts/predictions');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.predictions), 'should return predictions array');
+    assert.ok(typeof body.timestamp === 'string', 'should include timestamp');
+  });
+
+  it('GET /api/alerts/rules returns alert rules', async () => {
+    const { status, body } = await json('/api/alerts/rules');
+    assert.equal(status, 200);
+    assert.ok(Array.isArray(body.rules), 'should return rules array');
+  });
+
+  it('GET /api/apps/health-scores returns health scores', async () => {
+    const { status, body } = await json('/api/apps/health-scores');
+    assert.equal(status, 200);
+    assert.ok(typeof body.scores === 'object', 'should return scores object');
+    assert.ok(body.timestamp, 'should include timestamp');
   });
 
   it('GET /api/marketing/revenue returns revenue data', async () => {
