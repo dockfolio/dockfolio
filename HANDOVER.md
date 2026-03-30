@@ -4,9 +4,9 @@
 
 ## Summary
 
-Session 4 focused on SEO fixes from Google Search Console warnings, security hardening across all nginx sites, new Dockfolio features, and bug fixes. Fixed www→non-www redirects on 4 sites, added canonical tags to 5 sites, added security headers to 9 nginx configs, created predictive resource alerts with linear regression, added health score badges and infrastructure bars to the public status page, enhanced the SEO audit with www redirect and hreflang checks, fixed a cron failure in project snapshots, and dismissed 29 expected security findings. Pruned Docker build cache (79% → 58%). All 24 public sites now pass all critical security header checks. All 14 main sites pass canonical + www redirect checks.
+Session 4 focused on SEO fixes from Google Search Console warnings, security hardening across all nginx sites, Plausible analytics fixes, new Dockfolio features, and bug fixes. Fixed www→non-www redirects on 4 sites, added canonical tags to 5 sites, added security headers to 15+ nginx configs, fixed Plausible analytics proxy on 3 sites (PromoForge, SacredLens, LohnCheck — were not tracking), created predictive resource alerts with linear regression, enhanced the public status page with health badges, infrastructure bars, portfolio stats, clickable links, and response times. Enhanced SEO audit with www redirect and hreflang checks, fixed a cron failure in project snapshots, and dismissed 29 expected security findings. Pruned Docker build cache twice (83% → 53%). Overhauled PromoForge nginx config (security headers, Plausible, caching). All 24 public sites pass all critical security header checks. All 14 main sites pass canonical + www redirect checks. 12/12 Plausible-tracked sites have working HTTPS proxy.
 
-**Most important for next session:** System is stable and fully healthy. Remaining items are manual tasks (Stripe webhook, GitHub token, Hetzner backup) and business-level improvements (content creation for SEO keywords, PromoForge growth). Tonight's 1 AM security scan will show significantly improved scores across the fleet.
+**Most important for next session:** System is stable and fully healthy. Remaining items are manual tasks (Stripe webhook, GitHub token, Hetzner backup) and business-level improvements (content creation for SEO keywords, PromoForge growth). Tonight's 1 AM security scan will show significantly improved scores across the fleet. PromoForge and SacredLens will now start showing Plausible traffic data (was broken before this session).
 
 ## Completed
 
@@ -43,13 +43,31 @@ Session 4 focused on SEO fixes from Google Search Console warnings, security har
 ### Bug Fixes
 - [x] Fixed "Project snapshots" cron failure — `SELECT score FROM security_scans` → wrong column name (should be `overall_score`) and wrong table (scans are system-wide, not per-app). Now computes per-app score from `security_findings`.
 
+### Plausible Analytics Fixes (high impact)
+- [x] PromoForge: Added Plausible proxy + script injection to HTTPS block — was completely missing, zero analytics tracked
+- [x] SacredLens: Added Plausible proxy — sub_filter injected script URL but no proxy to serve it (404)
+- [x] LohnCheck: Added Plausible proxy to HTTPS block — was only on HTTP
+- [x] 12/12 Plausible-tracked sites verified working on HTTPS
+
+### PromoForge Nginx Overhaul
+- [x] Added all 7 security headers (had none)
+- [x] Added Plausible proxy + script injection on HTTPS
+- [x] Added `/_next/static/` caching (1 year, immutable)
+- [x] Moved `Accept-Encoding ""` into location block for sub_filter
+
+### Status Page Enhancements
+- [x] Portfolio summary stats in header (service count, avg uptime, avg health)
+- [x] Domain names are clickable links to actual sites
+- [x] Response times (ms) shown per app from uptime_history
+
 ### Tests
 - [x] 5 new integration tests: status page infrastructure section, heatmap API, predictions API, alert rules, health scores
 - [x] 119 unit tests + 5 new integration tests all pass
 
 ### Infrastructure
-- [x] Docker build cache pruned: 79% → 58% disk (freed ~33GB)
+- [x] Docker build cache pruned twice: 83% → 53% disk
 - [x] All 37 containers healthy
+- [x] lohnpruefung.de favicon.ico 404 silenced
 
 ## In Progress
 
@@ -87,9 +105,9 @@ Nothing in progress. All work committed and deployed.
 
 ## Rollback Info
 
-### Dockfolio (7 commits this session: 50a8bf1 through current)
+### Dockfolio (10 commits this session: 50a8bf1 through current)
 - Pre-session: `ed315c6`
-- Current: see `git log --oneline -7`
+- Current: see `git log --oneline -10`
 - Rollback: `git reset --hard ed315c6` + `bash deploy.sh --rebuild`
 
 ### Crelvo.dev (1 commit: 2d167bd)
@@ -98,7 +116,7 @@ Nothing in progress. All work committed and deployed.
 
 ### Nginx configs (not in git, on VM)
 - `/home/deploy/nginx-configs/snippets/game-security-headers.conf` — New shared snippet
-- Sites modified: plausible, logos, theadhdmind, creativeprogrammer, lohnpruefung, bannerforge, creatureforge.conf, betpilot, diplomancy, worldcontrol, lufthafen, orb, grimhollow, dockfolio.dev.conf, demo-dockfolio
+- Sites modified: plausible, logos, theadhdmind, creativeprogrammer, lohnpruefung, bannerforge, creatureforge.conf, betpilot, diplomancy, worldcontrol, lufthafen, orb, grimhollow, dockfolio.dev.conf, demo-dockfolio, promoforge, sacredlens, schenkungsplaner.eu, abfindungsoptimizer.de
 
 ### Security findings (DB changes)
 - 29 findings dismissed (25 root-user + 4 docker-socket). To undo: `UPDATE security_findings SET status = 'open' WHERE status = 'dismissed'`
