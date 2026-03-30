@@ -202,6 +202,13 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
       incidentsByApp[row.app_slug].push(row);
     }
 
+    // Latest response times per app
+    const latestRt = {};
+    const rtRows = db.prepare("SELECT app_slug, response_ms FROM uptime_history WHERE response_ms IS NOT NULL AND checked_at > datetime('now', '-1 hour') ORDER BY checked_at DESC").all();
+    for (const row of rtRows) {
+      if (!latestRt[row.app_slug]) latestRt[row.app_slug] = row.response_ms;
+    }
+
     // Daily uptime for 90-day heatmap bars
     const dailyUptime = db.prepare(`
       SELECT app_slug, date(checked_at) as day, COUNT(*) as total,
@@ -232,7 +239,8 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
         try { healthScore = calculateAppReportCard(slug); } catch { /* ignore */ }
       }
 
-      apps.push({ name: appDef.name, domain: appDef.domain, slug, uptimePct, incidents: recentIncidents, daily: dailyByApp[slug] || {}, healthScore });
+      const responseMs = latestRt[slug] || null;
+      apps.push({ name: appDef.name, domain: appDef.domain, slug, uptimePct, incidents: recentIncidents, daily: dailyByApp[slug] || {}, healthScore, responseMs });
     }
 
     const allOperational = apps.every(a => !a.incidents.length);
@@ -281,6 +289,7 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
               <a href="https://${htmlEscape(app.domain)}" target="_blank" rel="noopener" style="font-size:12px;color:#60a5fa;text-decoration:none">${htmlEscape(app.domain)}</a>
             </div>
             <div style="display:flex;align-items:center;gap:12px">
+              ${app.responseMs ? `<span style="font-size:11px;color:#64748b">${app.responseMs}ms</span>` : ''}
               <span style="font-size:13px;color:${color};font-weight:500">${uptime}</span>
               <span style="width:10px;height:10px;border-radius:50%;background:${statusDot};display:inline-block"></span>
             </div>
