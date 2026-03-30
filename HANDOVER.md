@@ -1,159 +1,122 @@
 # Handover
 
-**Date:** 2026-03-29 (Session 3, final)
+**Date:** 2026-03-30 (Session 4)
 
 ## Summary
 
-Session 3 completed all remaining cross-promo banner work from session 2, then fixed multiple bugs and added new features. Deployed BannerForge, Headshot AI, and PromoForge to VM. Fixed CSP on 7 nginx configs blocking admin.crelvo.dev. Fixed PromoForge (React SPA strips body scripts — moved embed.js to `<head>`). Removed agorahoch3 from cross-promo (not user's website). Fixed broken /api/status endpoint (was showing 29/31 apps as "down" — bare health paths weren't full URLs). Parallelized status health checks (155s → 1s). Added 90-day uptime heatmap to public status page. Fixed duplicate security headers on BannerForge/AbschlussCheck. Standardized X-Frame-Options. Exposed public endpoints through nginx. Pruned Docker build cache (77% → 53%).
+Session 4 focused on SEO fixes from Google Search Console warnings, security hardening across all nginx sites, new Dockfolio features, and bug fixes. Fixed www→non-www redirects on 4 sites, added canonical tags to 5 sites, added security headers to 9 nginx configs, created predictive resource alerts with linear regression, added health score badges and infrastructure bars to the public status page, enhanced the SEO audit with www redirect and hreflang checks, fixed a cron failure in project snapshots, and dismissed 29 expected security findings. Pruned Docker build cache (79% → 58%). All 24 public sites now pass all critical security header checks. All 14 main sites pass canonical + www redirect checks.
 
-**Most important for next session:** All cross-promo and status work is done. Remaining items are manual tasks (Stripe webhook cleanup, GitHub token, Hetzner backup) and longer-term feature work. System is stable and healthy.
+**Most important for next session:** System is stable and fully healthy. Remaining items are manual tasks (Stripe webhook, GitHub token, Hetzner backup) and business-level improvements (content creation for SEO keywords, PromoForge growth). Tonight's 1 AM security scan will show significantly improved scores across the fleet.
 
 ## Completed
 
-### Cross-promo banner system (fully operational)
-- [x] BannerForge deployed — embed.js Script component already committed (1bc14b4), deployed via `deploy.sh`
-- [x] Headshot AI deployed — Built Docker image on VM from source (commit a4ff0f9), container running healthy
-- [x] PromoForge embed.js — Added to `<head>` in `web/index.html` (2 commits: 7e9e3fc, 2c013cc, pushed+deployed)
-- [x] CSP fixes on 7 sites — Added admin.crelvo.dev to script-src/connect-src/img-src:
-  - Created `/home/deploy/nginx-configs/security-headers-no-csp.conf` for crelvo, codewithrigor, best-age.de (original `/etc/nginx/snippets/security-headers.conf` is root-owned, no sudo)
-  - Updated per-site CSP: theadhdmind, creativeprogrammer, lohnpruefung, sacredlens
-- [x] Removed agorahoch3 from cross-promo — embed.js/track.js nginx injection removed, removed from config.example.yml + production config.yml
-- [x] Verified all 11 banner placements working via Playwright
+### Google Search Console SEO Fixes
+- [x] www→non-www 301 redirects: oldworldlogos.com, theadhdmind.org, thecreativeprogrammer.dev, lohnpruefung.de
+- [x] Canonical tags via Astro source: crelvo.dev (Base.astro, commit 2d167bd, built + deployed)
+- [x] Canonical tags via nginx sub_filter: oldworldlogos.com, bannerforge.app, schenkungsplaner.eu, abfindungsoptimizer.de
+- [x] BannerForge sub_filter fix: moved `Accept-Encoding ""` into `location /` block (was at server level, not inherited by location with own proxy_set_header directives)
+- [x] 14/14 main sites verified: all pass canonical + www redirect checks
+- [x] lohnpruefung.de favicon.ico 404 silenced (nginx returns 204)
 
-### Status page overhaul
-- [x] Fixed /api/status — Was fetching bare paths (`/health`) instead of full URLs. Now uses `https://DOMAIN/health`. Result: 2/31 → 31/31 apps correct
-- [x] Parallelized health checks — Changed for-loop to Promise.all. Response: ~155s → ~1s
-- [x] Skip bare IP domains — "The Stones Cry Out" (domain=91.99.104.132) no longer falsely "down"
-- [x] Auto-refresh on /status page — `<meta http-equiv="refresh" content="60">`
-- [x] 90-day uptime heatmap — New `GET /api/status/heatmap?app=SLUG&days=N` endpoint + visual bars on `/status`
-- [x] Public nginx endpoints — Added auth_basic off for /status, /api/status, /api/status-page, /health, /api/health, /login, /api/auth/
+### Security Header Hardening
+- [x] Created shared `/home/deploy/nginx-configs/snippets/game-security-headers.conf` snippet
+- [x] Plausible Analytics: added all 7 security headers to HTTPS block (was only on HTTP redirect block)
+- [x] creatureforge, betpilot, diplomancy: added game-security-headers snippet (had zero headers)
+- [x] worldcontrol, lufthafen: added game-security-headers snippet (had partial headers)
+- [x] orb: added game-security-headers snippet
+- [x] grimhollow: replaced single HSTS header with full snippet
+- [x] dockfolio.dev, demo.dockfolio.dev: added Permissions-Policy, CSP, X-XSS-Protection
+- [x] bannerforge: added Permissions-Policy, X-XSS-Protection
+- [x] **24/24 public sites now pass HSTS + CSP + Permissions-Policy checks**
 
-### Security headers cleanup
-- [x] BannerForge — Removed nginx-level security headers (app Helmet handles them, was causing duplicates)
-- [x] AbschlussCheck — Same duplicate header removal
-- [x] theadhdmind + creativeprogrammer — X-Frame-Options changed from SAMEORIGIN to DENY
+### Security Finding Dismissals
+- [x] 25 "Running as root user" findings dismissed (postgres, redis, clickhouse — by design)
+- [x] 4 "Docker socket mounted" / "privileged mode" findings dismissed (docker-proxy, uptime-kuma, demo — by design)
+- [x] 0 critical findings remaining (was 4)
+
+### New Dockfolio Features
+- [x] Health score badges (A-F grade) on public `/status` page — uses calculateAppReportCard
+- [x] Infrastructure health bars on `/status` — CPU/Memory/Disk with color-coded progress bars
+- [x] Predictive resource alerts — 7-day linear regression on disk/memory, Telegram alerts when projected to hit 90%, new `GET /api/alerts/predictions` endpoint, 6-hour cron
+- [x] SEO audit enhanced — added www redirect check (flags sites serving www without redirect) and hreflang tag validation
+
+### Bug Fixes
+- [x] Fixed "Project snapshots" cron failure — `SELECT score FROM security_scans` → wrong column name (should be `overall_score`) and wrong table (scans are system-wide, not per-app). Now computes per-app score from `security_findings`.
+
+### Tests
+- [x] 5 new integration tests: status page infrastructure section, heatmap API, predictions API, alert rules, health scores
+- [x] 119 unit tests + 5 new integration tests all pass
 
 ### Infrastructure
-- [x] Docker build cache pruned — 77% → 53% disk (freed ~35GB)
-- [x] All 37 containers running healthy
-- [x] 119 unit tests passing
+- [x] Docker build cache pruned: 79% → 58% disk (freed ~33GB)
+- [x] All 37 containers healthy
 
 ## In Progress
 
 Nothing in progress. All work committed and deployed.
 
-## Banner Delivery Status (Final)
-
-| Site | Method | Status |
-|------|--------|--------|
-| bannerforge.app | Next.js Script component | Working |
-| bewerbungsfotos-ai.de | Next.js Script component | Working |
-| abschlusscheck.de | Next.js Script component (same-origin proxy) | Working |
-| promoforge.app | Vite index.html `<head>` (same-origin proxy) | Working |
-| theadhdmind.org | nginx sub_filter + CSP fixed | Working |
-| thecreativeprogrammer.dev | nginx sub_filter + CSP fixed | Working |
-| codewithrigor.com | nginx sub_filter + CSP fixed | Working |
-| oldworldlogos.com | nginx sub_filter + CSP fixed | Working |
-| best-age.de | nginx sub_filter + CSP fixed | Working |
-| lohnpruefung.de | nginx sub_filter + CSP fixed | Working |
-| sacredlens.de | nginx sub_filter works, no placement configured | No banner |
-| crelvo.dev | nginx sub_filter works, no placement configured | No banner |
-| agorahoch3.org | Removed (not user's website) | N/A |
-
 ## Decisions Made
 
-| Decision | Why | Alternatives Rejected | Why Rejected |
-|----------|-----|-----------------------|--------------|
-| deploy-owned security-headers-no-csp.conf | Can't edit root-owned /etc/nginx/snippets/ (no sudo password for tee/cp) | Edit shared snippet directly | Requires root sudo, deploy user only has passwordless nginx/certbot |
-| PromoForge embed.js in `<head>` not `<body>` | React SPA replaces body content on mount, stripping all injected scripts | `<body>` placement | Scripts get stripped — confirmed via Playwright |
-| Same-origin /api/banners/ proxy for PromoForge | Express Helmet sets strict CSP (script-src 'self' only); same-origin avoids CSP entirely | Cross-origin admin.crelvo.dev URL | Blocked by CSP script-src, would need app code change |
-| Remove agorahoch3 entirely from cross-promo | User explicitly said "never banner dieagora its not my website" | Keep placement but deactivate | User was clear about removal |
-| Public domain URLs for /api/status health checks | Docker container can't reach host localhost:PORT (ECONNREFUSED — Docker network isolation) | Internal http://127.0.0.1:PORT URLs | Container networking prevents access to host-bound ports |
-| Parallel Promise.all for status checks | Sequential was O(n*timeout) = ~155s for 31 apps; parallel is O(timeout) = ~5s max | Keep sequential | Unacceptable response time for a public API |
-| Remove nginx security headers from BannerForge/AbschlussCheck | Next.js Helmet already sets them; nginx + Helmet = duplicate headers in response | Keep both | Duplicate headers can cause browser confusion (e.g. conflicting X-Frame-Options DENY vs SAMEORIGIN) |
-| X-Frame-Options DENY for all sites | Consistency; none of these sites need to be framed | Keep SAMEORIGIN for theadhdmind/creativeprogrammer | No framing needed, DENY is more secure |
-| All prior session 2 decisions still valid | See session 2 decisions in git history | — | — |
+| Decision | Why | Alternatives Rejected |
+|----------|-----|----------------------|
+| Canonical tags via nginx sub_filter for sites without local repos | Can't modify source code for oldworldlogos (no repo) | N/A |
+| Accept-Encoding "" in location block, not server block | nginx doesn't inherit parent proxy_set_header when location has its own | Server-level setting (doesn't work) |
+| Game security headers as shared snippet | DRY — 6+ game sites need same headers, avoids repetition | Inline in each config |
+| Dismiss root-user findings for database containers | Postgres/Redis/ClickHouse always run as root by design | Reconfigure containers (complex, fragile) |
+| Dismiss Docker socket findings | docker-proxy, uptime-kuma, demo need socket access by design | Remove socket access (breaks functionality) |
+| Linear regression for predictive alerts | Simple, no ML framework needed, ~20 lines of JS | External monitoring service (complexity) |
 
 ## Known Issues
 
-- **Stripe webhook cross-contamination** (task #11) — Stale webhook in AbschlussCheck Stripe account pointing to bewerbungsfotos-ai.de. Must delete manually in Stripe dashboard
-- **GitHub Actions billing** — CI/CD builds still failing. Deploy manually via deploy.sh
-- **PromoForge service worker caching** — Old index.html cached in SW without embed.js. New visitors work immediately. Existing visitors get update on next SW refresh cycle (~24h)
-- **sacredlens + crelvo have no banner placements** — embed.js loads but serve returns null. Provision via POST /api/marketing/crosspromo/provision if desired
-- **Disk climbs after Docker builds** — Currently 53%, will climb as builds happen. Weekly prune cron (Sunday 3:45 AM) handles it. Manual: `docker builder prune -f`
-- **AbschlussCheck CSP weakened** — strict-dynamic replaced with unsafe-inline + URL allowlist (from session 2)
-- **Root-owned security-headers.conf still has old CSP** — 3 sites switched to deploy-owned copy. Other sites using root snippet won't have admin.crelvo.dev in CSP
-- **Public endpoints need --http1.1 from local curl** — nginx listens `443 ssl` (no http2 directive). Browsers negotiate fine; curl on Windows defaults to HTTP/2 which causes 401. Non-issue in practice
-- **OldWorldLogos X-Frame-Options is SAMEORIGIN** — Intentional, uses giscus comments iframe. Don't change to DENY
+- **Stale security scan data** — Nginx header fixes won't show in health scores until the 1 AM nightly scan
+- **PromoForge D grade** — Low revenue (0.57 EUR MRR), zero tracked traffic, 16 container findings. Business issue, not technical
+- **Plausible Analytics F grade** — Will improve significantly after tonight's scan (4 header findings fixed + root-user dismissed)
+- **Stripe webhook cross-contamination** — Still needs manual fix in Stripe dashboard (from session 3)
+- **GitHub Actions CI** — Still failing, needs fine-grained token (manual task)
+- **PromoForge service worker caching** — May still serve old index.html to existing visitors
+- **10 overdue project tasks** — Mostly content creation (SEO keywords) and manual Stripe work
 
 ## Next Steps (Priority Order)
 
-1. **Delete stale Stripe webhook** — Manual: Stripe dashboard > AbschlussCheck account > Developers > Webhooks > delete bewerbungsfotos-ai.de endpoint
-2. **Create GitHub fine-grained token** — Manual: GitHub > Settings > Developer settings. Fixes CI/CD builds
-3. **Configure off-site backup** — Order Hetzner Storage Box, set env vars (script exists: `scripts/backup-offsite.sh`)
-4. **Feature work from plans/feature-ideas-2026.md** — Top candidates:
-   - Predictive Resource Alerts (1.3) — Easy, linear regression on existing time series
-   - Smart Alert Explanations (1.6) — Easy, contextual prompts with existing data
-   - App Health Score on status page (4.2) — Easy, endpoint exists (/api/apps/health-scores), just needs public exposure
-5. **Remaining project tasks** — Sentry setup, BannerForge Stripe billing, SEO content generation
+1. **Wait for tonight's security scan** — Scores will auto-improve at 1 AM
+2. **Delete stale Stripe webhook** — Manual: Stripe dashboard > AbschlussCheck > Webhooks
+3. **Create GitHub fine-grained token** — Manual: GitHub > Settings > Developer settings
+4. **Configure off-site backup** — Order Hetzner Storage Box, run `scripts/backup-offsite.sh`
+5. **SEO content creation** — Write keyword-targeted pages for LohnCheck (Gehaltsabrechnung), Headshot AI (Bewerbungsfoto), AbschlussCheck (Bachelorarbeit)
+6. **PromoForge growth** — Landing page optimization, traffic acquisition
 
 ## Rollback Info
 
-### Dockfolio (5 commits: 5b100e3 through a315669)
-- Pre-session: `65b6fe6`
-- Current: `a315669`
-- Rollback: `git reset --hard 65b6fe6` + `bash deploy.sh --rebuild`
-- Each commit is self-contained, can revert individually
+### Dockfolio (7 commits this session: 50a8bf1 through current)
+- Pre-session: `ed315c6`
+- Current: see `git log --oneline -7`
+- Rollback: `git reset --hard ed315c6` + `bash deploy.sh --rebuild`
 
-### PromoForge (2 commits: 7e9e3fc, 2c013cc)
-- Pre-session: `e2c2cdf`
-- Current: `2c013cc`
-- Rollback: `git reset --hard e2c2cdf` + rebuild Docker on VM (`cd /opt/promoforge && docker compose build --no-cache api && docker compose down api && docker compose up -d api worker`)
-
-### BannerForge (deployed, no new commits this session)
-- Deployed commit 1bc14b4 (was already committed in session 2)
-- Deploy: `cd /c/Users/kreyh/Projekte/ad/bannerforge && bash deploy.sh`
-
-### Headshot AI (deployed, no new commits this session)
-- Deployed commit a4ff0f9 (was already committed in session 2)
-- Deploy: Upload source to /opt/headshot-ai/build-tmp via tar+ssh, then `docker build -t headshot-ai-pro:latest . && cd /opt/headshot-ai && docker compose down && docker compose up -d`
+### Crelvo.dev (1 commit: 2d167bd)
+- Pre-session: `e56a0ee`
+- Rollback: `git reset --hard e56a0ee` + rebuild + deploy to /var/www/crelvo/
 
 ### Nginx configs (not in git, on VM)
-- `/home/deploy/nginx-configs/security-headers-no-csp.conf` — New file with admin.crelvo.dev in CSP
-- crelvo, codewithrigor, best-age.de — Switched include from /etc/nginx/snippets/security-headers.conf to deploy-owned copy
-- theadhdmind, creativeprogrammer, lohnpruefung, sacredlens — admin.crelvo.dev added to script-src, connect-src, img-src
-- bannerforge — Removed duplicate security headers (6 add_header lines deleted)
-- abschlusscheck.de — Removed duplicate security headers (6 lines at 87-92 deleted)
-- theadhdmind, creativeprogrammer — X-Frame-Options SAMEORIGIN → DENY
-- agorahoch3 — embed.js/track.js injection lines removed
-- appmanager — Added 7 location blocks with auth_basic off for public endpoints (before the "# Dashboard" comment)
+- `/home/deploy/nginx-configs/snippets/game-security-headers.conf` — New shared snippet
+- Sites modified: plausible, logos, theadhdmind, creativeprogrammer, lohnpruefung, bannerforge, creatureforge.conf, betpilot, diplomancy, worldcontrol, lufthafen, orb, grimhollow, dockfolio.dev.conf, demo-dockfolio
 
-### Production DB
-- agorahoch3 placement (id 52) still exists but inactive (nginx no longer injects embed.js)
-- To fully remove: DELETE FROM banner_placements WHERE id = 52 (requires app auth or direct DB access)
+### Security findings (DB changes)
+- 29 findings dismissed (25 root-user + 4 docker-socket). To undo: `UPDATE security_findings SET status = 'open' WHERE status = 'dismissed'`
 
 ## Files Modified This Session
 
-### Dockfolio (5 commits: 5b100e3 through a315669 — all pushed + deployed)
-- `dashboard/config.example.yml` — Removed agorahoch3 from crossPromo pairings
-- `dashboard/routes/status.js` — Fixed /api/status URL construction, parallelized health checks, skip bare IPs, auto-refresh, 90-day heatmap API + visualization
+### Dockfolio (7 commits, all pushed + deployed)
+- `dashboard/routes/status.js` — Health score badges, infrastructure bars, calculateAppReportCard DI
+- `dashboard/routes/alerts.js` — Predictive resource alerts (linear regression, cron, API endpoint)
+- `dashboard/routes/marketing.js` — SEO audit: www redirect check, hreflang validation
+- `dashboard/routes/projects.js` — Fixed project snapshots cron (wrong column name)
+- `dashboard/server.js` — Passed calculateAppReportCard to status routes
+- `dashboard/server.test.js` — 5 new integration tests
 - `HANDOVER.md` — This file
 
-### PromoForge (2 commits: 7e9e3fc, 2c013cc — both pushed + deployed)
-- `web/index.html` — Added embed.js to `<head>` for cross-promo banners (moved from body after discovering React strips body scripts)
+### Crelvo.dev (1 commit: 2d167bd, pushed + deployed)
+- `src/layouts/Base.astro` — Added `<link rel="canonical">` tag
 
-### Production VM (not in git)
-- `/home/deploy/nginx-configs/security-headers-no-csp.conf` — New file, deploy-owned CSP with admin.crelvo.dev
-- `/home/deploy/nginx-configs/sites/crelvo` — Switched to deploy-owned security headers
-- `/home/deploy/nginx-configs/sites/codewithrigor` — Switched to deploy-owned security headers
-- `/home/deploy/nginx-configs/sites/best-age.de` — Switched to deploy-owned security headers
-- `/home/deploy/nginx-configs/sites/theadhdmind` — Added admin.crelvo.dev to CSP + X-Frame-Options DENY
-- `/home/deploy/nginx-configs/sites/creativeprogrammer` — Added admin.crelvo.dev to CSP + X-Frame-Options DENY
-- `/home/deploy/nginx-configs/sites/lohnpruefung` — Added admin.crelvo.dev to script-src + connect-src
-- `/home/deploy/nginx-configs/sites/sacredlens` — Added admin.crelvo.dev to CSP + unsafe-inline
-- `/home/deploy/nginx-configs/sites/bannerforge` — Removed 6 duplicate security header lines
-- `/home/deploy/nginx-configs/sites/abschlusscheck.de` — Removed 6 duplicate security header lines (87-92)
-- `/home/deploy/nginx-configs/sites/agorahoch3` — Removed embed.js/track.js injection lines
-- `/home/deploy/nginx-configs/sites/appmanager` — Added 7 location blocks with auth_basic off for public endpoints
-- `/home/deploy/appmanager/dashboard/config.yml` — Removed agorahoch3 from crossPromo
-- `/opt/promoforge/web/index.html` — Added embed.js to head (matches git commit)
+### Production VM (nginx configs, not in git)
+- New: `/home/deploy/nginx-configs/snippets/game-security-headers.conf`
+- Modified: 15 site configs (see Rollback Info section)
