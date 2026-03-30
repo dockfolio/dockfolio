@@ -239,6 +239,12 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
     const overallStatus = allOperational ? 'All Systems Operational' : 'Some Systems Have Recent Incidents';
     const overallColor = allOperational ? '#22c55e' : '#eab308';
 
+    // Portfolio summary stats
+    const healthScores = apps.map(a => a.healthScore?.overall).filter(s => typeof s === 'number');
+    const avgHealth = healthScores.length > 0 ? Math.round(healthScores.reduce((a, b) => a + b, 0) / healthScores.length) : null;
+    const uptimes = apps.map(a => parseFloat(a.uptimePct)).filter(u => !isNaN(u));
+    const avgUptime = uptimes.length > 0 ? (uptimes.reduce((a, b) => a + b, 0) / uptimes.length).toFixed(2) : null;
+
     // Generate 90 dates for heatmap
     const heatmapDates = [];
     for (let i = 89; i >= 0; i--) {
@@ -272,7 +278,7 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div>
               <div style="font-weight:600;font-size:14px">${htmlEscape(app.name)}${gradeBadge}</div>
-              <div style="font-size:12px;color:#9ca3af">${htmlEscape(app.domain)}</div>
+              <a href="https://${htmlEscape(app.domain)}" target="_blank" rel="noopener" style="font-size:12px;color:#60a5fa;text-decoration:none">${htmlEscape(app.domain)}</a>
             </div>
             <div style="display:flex;align-items:center;gap:12px">
               <span style="font-size:13px;color:${color};font-weight:500">${uptime}</span>
@@ -308,6 +314,11 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
     <div class="header">
       <h1>System Status</h1>
       <div class="status-badge" style="background:${overallColor}20;color:${overallColor}">${overallStatus}</div>
+      ${avgHealth !== null || avgUptime !== null ? `<div style="display:flex;justify-content:center;gap:24px;margin-top:12px;font-size:13px;color:#94a3b8">
+        <span>${apps.length} services</span>
+        ${avgUptime !== null ? `<span>Avg uptime: <b style="color:#e2e8f0">${avgUptime}%</b></span>` : ''}
+        ${avgHealth !== null ? `<span>Avg health: <b style="color:#e2e8f0">${avgHealth}/100</b></span>` : ''}
+      </div>` : ''}
     </div>
     <div class="card">
       <h2 style="font-size:14px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Services</h2>
