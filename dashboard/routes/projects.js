@@ -382,7 +382,13 @@ Write a concise 3-paragraph portfolio briefing: 1) overall health assessment, 2)
         const doneTasks = db.prepare("SELECT COUNT(*) as count FROM project_tasks WHERE app_slug = ? AND status = 'done'").get(slug)?.count || 0;
         const shipped = db.prepare("SELECT COUNT(*) as count FROM project_roadmap WHERE app_slug = ? AND status = 'shipped'").get(slug)?.count || 0;
         const seo = qLatestSEO.get(slug)?.score || null;
-        const secScore = db.prepare('SELECT score FROM security_scans WHERE app_slug = ? ORDER BY timestamp DESC LIMIT 1').get(slug)?.score || null;
+        let secScore = null;
+        try {
+          const findings = db.prepare("SELECT severity FROM security_findings WHERE app_slug = ? AND scan_id = (SELECT id FROM security_scans ORDER BY timestamp DESC LIMIT 1) AND status != 'dismissed'").all(slug);
+          const crit = findings.filter(f => f.severity === 'critical').length;
+          const high = findings.filter(f => f.severity === 'high').length;
+          secScore = Math.max(0, 100 - crit * 25 - high * 15 - findings.length * 3);
+        } catch { /* no security data */ }
 
         // Plausible traffic (30d visitors)
         let traffic30d = null;
