@@ -187,6 +187,35 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
     } catch { return ''; }
   }
 
+  function generateRecentIncidentsSection(db, config) {
+    try {
+      const incidents = db.prepare(
+        "SELECT app_slug, condition, action_taken, result, timestamp FROM healing_log WHERE timestamp > datetime('now', '-7 days') ORDER BY timestamp DESC LIMIT 10"
+      ).all();
+      if (incidents.length === 0) return '';
+
+      let rows = '';
+      for (const inc of incidents) {
+        const appDef = config.apps.find(a => slugify(a.name) === inc.app_slug);
+        const name = appDef ? htmlEscape(appDef.name) : htmlEscape(inc.app_slug);
+        const time = inc.timestamp.replace('T', ' ').split('.')[0];
+        const resultColor = inc.result === 'executed' ? '#22c55e' : inc.result === 'failed' ? '#ef4444' : '#eab308';
+        rows += `<div style="padding:8px 0;border-bottom:1px solid #1f2937;font-size:13px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span><b>${name}</b> — ${htmlEscape(inc.condition)}</span>
+            <span style="color:${resultColor};font-size:11px;font-weight:600">${htmlEscape(inc.result)}</span>
+          </div>
+          <div style="color:#64748b;font-size:11px;margin-top:2px">${time} UTC</div>
+        </div>`;
+      }
+
+      return `<div class="card" style="margin-bottom:16px">
+        <h2 style="font-size:14px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Recent Incidents (7 days)</h2>
+        ${rows}
+      </div>`;
+    } catch { return ''; }
+  }
+
   function generateStatusPageHTML() {
     const allUptime = db.prepare("SELECT app_slug, status FROM uptime_history WHERE checked_at > datetime('now', '-30 days')").all();
     const uptimeByApp = {};
@@ -344,6 +373,7 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
       <span>Today</span>
     </div>
     ${generateSystemHealthSection(db)}
+    ${generateRecentIncidentsSection(db, config)}
     <div class="footer">
       <p>Last updated: ${new Date().toISOString().replace('T', ' ').split('.')[0]} UTC</p>
       <p style="margin-top:4px">Powered by <a href="https://github.com/Crelvo/appManager" style="color:#60a5fa;text-decoration:none">Dockfolio</a></p>
