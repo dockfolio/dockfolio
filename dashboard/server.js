@@ -2794,7 +2794,7 @@ const _snapshotExports = registerSnapshotRoutes({
 onContainerDeploy = _snapshotExports.onContainerDeploy;
 registerStatusRoutes({
   app, db, docker, config,
-  rlPublicRead,
+  rlPublicRead, calculateAppReportCard,
   TIMEOUT_QUICK, MS_PER_DAY,
 });
 registerPortfolioRoutes({

@@ -179,4 +179,126 @@ export default function registerAlertRoutes({ app, db, config, cron, qLatestMetr
   cron.schedule('*/5 * * * *', guardedCron('alert-rules', async () => {
     await evaluateAlertRules().catch(err => cronFail('Alert rules evaluation', err));
   }));
+
+  // --- Predictive Resource Alerts ---
+
+  // Simple linear regression: returns { slope, intercept } from array of {x, y}
+  function linearRegression(points) {
+    const n = points.length;
+    if (n < 2) return null;
+    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    for (const { x, y } of points) {
+      sumX += x; sumY += y; sumXY += x * y; sumXX += x * x;
+    }
+    const denom = n * sumXX - sumX * sumX;
+    if (denom === 0) return null;
+    const slope = (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+    return { slope, intercept };
+  }
+
+  function checkPredictiveAlerts() {
+    const rows = db.prepare(
+      "SELECT ts, disk_used_bytes, disk_total_bytes, mem_used_bytes, mem_total_bytes, cpu_percent FROM system_snapshots WHERE ts > datetime('now', '-7 days') ORDER BY ts ASC"
+    ).all();
+    if (rows.length < 20) return; // need enough data points
+
+    const MS_PER_HOUR = 3600000;
+    const t0 = new Date(rows[0].ts + 'Z').getTime();
+    const now = Date.now();
+    const alerts = [];
+
+    // Disk prediction
+    if (rows[0].disk_total_bytes > 0) {
+      const points = rows.filter(r => r.disk_total_bytes > 0).map(r => ({
+        x: (new Date(r.ts + 'Z').getTime() - t0) / MS_PER_HOUR,
+        y: r.disk_used_bytes / r.disk_total_bytes * 100,
+      }));
+      const reg = linearRegression(points);
+      if (reg && reg.slope > 0) {
+        const currentPct = points[points.length - 1].y;
+        const hoursTo90 = (90 - currentPct) / reg.slope;
+        if (hoursTo90 > 0 && hoursTo90 <= 72) {
+          const days = Math.round(hoursTo90 / 24 * 10) / 10;
+          const rate = Math.round(reg.slope * 24 * 100) / 100;
+          alerts.push(`Disk at ${currentPct.toFixed(1)}%, growing ${rate}%/day — projected to hit 90% in ${days} days`);
+        }
+      }
+    }
+
+    // Memory prediction
+    if (rows[0].mem_total_bytes > 0) {
+      const points = rows.filter(r => r.mem_total_bytes > 0).map(r => ({
+        x: (new Date(r.ts + 'Z').getTime() - t0) / MS_PER_HOUR,
+        y: r.mem_used_bytes / r.mem_total_bytes * 100,
+      }));
+      const reg = linearRegression(points);
+      if (reg && reg.slope > 0) {
+        const currentPct = points[points.length - 1].y;
+        const hoursTo90 = (90 - currentPct) / reg.slope;
+        if (hoursTo90 > 0 && hoursTo90 <= 48) {
+          const days = Math.round(hoursTo90 / 24 * 10) / 10;
+          const rate = Math.round(reg.slope * 24 * 100) / 100;
+          alerts.push(`Memory at ${currentPct.toFixed(1)}%, growing ${rate}%/day — projected to hit 90% in ${days} days`);
+        }
+      }
+    }
+
+    // CPU sustained high prediction
+    const recentCpu = rows.slice(-12); // last ~3 hours (15-min intervals)
+    const avgCpu = recentCpu.reduce((s, r) => s + (r.cpu_percent || 0), 0) / recentCpu.length;
+    if (avgCpu > 80) {
+      alerts.push(`CPU sustained high: ${avgCpu.toFixed(0)}% average over last ${recentCpu.length} snapshots`);
+    }
+
+    if (alerts.length === 0) return;
+
+    // Cooldown: only send predictive alerts once per 6 hours
+    const lastPredictive = db.prepare("SELECT value FROM settings WHERE key = 'last_predictive_alert'").get();
+    if (lastPredictive) {
+      const elapsed = now - new Date(lastPredictive.value + 'Z').getTime();
+      if (elapsed < 6 * MS_PER_HOUR) return;
+    }
+
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_predictive_alert', datetime('now'))").run();
+    sendTelegram(`📈 <b>Predictive Resource Alert</b>\n${alerts.join('\n')}`);
+  }
+
+  // GET /api/alerts/predictions — current resource projections
+  app.get('/api/alerts/predictions', asyncRoute((_req, res) => {
+    const rows = db.prepare(
+      "SELECT ts, disk_used_bytes, disk_total_bytes, mem_used_bytes, mem_total_bytes, cpu_percent FROM system_snapshots WHERE ts > datetime('now', '-7 days') ORDER BY ts ASC"
+    ).all();
+    if (rows.length < 20) return res.json({ predictions: [], message: 'Not enough data (need 7 days of snapshots)' });
+
+    const t0 = new Date(rows[0].ts + 'Z').getTime();
+    const predictions = [];
+
+    for (const [label, extract, threshold] of [
+      ['disk', r => r.disk_total_bytes > 0 ? r.disk_used_bytes / r.disk_total_bytes * 100 : null, 90],
+      ['memory', r => r.mem_total_bytes > 0 ? r.mem_used_bytes / r.mem_total_bytes * 100 : null, 90],
+    ]) {
+      const points = rows.map(r => { const y = extract(r); return y !== null ? { x: (new Date(r.ts + 'Z').getTime() - t0) / 3600000, y } : null; }).filter(Boolean);
+      const reg = linearRegression(points);
+      if (!reg) continue;
+      const current = points[points.length - 1].y;
+      const hoursToThreshold = reg.slope > 0 ? (threshold - current) / reg.slope : null;
+      predictions.push({
+        metric: label,
+        current: Math.round(current * 100) / 100,
+        slope_per_day: Math.round(reg.slope * 24 * 100) / 100,
+        threshold,
+        hours_to_threshold: hoursToThreshold ? Math.round(hoursToThreshold) : null,
+        days_to_threshold: hoursToThreshold ? Math.round(hoursToThreshold / 24 * 10) / 10 : null,
+        trend: reg.slope > 0.01 ? 'rising' : reg.slope < -0.01 ? 'falling' : 'stable',
+      });
+    }
+
+    res.json({ predictions, data_points: rows.length, timestamp: new Date().toISOString() });
+  }));
+
+  // Run predictive checks every 6 hours
+  cron.schedule('0 */6 * * *', guardedCron('predictive-alerts', () => {
+    try { checkPredictiveAlerts(); } catch (err) { cronFail('Predictive resource alerts', err); }
+  }));
 }

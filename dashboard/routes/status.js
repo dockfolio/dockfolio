@@ -1,6 +1,6 @@
 import { asyncRoute, slugify, htmlEscape } from '../utils.js';
 
-export default function registerStatusRoutes({ app, db, docker, config, rlPublicRead, TIMEOUT_QUICK, MS_PER_DAY }) {
+export default function registerStatusRoutes({ app, db, docker, config, rlPublicRead, calculateAppReportCard, TIMEOUT_QUICK, MS_PER_DAY }) {
 
   // GET /api/status — public status summary
   app.get('/api/status', rlPublicRead, asyncRoute(async (_req, res) => {
@@ -197,7 +197,12 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
 
       const recentIncidents = (incidentsByApp[slug] || []).slice(0, 3);
 
-      apps.push({ name: appDef.name, domain: appDef.domain, slug, uptimePct, incidents: recentIncidents, daily: dailyByApp[slug] || {} });
+      let healthScore = null;
+      if (calculateAppReportCard) {
+        try { healthScore = calculateAppReportCard(slug); } catch { /* ignore */ }
+      }
+
+      apps.push({ name: appDef.name, domain: appDef.domain, slug, uptimePct, incidents: recentIncidents, daily: dailyByApp[slug] || {}, healthScore });
     }
 
     const allOperational = apps.every(a => !a.incidents.length);
@@ -225,11 +230,18 @@ export default function registerStatusRoutes({ app, db, docker, config, rlPublic
         bars += `<span class="hm" style="background:${barColor}" title="${date}: ${pct !== undefined ? pct + '%' : 'no data'}"></span>`;
       }
 
+      // Health score badge
+      const hs = app.healthScore;
+      const gradeBadge = hs ? (() => {
+        const gc = hs.grade === 'A' ? '#22c55e' : hs.grade === 'B' ? '#86efac' : hs.grade === 'C' ? '#eab308' : hs.grade === 'D' ? '#f97316' : '#ef4444';
+        return `<span style="font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px;background:${gc}20;color:${gc};margin-left:8px" title="Health: ${hs.overall}/100">${hs.grade}</span>`;
+      })() : '';
+
       appRows += `
         <div style="padding:12px 0;border-bottom:1px solid #1f2937">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div>
-              <div style="font-weight:600;font-size:14px">${htmlEscape(app.name)}</div>
+              <div style="font-weight:600;font-size:14px">${htmlEscape(app.name)}${gradeBadge}</div>
               <div style="font-size:12px;color:#9ca3af">${htmlEscape(app.domain)}</div>
             </div>
             <div style="display:flex;align-items:center;gap:12px">
