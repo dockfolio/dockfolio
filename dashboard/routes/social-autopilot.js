@@ -336,6 +336,17 @@ export default function registerSocialAutopilotRoutes({
     bannerforge: { name: 'BannerForge', domain: 'bannerforge.app', pitch: 'AI banner ad generator — create display ads in seconds', tags: ['marketing', 'ai', 'design', 'ads'] },
     crelvo: { name: 'Crelvo Dev Studio', domain: 'crelvo.dev', pitch: 'Solo dev studio — we build web apps, SaaS products, and tools. 18 live products. Hire us for your next project.', tags: ['freelance', 'developer', 'agency', 'web'] },
     oldworldlogos: { name: 'Old World Logos', domain: 'oldworldlogos.com', pitch: 'Curated collection of vintage and classic logo designs for inspiration', tags: ['design', 'logos', 'vintage', 'branding'] },
+    lufthafen: { name: 'Lufthafen', domain: 'lufthafen.crelvo.dev', pitch: 'Airport management strategy browser game', tags: ['game', 'strategy', 'browser'] },
+    diplomancy: { name: 'Diplomancy', domain: 'diplomancy.crelvo.dev', pitch: 'Diplomatic strategy game — negotiate, ally, conquer', tags: ['game', 'strategy', 'diplomacy'] },
+    creatureforge: { name: 'CreatureForge', domain: 'creatureforge.crelvo.dev', pitch: 'Creature creation and battle browser game', tags: ['game', 'creature', 'battle'] },
+    grimhollow: { name: 'Grimhollow', domain: 'grimhollow.crelvo.dev', pitch: 'Dark fantasy adventure browser game', tags: ['game', 'fantasy', 'adventure'] },
+    huntingdragons: { name: 'Hunting Dragons', domain: 'huntingdragons.crelvo.dev', pitch: 'Dragon hunting adventure browser game', tags: ['game', 'dragons', 'adventure'] },
+    worldcontrol: { name: 'World Control', domain: 'worldcontrol.crelvo.dev', pitch: 'Global domination strategy browser game', tags: ['game', 'strategy', 'world'] },
+    betpilot: { name: 'BetPilot', domain: 'betpilot.crelvo.dev', pitch: 'Sports betting analysis and tracking tool', tags: ['sports', 'betting', 'analytics'] },
+    urlgame: { name: 'urlGame', domain: 'urlgame.crelvo.dev', pitch: 'URL guessing browser game — guess the website from clues', tags: ['game', 'trivia', 'browser'] },
+    bestage: { name: 'Best Age', domain: 'best-age.de', pitch: 'Resources and community for the best age of life (50+)', tags: ['lifestyle', 'community', 'german'] },
+    codewithrigor: { name: 'Code With Rigor', domain: 'codewithrigor.com', pitch: 'Software engineering blog focused on disciplined, principled coding', tags: ['blog', 'engineering', 'coding'] },
+    creativeprogrammer: { name: 'Creative Programmer', domain: 'thecreativeprogrammer.dev', pitch: 'Blog about creative coding and building things as a developer', tags: ['blog', 'creative', 'coding'] },
   };
 
   // --- Monitoring config ---
@@ -401,6 +412,24 @@ export default function registerSocialAutopilotRoutes({
     // Old World Logos — design
     { sub: 'graphic_design', keywords: ['vintage logo', 'classic logo design', 'retro logo inspiration', 'old logos'] },
     { sub: 'logodesign', keywords: ['vintage logo', 'logo inspiration', 'classic logo', 'retro branding'] },
+
+    // Browser games (Crelvo games portfolio)
+    { sub: 'WebGames', keywords: ['browser strategy game', 'browser game recommendation', 'free browser game', 'web game'] },
+    { sub: 'browsergaming', keywords: ['browser strategy', 'browser adventure', 'free browser game'] },
+    { sub: 'incremental_games', keywords: ['browser game', 'idle game', 'web game'] },
+    { sub: 'gamedev', keywords: ['browser game', 'web game development', 'html5 game', 'javascript game'] },
+    { sub: 'indiegaming', keywords: ['browser game', 'indie browser game', 'free indie game', 'web game'] },
+
+    // BetPilot — sports betting
+    { sub: 'sportsbetting', keywords: ['betting analysis tool', 'betting tracker', 'bet tracking app', 'sports analytics'] },
+    { sub: 'sportsbook', keywords: ['betting analysis', 'betting tool', 'bet tracker'] },
+
+    // Best Age — 50+ lifestyle (German)
+    { sub: 'de', keywords: ['Leben ab 50', 'Ruhestand', 'Rente Tipps'] },
+
+    // Code With Rigor / Creative Programmer — dev blogs
+    { sub: 'programming', keywords: ['coding blog', 'software engineering blog', 'developer blog recommendation'] },
+    { sub: 'learnprogramming', keywords: ['coding blog', 'learn programming blog', 'beginner developer blog'] },
   ];
 
   const MONITOR_HN_QUERIES = [
@@ -813,6 +842,10 @@ ${items}
     if (/banner.*gen|ad.*creative|promo.*material/.test(combined)) return 'promoforge';
     if (/vintage.*logo|classic.*logo|retro.*logo|old.*logo/.test(combined)) return 'oldworldlogos';
     if (/religious.*art|sacred|christian.*symbol/.test(combined)) return 'sacredlens';
+    if (/browser.*game|web.*game|html5.*game|javascript.*game|indie.*game|incremental|idle.*game/.test(combined)) return 'crelvo'; // promote game portfolio via Crelvo
+    if (/betting|sportsbook|bet.*track|sports.*analyt/.test(combined)) return 'betpilot';
+    if (/coding.*blog|developer.*blog|programming.*blog|software.*engineer.*blog/.test(combined)) return 'codewithrigor';
+    if (/leben.*50|ruhestand|rente.*tipp|best.*age/.test(combined)) return 'bestage';
     return null;
   }
 

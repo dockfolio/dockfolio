@@ -1823,7 +1823,7 @@ export default function registerMarketingRoutes({
   label.style.cssText='color:rgba(255,255,255,0.5);white-space:nowrap;font-size:10px';
   label.textContent='Also by Crelvo:';
   el.appendChild(label);
-  var shown=related.sort(function(){return 0.5-Math.random()}).slice(0,5);
+  var shown=related.sort(function(){return 0.5-Math.random()}).slice(0,8);
   shown.forEach(function(l){
     var a=document.createElement('a');
     a.href='https://'+l.domain+'?ref='+encodeURIComponent(current);
