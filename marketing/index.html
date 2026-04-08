@@ -114,14 +114,16 @@
       max-width: 860px;
       margin: 0 auto;
     }
-    .hero::before {
-      content: '';
+    .hero-canvas-wrap {
       position: absolute;
-      top: 0; left: 50%; transform: translateX(-50%);
-      width: 800px; height: 600px;
-      background: radial-gradient(ellipse at center, rgba(6,182,212,0.08) 0%, rgba(139,92,246,0.04) 40%, transparent 70%);
+      top: 0; left: 0; right: 0;
+      height: 100vh;
+      overflow: hidden;
       pointer-events: none;
+      z-index: 0;
     }
+    .hero-canvas-wrap canvas { width: 100%; height: 100%; display: block; }
+    .hero > *:not(.hero-canvas-wrap) { position: relative; z-index: 1; }
     .hero-badge {
       display: inline-block;
       background: var(--surface2);
@@ -400,6 +402,92 @@
     .pricing-btn-primary { background: var(--cyan); color: var(--bg); }
     .pricing-btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
 
+    /* Guide section */
+    .guide-section {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 100px 24px;
+    }
+    .guide-card {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr;
+      gap: 48px;
+      align-items: center;
+      background: linear-gradient(135deg, var(--surface) 0%, rgba(6,182,212,0.03) 100%);
+      border: 1px solid rgba(6,182,212,0.15);
+      border-radius: 16px;
+      padding: 48px;
+    }
+    .guide-cover {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 32px 24px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .guide-cover::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--cyan), var(--purple));
+    }
+    .guide-cover-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      display: block;
+    }
+    .guide-cover-title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 6px;
+    }
+    .guide-cover-sub {
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+    .guide-cover-pages {
+      margin-top: 16px;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .guide-info h2 { font-size: 30px; font-weight: 700; margin-bottom: 14px; letter-spacing: -0.025em; }
+    .guide-info > p { color: var(--text-dim); font-size: 15px; line-height: 1.65; margin-bottom: 24px; }
+    .guide-features {
+      list-style: none;
+      margin-bottom: 28px;
+    }
+    .guide-features li {
+      font-size: 14px;
+      color: var(--text-dim);
+      padding: 7px 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .guide-features li::before { content: '\2713'; color: var(--green); font-weight: 700; font-size: 13px; }
+    .guide-price {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .guide-price .amount { font-size: 36px; font-weight: 800; letter-spacing: -0.025em; }
+    .guide-price .format { font-size: 14px; color: var(--text-muted); }
+    .guide-cta { display: flex; gap: 12px; flex-wrap: wrap; }
+    .guide-guarantee { margin-top: 16px; font-size: 12px; color: var(--text-muted); }
+
+    @media (max-width: 768px) {
+      .guide-card { grid-template-columns: 1fr; padding: 28px 20px; gap: 28px; }
+      .guide-info h2 { font-size: 24px; }
+    }
+
     /* Social proof */
     .social-proof {
       display: flex;
@@ -552,6 +640,7 @@
     <span class="nav-brand">Dockfolio</span>
     <div class="nav-links">
       <a href="#features">Features</a>
+      <a href="#guide">Playbook</a>
       <a href="#pricing">Pricing</a>
       <a href="#compare">Compare</a>
       <a href="https://github.com/dockfolio/dockfolio">GitHub</a>
@@ -567,6 +656,9 @@
 
   <!-- Hero -->
   <div class="hero">
+    <div class="hero-canvas-wrap" id="heroCanvasWrap">
+      <canvas id="heroCanvas"></canvas>
+    </div>
     <div class="hero-badge">Open Source &middot; AGPL-3.0 &middot; ADHD-Friendly</div>
     <h1>Stop dashboard-hopping. Run your portfolio from one screen.</h1>
     <p>The first self-hosted Docker dashboard that combines infrastructure management with business intelligence. Built by a developer with ADHD, for developers who ship.</p>
@@ -917,6 +1009,40 @@
     </div>
   </section>
 
+  <!-- Guide -->
+  <section class="guide-section fade-in" id="guide">
+    <div class="guide-card">
+      <div class="guide-cover">
+        <span class="guide-cover-icon">&#x1F433;</span>
+        <div class="guide-cover-title">The Dockfolio Playbook</div>
+        <div class="guide-cover-sub">From Zero to Production-Grade Dashboard</div>
+        <div class="guide-cover-pages">PDF &middot; 85 pages &middot; 12 chapters</div>
+      </div>
+      <div class="guide-info">
+        <div class="section-label">Premium Guide</div>
+        <h2>Master your Docker portfolio</h2>
+        <p>Everything we learned running 30+ apps on a single Hetzner VPS. Real configs, real numbers, real mistakes. Not theory -- battle-tested playbooks for indie hackers who self-host.</p>
+        <ul class="guide-features">
+          <li>Production nginx configs with security headers, SSL, and rate limiting</li>
+          <li>Stripe + Plausible integration walkthroughs with real revenue dashboards</li>
+          <li>Auto-healing playbooks: restart policies, disk cleanup, loop detection</li>
+          <li>Security hardening checklist (container, network, SSH, fail2ban)</li>
+          <li>AI ops setup: morning briefings, worry scores, Telegram alerts</li>
+          <li>ADHD-friendly workflow: from 5-tab chaos to single Worry Score</li>
+        </ul>
+        <div class="guide-price">
+          <span class="amount">$19</span>
+          <span class="format">PDF &middot; instant download &middot; lifetime updates</span>
+        </div>
+        <div class="guide-cta">
+          <a href="#" class="btn-primary btn-lg">Buy the Playbook</a>
+          <a href="#" class="btn-outline btn-lg">Preview Chapter 1</a>
+        </div>
+        <p class="guide-guarantee">30-day money-back guarantee. No questions asked.</p>
+      </div>
+    </div>
+  </section>
+
   <!-- CTA -->
   <div class="cta fade-in">
     <h2>Ready to take control?</h2>
@@ -1044,6 +1170,188 @@
     }
     window.addEventListener('hashchange', handleHash);
     if (location.hash === '#impressum' || location.hash === '#datenschutz') handleHash();
+  </script>
+
+  <!-- Three.js Hero Background -->
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.172.0/build/three.module.js" } }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+
+    const canvas = document.getElementById('heroCanvas');
+    const wrap = document.getElementById('heroCanvasWrap');
+    if (!canvas || !wrap) throw new Error('Canvas not found');
+
+    let w = wrap.clientWidth;
+    let h = wrap.clientHeight;
+
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(w, h);
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 120);
+    camera.position.z = 35;
+
+    // Network-node particle system — Docker containers floating in space
+    const COUNT = 800;
+    const geometry = new THREE.BufferGeometry();
+    const pos = new Float32Array(COUNT * 3);
+    const base = new Float32Array(COUNT * 3);
+    const col = new Float32Array(COUNT * 3);
+    const siz = new Float32Array(COUNT);
+    const pha = new Float32Array(COUNT);
+
+    const cyan = new THREE.Color(0x06b6d4);
+    const purple = new THREE.Color(0x8b5cf6);
+    const blue = new THREE.Color(0x3b82f6);
+    const dim = new THREE.Color(0x1a3a4a);
+    const palette = [cyan, purple, blue, dim, dim, dim];
+
+    for (let i = 0; i < COUNT; i++) {
+      const x = (Math.random() - 0.5) * 70;
+      const y = (Math.random() - 0.5) * 50;
+      const z = (Math.random() - 0.5) * 30;
+      pos[i*3] = x; pos[i*3+1] = y; pos[i*3+2] = z;
+      base[i*3] = x; base[i*3+1] = y; base[i*3+2] = z;
+      const c = palette[Math.floor(Math.random() * palette.length)];
+      col[i*3] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
+      siz[i] = 0.6 + Math.random() * 1.4;
+      pha[i] = Math.random() * Math.PI * 2;
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(siz, 1));
+
+    const material = new THREE.ShaderMaterial({
+      vertexShader: `
+        attribute float size;
+        varying vec3 vColor;
+        void main() {
+          vColor = color;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = size * (140.0 / -mv.z);
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+        void main() {
+          float d = length(gl_PointCoord - vec2(0.5));
+          if (d > 0.5) discard;
+          float a = smoothstep(0.5, 0.05, d) * 0.4;
+          gl_FragColor = vec4(vColor, a);
+        }
+      `,
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+
+    // Connection lines between nearby particles
+    const MAX_LINES = 300;
+    const linePos = new Float32Array(MAX_LINES * 6);
+    const lineCol = new Float32Array(MAX_LINES * 6);
+    const lineGeo = new THREE.BufferGeometry();
+    lineGeo.setAttribute('position', new THREE.BufferAttribute(linePos, 3));
+    lineGeo.setAttribute('color', new THREE.BufferAttribute(lineCol, 3));
+    const lineMat = new THREE.LineBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.12,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const lines = new THREE.LineSegments(lineGeo, lineMat);
+    scene.add(lines);
+
+    scene.add(new THREE.Points(geometry, material));
+
+    const mouse = { x: 0, y: 0 };
+    let mouseActive = false;
+    const hero = document.querySelector('.hero');
+    hero.addEventListener('mousemove', (e) => {
+      const r = hero.getBoundingClientRect();
+      mouse.x = ((e.clientX - r.left) / r.width - 0.5) * 70;
+      mouse.y = -((e.clientY - r.top) / r.height - 0.5) * 50;
+      mouseActive = true;
+    });
+    hero.addEventListener('mouseleave', () => { mouseActive = false; });
+
+    const clock = new THREE.Clock();
+    let lineCount = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const t = clock.getElapsedTime();
+
+      for (let i = 0; i < COUNT; i++) {
+        const p = pha[i];
+        pos[i*3]   = base[i*3]   + Math.sin(t * 0.2 + p) * 0.5;
+        pos[i*3+1] = base[i*3+1] + Math.cos(t * 0.18 + p * 1.3) * 0.4;
+        pos[i*3+2] = base[i*3+2] + Math.sin(t * 0.15 + p * 0.7) * 0.6;
+
+        if (mouseActive) {
+          const dx = pos[i*3] - mouse.x;
+          const dy = pos[i*3+1] - mouse.y;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          if (dist < 10) {
+            const f = (1 - dist/10) * 3.5;
+            pos[i*3]   += (dx/dist) * f;
+            pos[i*3+1] += (dy/dist) * f;
+          }
+        }
+      }
+      geometry.attributes.position.needsUpdate = true;
+
+      // Update connection lines (every 3rd frame for perf)
+      if (Math.floor(t * 60) % 3 === 0) {
+        lineCount = 0;
+        const threshold = 8;
+        for (let i = 0; i < COUNT && lineCount < MAX_LINES; i += 3) {
+          for (let j = i + 3; j < COUNT && lineCount < MAX_LINES; j += 3) {
+            const dx = pos[i*3] - pos[j*3];
+            const dy = pos[i*3+1] - pos[j*3+1];
+            const dz = pos[i*3+2] - pos[j*3+2];
+            const d = Math.sqrt(dx*dx + dy*dy + dz*dz);
+            if (d < threshold) {
+              const idx = lineCount * 6;
+              linePos[idx]   = pos[i*3]; linePos[idx+1] = pos[i*3+1]; linePos[idx+2] = pos[i*3+2];
+              linePos[idx+3] = pos[j*3]; linePos[idx+4] = pos[j*3+1]; linePos[idx+5] = pos[j*3+2];
+              const fade = 1 - d / threshold;
+              lineCol[idx] = 0.024*fade; lineCol[idx+1] = 0.71*fade; lineCol[idx+2] = 0.82*fade;
+              lineCol[idx+3] = 0.024*fade; lineCol[idx+4] = 0.71*fade; lineCol[idx+5] = 0.82*fade;
+              lineCount++;
+            }
+          }
+        }
+        lineGeo.setDrawRange(0, lineCount * 2);
+        lineGeo.attributes.position.needsUpdate = true;
+        lineGeo.attributes.color.needsUpdate = true;
+      }
+
+      camera.position.x = Math.sin(t * 0.08) * 0.6;
+      camera.position.y = Math.cos(t * 0.06) * 0.4;
+      camera.lookAt(0, 0, 0);
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    new ResizeObserver(() => {
+      w = wrap.clientWidth; h = wrap.clientHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }).observe(wrap);
+
+    new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) { clock.start(); animate(); }
+    }, { threshold: 0 }).observe(wrap);
   </script>
 </body>
 </html>
