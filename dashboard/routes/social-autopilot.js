@@ -433,20 +433,16 @@ export default function registerSocialAutopilotRoutes({
   ];
 
   const MONITOR_HN_QUERIES = [
-    // Dockfolio
-    'docker dashboard', 'self-hosted dashboard', 'solopreneur tools',
-    'indie hacker infrastructure', 'portainer alternative',
+    // Dockfolio — specific enough to avoid noise
+    'docker dashboard', 'self-hosted dashboard', 'portainer alternative',
+    'server dashboard self-hosted',
     // Career tools (German market)
-    'salary calculator germany', 'ai headshot generator',
-    // Dev studio / freelance
-    'solo developer portfolio', 'indie developer', 'one person saas',
-    'side project to saas', 'build in public',
+    'salary calculator', 'brutto netto rechner',
+    'ai headshot generator', 'ai bewerbungsfoto',
     // Thesis / education
-    'ai thesis review', 'thesis proofreading tool',
-    // ADHD
-    'adhd developer', 'adhd programmer productivity',
-    // Marketing
-    'banner ad generator', 'promotional material ai',
+    'ai thesis review', 'thesis proofreading',
+    // Marketing tools
+    'banner ad generator', 'promotional material generator',
   ];
 
   // --- YouTube monitoring ---
