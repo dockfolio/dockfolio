@@ -86,10 +86,18 @@ export default function registerKettenreaktionRoutes({ app, db, rateLimit }) {
     res.set('Access-Control-Allow-Headers', 'Content-Type');
   };
 
+  // Prepared statement: get all puzzle dates for a player (ordered descending)
+  const getPlayerDates = db.prepare(`
+    SELECT puzzle_date FROM kr_daily_results
+    WHERE player_id = ?
+    ORDER BY puzzle_date DESC
+  `);
+
   // OPTIONS preflight
   app.options('/api/kr/result', (req, res) => { setCORS(res); res.sendStatus(204); });
   app.options('/api/kr/stats', (req, res) => { setCORS(res); res.sendStatus(204); });
   app.options('/api/kr/heatmap', (req, res) => { setCORS(res); res.sendStatus(204); });
+  app.options('/api/kr/streak', (req, res) => { setCORS(res); res.sendStatus(204); });
 
   // POST /api/kr/result — submit daily result
   app.post('/api/kr/result', rlSubmit, (req, res) => {
@@ -216,6 +224,91 @@ export default function registerKettenreaktionRoutes({ app, db, rateLimit }) {
       res.status(500).json({ error: 'Server error' });
     }
   });
+
+  // GET /api/kr/streak?playerId=... — compute server-validated streak
+  app.get('/api/kr/streak', rlRead, (req, res) => {
+    setCORS(res);
+    try {
+      const playerId = req.query.playerId;
+      if (!playerId) {
+        return res.status(400).json({ error: 'Missing playerId' });
+      }
+
+      const rows = getPlayerDates.all(playerId);
+      if (rows.length === 0) {
+        return res.json({ streak: 0, bestStreak: 0, totalDays: 0 });
+      }
+
+      // Compute current streak (with 1-day grace period, matching client logic)
+      const today = new Date().toISOString().split('T')[0];
+      let streak = 0;
+      let expectedDate = today;
+
+      for (const row of rows) {
+        const date = row.puzzle_date;
+        const diffDays = daysDiff(expectedDate, date);
+
+        if (diffDays === 0) {
+          // Matches expected date
+          streak++;
+          expectedDate = prevDay(date);
+        } else if (diffDays === 1) {
+          // 1-day grace: skipped one day (matches client grace period)
+          streak++;
+          expectedDate = prevDay(date);
+        } else {
+          // Gap too large, streak broken
+          break;
+        }
+      }
+
+      // If the most recent play date is >2 days ago, streak is 0
+      if (rows.length > 0) {
+        const lastPlayed = rows[0].puzzle_date;
+        const daysSinceLast = daysDiff(today, lastPlayed);
+        if (daysSinceLast > 2) {
+          streak = 0;
+        }
+      }
+
+      // Compute best streak ever
+      let bestStreak = 0;
+      let currentRun = 1;
+      for (let i = 1; i < rows.length; i++) {
+        const diff = daysDiff(rows[i - 1].puzzle_date, rows[i].puzzle_date);
+        if (diff <= 2) {
+          currentRun++;
+        } else {
+          bestStreak = Math.max(bestStreak, currentRun);
+          currentRun = 1;
+        }
+      }
+      bestStreak = Math.max(bestStreak, currentRun, streak);
+
+      res.json({
+        streak,
+        bestStreak,
+        totalDays: rows.length,
+      });
+    } catch (err) {
+      console.error('[KR] Streak error:', err.message);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  /** Calculate the difference in days between two YYYY-MM-DD date strings. */
+  function daysDiff(later, earlier) {
+    const a = new Date(later + 'T00:00:00Z');
+    const b = new Date(earlier + 'T00:00:00Z');
+    return Math.round((a - b) / 86400000);
+  }
+
+  /** Get the previous day as YYYY-MM-DD. */
+  function prevDay(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().split('T')[0];
+  }
 
   console.log('[KR] Kettenreaktion routes registered');
 }
