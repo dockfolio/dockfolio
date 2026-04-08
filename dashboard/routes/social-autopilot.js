@@ -561,7 +561,8 @@ ${items}
   // Monitor Reddit/HN every 15 minutes
   cron.schedule('*/15 * * * *', async () => {
     try {
-      await runMonitoring();
+      const found = await runMonitoring();
+      console.log(`[CRON] Social monitoring: ${found} new mentions`);
     } catch (err) {
       cronFail('Social monitoring', err);
     }
