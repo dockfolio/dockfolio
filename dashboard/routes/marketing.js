@@ -1800,8 +1800,9 @@ export default function registerMarketingRoutes({
     res.setHeader('Content-Type', 'application/javascript');
     res.setHeader('Cache-Control', 'public, max-age=600');
 
-    // Build links from config — only apps with domains that have marketing metadata
-    const apps = (config.apps || []).filter(a => a.domain && a.marketing && a.type !== 'redirect' && a.type !== 'infrastructure');
+    // Build links from config — only Crelvo-owned apps with marketing metadata
+    const NOT_CRELVO = ['agorahoch3', 'myleadme', 'leadme', 'dieagora', 'sfz-leipzig'];
+    const apps = (config.apps || []).filter(a => a.domain && a.marketing && a.type !== 'redirect' && a.type !== 'infrastructure' && !NOT_CRELVO.includes(slugify(a.name).toLowerCase()));
     const links = apps.map(a => ({
       name: a.name,
       domain: a.domain,
