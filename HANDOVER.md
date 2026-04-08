@@ -1,207 +1,213 @@
-# Handover
+# Session Handover
 
 **Date:** 2026-04-08 (Session 9)
+**Duration:** ~2 hours
+**Goal:** Go all-in on marketing automation — research, plan, build, deploy, and execute everything possible to start driving traffic to 18 apps with zero customers.
 
 ## Summary
 
-Session 9 was a **massive marketing strategy + implementation session**. The user wanted to go all-in on marketing automation. We ran 7 parallel deep-research agents covering: existing marketing infrastructure, social media automation landscape, app portfolio analysis, competitor strategies, guerrilla marketing tactics, technical API details, and deep product analysis.
+This was a massive marketing strategy + execution session. The user wanted to explore every possible marketing angle, understand what automation is viable, and start executing immediately. We ran 7 parallel deep-research agents covering: the existing marketing infrastructure, social media platform rules, all 18 apps' marketing angles, competitor strategies, guerrilla/growth tactics, technical API integration details, and deep product analysis.
 
-Key finding: **18 apps, EUR 0 revenue, but 70% of marketing infrastructure already built and sitting unused.** The gap isn't technical — it's execution.
+The core finding: the portfolio has 18 live apps generating EUR 0 revenue, but 70% of the marketing infrastructure was already built and sitting unused — banner system, email via Resend, analytics, cross-promo engine, AI content generation. The gap was pure execution, not technology.
 
-Built and committed: Social Autopilot module (automated posting to X/Twitter, Bluesky, Mastodon, Dev.to + Reddit/HN monitoring), dashboard UI panel, cross-site link widget, RSS feed, build-in-public → social queue integration, and cross-promo banner seed configs.
+We then built and deployed a Social Autopilot module (auto-posting to X/Twitter, Bluesky, Mastodon, Dev.to + Reddit/HN keyword monitoring), a cross-site link widget now live on 8 domains, cross-promo banners for the career pipeline, and sent all 17 Fachschaft outreach emails. The system is live and the monitoring crons are running. The next session should focus on configuring social platform credentials and building the high-traffic SEO content (Brutto-Netto Rechner, programmatic pages).
 
-**Most important for next session:** Configure platform credentials (Twitter API keys, Bluesky app password, etc.) and deploy. The monitoring crons start immediately on deployment. Then focus on: Fachschaft email outreach, awesome-selfhosted submission, programmatic SEO pages, and Show HN launch.
+## What Got Done
 
-## Completed
+- [x] **7 deep research agents** — comprehensive marketing analysis across platforms, competitors, products, tactics, and APIs
+- [x] **Social Autopilot module** (`dashboard/routes/social-autopilot.js`, 430 lines) — 13 API endpoints, 4 cron jobs, platform adapters for X/Twitter/Bluesky/Mastodon/Dev.to
+- [x] **Dashboard Social tab** — full UI in Marketing Manager with stats, post queue, mentions panel, quick post composer
+- [x] **Reddit/HN keyword monitoring** — scans 6 subreddits + 5 HN queries every 15 min, AI response drafts, Telegram alerts
+- [x] **Cross-site link widget** (`/api/crosslinks/widget.js`) — "Also by Crelvo" bar, live on 8 sites via nginx sub_filter injection
+- [x] **RSS feed** (`/api/social/feed.xml`) — public, serving published social content
+- [x] **Build-in-public → Social queue** — "Queue to Social" and "Queue All" buttons on BIP tweets
+- [x] **4 cross-promo banners** created in database — career pipeline (AbschlussCheck ↔ LohnCheck ↔ Bewerbungsfotos AI + Dockfolio)
+- [x] **17/17 Fachschaft emails sent** via Resend API — all German university student councils contacted about AbschlussCheck
+- [x] **Non-Crelvo apps excluded** from crosslinks (AgoraHoch3, MyLeadMe, dieAgora, SFZ Leipzig)
+- [x] **Nginx public paths configured** — crosslinks widget + RSS feed bypass basic auth
+- [x] **npm packages installed** — `twitter-api-v2`, `@atproto/api`
+- [x] **4 commits pushed + deployed** — all live on production VM
+- [x] **All 119 tests passing**
 
-### Session 9: Marketing Autopilot
-- [x] Deep research: 7 parallel agents covering all marketing angles (social platforms, APIs, competitors, guerrilla tactics, product analysis)
-- [x] Built `dashboard/routes/social-autopilot.js` — 420+ lines, 13 API endpoints, 4 cron jobs
-- [x] Platform adapters: X/Twitter (`twitter-api-v2`), Bluesky (`@atproto/api`), Mastodon (raw fetch), Dev.to (raw fetch)
-- [x] Reddit monitoring: 6 subreddits (selfhosted, Finanzen, StudiumDE, arbeitsleben, docker, webdev)
-- [x] Hacker News monitoring: 5 keyword queries via Algolia API
-- [x] AI content generation: Claude Haiku generates daily social posts from app portfolio context
-- [x] AI response drafts: Generate contextual, non-salesy replies to relevant mentions
-- [x] Telegram alerts on new keyword mentions
-- [x] RSS feed at `/api/social/feed.xml` (public, no auth)
-- [x] Dashboard UI: "Social" tab in Marketing Manager with stats, post queue, mentions, quick post
-- [x] Build-in-public → Social queue: "Queue to Social" and "Queue All" buttons on BIP tweets
-- [x] Cross-site link widget: `/api/crosslinks/widget.js` — embeddable "Also by Crelvo" bar
-- [x] Cross-promo banner seed configs: 6 banners for career pipeline (AbschlussCheck ↔ LohnCheck ↔ Bewerbungsfotos AI + Dockfolio)
-- [x] npm packages installed: `twitter-api-v2`, `@atproto/api`
-- [x] CLAUDE.md updated with new endpoints + cron jobs
-- [x] All tests passing (119/119)
-- [x] Committed: `a28a413`
+## What's In Progress
 
-### Carried Forward
-- [x] All sites restored after nginx outage (session 8)
-- [x] Watchdog + @reboot cron hardened (session 8)
-- [x] Smartsteuer affiliate banners live (session 5)
-
-## In Progress
-
-- [ ] **Kettenreaktion `/api/kr/streak` endpoint** — WIP in `dashboard/routes/kettenreaktion.js` (~93 lines added, uncommitted from session 4)
-- [ ] **Cross-promo banner deployment** — Seed configs written in `dashboard/seed-banners.js`, need to POST to `/api/marketing/banners` after deployment
-- [ ] **Crosslinks widget injection** — Widget built at `/api/crosslinks/widget.js`, needs adding to nginx site configs
+- [ ] **Social platform credentials** — **State:** Module deployed, all 5 platforms disabled (enabled=0). **Remaining:** User must create accounts on X/Bluesky/Mastodon/Dev.to, get API keys, add to dashboard settings, then enable via `PUT /api/social/accounts/{platform} { "enabled": true }`.
+- [ ] **Kettenreaktion `/api/kr/streak` endpoint** — **State:** WIP in `dashboard/routes/kettenreaktion.js` (~93 lines, uncommitted since session 4). **Remaining:** Testing and committing.
 
 ## What Didn't Get Done (and Why)
 
-- **Programmatic SEO pages** — Designed but not built. Needs landing pages on individual app domains (lohnpruefung.de, etc.), not on Dockfolio. Requires per-app implementation.
-- **Brutto-Netto Rechner** — Identified as highest-traffic opportunity (1M+ German searches/month), but it's a new feature for LohnCheck, not Dockfolio
-- **Show HN launch** — Requires deployment + preparation, can't do from local
-- **awesome-selfhosted submission** — Manual PR, needs doing from GitHub
+- **awesome-selfhosted submission** — README is excellent and ready. Needs manual GitHub PR. Didn't get to it because deployment + banner creation + email outreach took priority.
+- **Show HN launch** — Requires user to be online 6 hours engaging with comments. Prepared but not executed.
+- **Brutto-Netto Rechner** — Identified as single highest-traffic opportunity (1M+ German searches/month) but it's a feature for LohnCheck (lohnpruefung.de), not Dockfolio. Needs separate implementation session.
+- **Programmatic SEO pages** — Designed approach (generate /gehalt/{job}/{city} pages) but this needs to run on individual app domains, not Dockfolio.
+- **Shareable result cards** (OG image generation) — Planned using `satori` + `@resvg/resvg-js` but deprioritized in favor of shipping the autopilot.
+- **LinkedIn API integration** — Requires LinkedIn developer app approval (1-5 business days). Can't be instant.
 
 ## Architecture & Design Decisions
 
 | Decision | Chosen Approach | Why | Alternatives Considered | Why Rejected |
 |----------|----------------|-----|------------------------|--------------|
-| Platform SDKs | Dynamic imports (`await import(...)`) for Twitter/Bluesky | Won't crash at startup if packages missing or not configured | Static imports | Would fail if packages removed |
-| Reddit/HN monitoring | Direct API calls, no OAuth for Reddit read | Simpler, no auth needed for public search endpoints | Reddit OAuth + `snoowrap` npm | Unnecessary complexity for read-only monitoring |
-| Cross-site widget | Separate `/api/crosslinks/widget.js` endpoint | Independent of banner system, simpler, cacheable | Extend existing `embed.js` | Banner system has different lifecycle, would couple concerns |
-| Banner content | `custom_html` type, not BannerForge | BannerForge may not be running; HTML banners work everywhere | BannerForge AI-generated | Adds external dependency for simple text banners |
-| Social post queue | SQLite table with status field | Matches existing pattern (email_queue), simple, reliable | Redis queue or external service | YAGNI, SQLite is sufficient |
+| Social platform SDKs | Dynamic imports (`await import(...)`) for Twitter/Bluesky | Won't crash at startup if packages missing or platform not configured | Static imports | Would fail on `import` if package removed |
+| Reddit/HN monitoring | Direct public API calls (no OAuth for Reddit read) | Simpler, no auth needed for public search/JSON endpoints | Reddit OAuth + snoowrap npm | Unnecessary complexity for read-only |
+| Cross-site link widget | Separate `/api/crosslinks/widget.js` endpoint | Independent of banner system, simpler, 10-min cache | Extend existing embed.js | Different lifecycle, coupling concerns |
+| Banner content type | `custom_html` (not BannerForge) | BannerForge may not be running; HTML banners work everywhere, no external dependency | BannerForge AI-generated PNG | Adds runtime dependency |
+| Non-Crelvo exclusion | Hardcoded slug array in widget endpoint | KISS — only 4-5 apps to exclude, config-driven is overkill | Config flag per app in config.yml | YAGNI — rarely changes |
+| Fachschaft emails | Direct Resend API from local Node.js script | Faster than MCP server (which has setup overhead), same API key | marketing-mcp server | MCP tools don't always surface in Claude Code |
+| Crosslinks nginx injection | Python script modifying sub_filter on VM | Programmatic, batch-updates 8 sites at once | Manual editing per site | Error-prone, slow |
 
 ## Mental Model
 
 ### Social Autopilot Architecture
 
-The social autopilot is a single route module that follows existing Dockfolio patterns:
+The social autopilot is a standard Dockfolio route module following existing patterns (DI, asyncRoute, SQLite, cron, Telegram). It has three independent loops:
 
-1. **Content generation** (daily 8 AM cron): Claude Haiku reads app portfolio context from `config.yml`, generates 4 posts (one per platform: twitter, bluesky, mastodon, linkedin)
-2. **Post queue** (`social_posts` table): Posts sit in queue with `status=queued`, `scheduled_at` optional
-3. **Publishing** (hourly :15 cron): Picks queued posts, calls platform adapters, marks as posted/failed
-4. **Monitoring** (every 15 min cron): Searches Reddit (public JSON API) + HN (Algolia API) for keywords, stores new matches in `social_mentions` table
-5. **Response drafts**: On demand, Claude Haiku drafts a genuine reply based on the mention context
-6. **Telegram alerts**: New mentions trigger Telegram notification
+1. **Content Loop** (daily 8 AM): Claude Haiku reads top 5 marketable apps from `config.yml` → generates 4 posts (one per platform) → stores in `social_posts` table with `status=queued`.
 
-Platform adapters return `{ ok: true, id, url }` or `{ ok: false, error }`. Each platform has a daily limit (configurable per-platform via `social_accounts` table).
+2. **Publishing Loop** (hourly :15): Picks `status=queued` posts where `scheduled_at` is null or past → calls platform adapter → marks as `posted` or `failed` → bumps daily counter. Each platform has `enabled` flag and `daily_limit` in `social_accounts` table.
+
+3. **Monitoring Loop** (every 15 min): Searches Reddit (public `.json` API, 2s delay between queries to avoid rate limits) and HN (Algolia search API) for keywords → stores new matches in `social_mentions` table (UNIQUE on `external_id` prevents duplicates) → sends Telegram if any found.
+
+Platform adapters all return `{ ok: true, id, url }` or `{ ok: false, error }`. Twitter and Bluesky use dynamic imports for their SDKs. Mastodon and Dev.to use raw fetch.
 
 ### Cross-Site Link Widget
 
-`/api/crosslinks/widget.js` is a public, cacheable JavaScript file that:
-- Reads app list from `config.yml` (compiled at serve time, cached 10 min)
-- Filters out current domain, infrastructure, and redirects
-- Shows 5 random related apps in a fixed bottom bar
-- User can dismiss with X button
-- Adds `?ref=` tracking param for analytics
+`/api/crosslinks/widget.js` is a self-contained IIFE that:
+- Gets app list from config (compiled at serve time, cached 10 min)
+- Filters: must have domain + marketing metadata, not redirect/infrastructure, not in NOT_CRELVO exclusion list
+- Picks 5 random apps (excluding current hostname)
+- Renders a fixed bottom bar with purple links + close button
+- Adds `?ref={current_domain}` for attribution tracking
 
-### Cross-Promo Strategy
+### Career Pipeline Cross-Promotion
 
-The "career pipeline" is the highest-value cross-promo chain:
+The highest-value cross-promo chain serves one person at different life stages:
 ```
-AbschlussCheck (thesis) → LohnCheck (salary) → Bewerbungsfotos AI (job photos)
+AbschlussCheck (finishing thesis) → LohnCheck (checking salary) → Bewerbungsfotos AI (applying for jobs)
 ```
-These serve the same person at different life stages. Banner configs in `seed-banners.js`.
+These 3 apps target the same demographic (German students/graduates). Banner IDs 26-29 implement this cycle.
+
+### Database Paths on VM
+
+This is important and has bitten us: The dashboard container uses `/home/deploy/marketing/data.db` (bind-mounted), NOT `/app/data.db` (ephemeral). The path is `$HOME/marketing/data.db` where `$HOME=/home/deploy` inside the container. The `auth.db` is at `/home/deploy/marketing/auth.db`. Any direct DB operations must use these paths.
+
+### Nginx Sub-Filter Injection
+
+All 30+ sites use nginx `sub_filter` to inject scripts before `</head>` or `</body>`. Key rules:
+- `sub_filter_once on` means only the first match per string is replaced
+- `proxy_set_header Accept-Encoding ""` is required for sub_filter to work on proxied content
+- The syntax is `sub_filter 'old_string' 'new_string'` — getting the order wrong silently breaks injection
+- Some sites inject into `</head>` (abschlusscheck), others into `</body>` (most others)
+- The crosslinks widget was added to the `</body>` sub_filter on 8 sites
 
 ## Known Issues & Risks
 
-- **Systemd nginx service still enabled** — see session 8 (needs Hetzner console root access)
-- **No platform credentials configured yet** — Social autopilot won't post until Twitter/Bluesky/Mastodon keys are added to settings
-- **Reddit rate limiting** — 2-second delay between searches, but heavy monitoring could still trigger Reddit's anti-bot detection. Monitor for 429 responses.
-- **Kettenreaktion streak endpoint uncommitted** — WIP from session 4
-- **Cross-site widget not yet in nginx configs** — Need to add `<script src="https://admin.crelvo.dev/api/crosslinks/widget.js"></script>` to each site's nginx config
-- **Seed banners not yet created** — Config ready in `seed-banners.js`, need to POST to API after deployment
+- **Systemd nginx service still enabled** — Impact: on reboot, wrong nginx starts for ~7 seconds until @reboot cron fixes it. Workaround: @reboot cron. Fix: `systemctl disable nginx` via Hetzner console.
+- **Social platforms not configured** — All 5 platforms have `enabled=0`. Social posting won't happen until user adds credentials.
+- **Reddit rate limiting** — 2s delay between searches, but 6 subreddits × multiple keywords = many requests. Monitor for 429 responses. If rate-limited, increase delay or reduce keyword count.
+- **bewerbungsfotos-ai crosslinks not injected** — This site wasn't in the batch of 8 updated sites (might have a different sub_filter structure). Check and add manually.
+- **Kettenreaktion streak endpoint uncommitted** — WIP from session 4 in `kettenreaktion.js`.
+- **`logos-web` auto-healing alert** — Healing system confuses VM hostname with container name (from session 8).
+- **Smartsteuer voucher code CRELVO10 doesn't exist yet** — Banners reference it but the code isn't active at smartsteuer.
+
+## What Worked Well
+
+- **7 parallel research agents** — Ran all deep research concurrently, got comprehensive results in ~5 minutes. Each agent focused on a different angle (platforms, competitors, products, tactics, APIs, infrastructure, portfolio).
+- **Deploy → nginx config → verify loop** — Deploying code, updating nginx, and verifying public endpoints in rapid succession worked smoothly.
+- **Resend API for bulk email** — Sent 12 emails in 24 seconds with 2s delay between. All delivered. Simple, reliable.
+- **Python for nginx config editing** — Shell `sed` failed badly (collapsed multilines). Python on the VM was reliable for programmatic config changes.
+- **Dynamic imports for optional SDKs** — Twitter/Bluesky packages can be installed or not without breaking the server.
+
+## What Didn't Work (Traps to Avoid)
+
+- **sed for multi-line nginx edits** — Backslash-newline handling on the VM's sed collapses everything to one line. Use Python instead.
+- **Shell quoting for node -e inside docker exec over SSH** — Triple-level escaping (local shell → SSH → docker exec → node -e) is a nightmare. Use file-based approach: write script to /tmp, docker cp into container, run from /app/ with .cjs extension (ESM is default).
+- **Assuming /app/data.db is the production database** — It's not. The real DB is at `/home/deploy/marketing/data.db` (bind-mounted volume). `/app/data.db` is ephemeral and empty.
+- **Expecting nginx sub_filter to work without Accept-Encoding header** — Static file sites that don't proxy need different injection approach.
+- **Trying to hit auth-required endpoints from outside VM** — The nginx basic auth blocks everything. Either SSH into VM and curl localhost, or use docker exec to run scripts inside the container.
 
 ## Next Steps (Priority Order)
 
-1. **Deploy** — `bash deploy.sh --rebuild` to activate all new features
-2. **Configure social platform credentials** in dashboard settings:
-   - Twitter: Create app at developer.twitter.com, get 4 keys (app key, app secret, access token, access secret)
-   - Bluesky: Create account, generate app password at Settings > App Passwords
-   - Mastodon: Create app at instance/settings/applications, get access token
-   - Dev.to: Get API key from dev.to/settings/extensions
-3. **Enable platforms** via `PUT /api/social/accounts/twitter { "enabled": true }`
-4. **Create cross-promo banners** — POST the configs from `seed-banners.js` to `/api/marketing/banners`
-5. **Add crosslinks widget to nginx** — Add `<script src="https://admin.crelvo.dev/api/crosslinks/widget.js"></script>` to each site's `sub_filter` in nginx config
-6. **Send remaining 12 Fachschaft emails** — via marketing-mcp (`market abschlusscheck`)
-7. **Submit Dockfolio to awesome-selfhosted** — GitHub PR to github.com/awesome-selfhosted/awesome-selfhosted
-8. **Show HN launch** — Prepare post: "Show HN: I run 18 apps on one $12 server as a solo dev"
+1. **Configure social platform credentials** — Create accounts on X (developer.twitter.com → get 4 OAuth keys), Bluesky (bsky.app → Settings > App Passwords), Mastodon (instance/settings/applications → access token), Dev.to (dev.to/settings/extensions → API key). Add each to dashboard settings. Enable each via `PUT /api/social/accounts/{platform} { "enabled": true, "daily_limit": 3 }`. Then trigger first content: `POST /api/social/generate`.
 
-### High-Impact Marketing Actions (post-deployment)
+2. **Submit Dockfolio to awesome-selfhosted** — Create a PR to `github.com/awesome-selfhosted/awesome-selfhosted`. Add under "Software Development - Project Management" or "Monitoring" section. Entry format: `- [Dockfolio](https://dockfolio.dev) - Docker dashboard combining infrastructure management with business intelligence for solopreneurs. ([Source Code](https://github.com/crelvo/appmanager)) \`AGPL-3.0\` \`Nodejs\` \`Docker\``. The README is ready.
 
-9. **Build Brutto-Netto Rechner** on lohnpruefung.de (1M+ monthly German searches)
-10. **Programmatic SEO** — Generate `/gehalt/{job}/{city}` pages on LohnCheck from public salary data
-11. **Parasite SEO** — Publish on Medium, Dev.to, GitHub targeting German finance keywords
-12. **Shareable result cards** — OG image generation for LohnCheck/AbschlussCheck results
-13. **Career Bundle landing page** on crelvo.dev
-14. **German media outreach** — t3n.de, deutsche-startups.de, Heise
+3. **Build Brutto-Netto Rechner on LohnCheck** — Create a gross-to-net salary calculator at `lohnpruefung.de/brutto-netto`. This targets "Brutto Netto Rechner" (1M+ German searches/month). Needs: German tax brackets 2026, Sozialversicherung rates, Kirchensteuer toggle, interactive form. Upsell to LohnCheck premium.
 
-### Backlog (carried forward)
-- Systemd nginx override (needs root access)
-- Delete stale Stripe webhook
-- GitHub fine-grained token
-- Off-site backup
-- og:image files for all apps
-- WISO Steuer banners
-- Smartsteuer voucher codes
+4. **Programmatic SEO pages** — Generate `/gehalt/{job}/{city}` pages on LohnCheck from Bundesagentur für Arbeit Entgeltatlas data. Template: intro paragraph (Claude Haiku, ~$0.001/page), salary range table, calculator CTA. Submit sitemaps to Google Search Console.
+
+5. **Fix bewerbungsfotos-ai crosslinks injection** — Check nginx config for this site, add crosslinks widget to its sub_filter.
+
+6. **Prepare Show HN post** — Draft: "Show HN: I run 18 apps on one $12/month server as a solo dev". Include: architecture overview, screenshot, link to dockfolio.dev. Post Tuesday-Wednesday 11 AM ET. Must be online 6 hours to reply to every comment.
+
+7. **Shareable result cards** — Install `satori` + `@resvg/resvg-js`. Create `/api/og/{type}/{hash}.png` endpoint that generates personalized OG images ("Your salary is in the top 23%"). This enables viral sharing on WhatsApp/LinkedIn/X.
+
+8. **Backlog:** Finish Kettenreaktion streak endpoint (commit the WIP), German media outreach (t3n.de, deutsche-startups.de), Career Bundle landing page, delete stale Stripe webhook, GitHub fine-grained token, off-site backup, WISO Steuer banners.
 
 ## Rollback Plan
 
-- **Last commit:** `a28a413` (Social autopilot module)
-- **Previous safe commit:** `257fe7d` (Session 5 handover)
-- **To undo social autopilot:** `git revert a28a413` — removes the module cleanly
-- **npm packages:** `twitter-api-v2` and `@atproto/api` are optional (dynamic imports), removing them won't break the server
-- **Database tables:** `social_posts`, `social_mentions`, `social_accounts` are new — dropping them has no side effects
+- **Last known good commit:** `9698ca8` (latest, all 4 session 9 commits)
+- **Pre-session commit:** `257fe7d` (session 5 handover) — revert to this to undo all session 9 work
+- **To revert social autopilot only:** `git revert a28a413` — removes the module, npm packages stay (harmless)
+- **To undo nginx crosslinks injection:** SSH into VM, run: `ssh deploy@91.99.104.132` then for each site in `/home/deploy/nginx-configs/sites/`, remove the `crosslinks/widget.js` text from sub_filter lines. Reload nginx.
+- **To undo cross-promo banners:** SSH into VM, `docker exec` and delete from banners table where `tags LIKE '%crosspromo%' AND id >= 26`.
 - **If nginx goes down:** `ssh deploy@91.99.104.132 "sudo /usr/sbin/nginx -s stop 2>/dev/null; sleep 1; sudo /usr/sbin/nginx -c /home/deploy/nginx-configs/nginx.conf"`
 
 ## Files Changed This Session
 
-### New Files
-- `dashboard/routes/social-autopilot.js` — Social autopilot route module (420+ lines)
-- `dashboard/seed-banners.js` — Cross-promo banner seed configurations
-- `package.json` / `package-lock.json` — Root-level deps for twitter-api-v2, @atproto/api
+### New Files (committed)
+- `dashboard/routes/social-autopilot.js` — Social autopilot route module (430 lines: 13 endpoints, 4 crons, 5 platform adapters, Reddit/HN monitoring)
+- `dashboard/seed-banners.js` — Cross-promo banner configurations (reference/documentation)
+- `package.json` / `package-lock.json` — Root-level deps: twitter-api-v2, @atproto/api
 
-### Modified Files
-- `dashboard/server.js` — Import + register social autopilot, add public paths
-- `dashboard/routes/marketing.js` — Add `/api/crosslinks/widget.js` endpoint
-- `dashboard/public/index.html` — Social tab UI, BIP queue buttons
-- `CLAUDE.md` — New API endpoints + cron jobs documented (gitignored)
-
-### Unchanged from Prior Sessions
-- `dashboard/routes/kettenreaktion.js` — WIP streak endpoint (uncommitted, session 4)
-- `marketing/index.html` — Prior session changes (uncommitted)
+### Modified Files (committed)
+- `dashboard/server.js` — Import + register social autopilot, add public paths (crosslinks, RSS feed, social feed)
+- `dashboard/routes/marketing.js` — Add `/api/crosslinks/widget.js` endpoint, NOT_CRELVO exclusion list
+- `dashboard/public/index.html` — Social tab in Marketing Manager, BIP queue buttons, social JS functions (~290 lines added)
 - `HANDOVER.md` — This file
 
-## Research Findings (Key Insights)
+### Modified on VM (not in git)
+- `/home/deploy/nginx-configs/sites/appmanager` — Public location blocks for crosslinks + RSS feed
+- `/home/deploy/nginx-configs/sites/{8 sites}` — Crosslinks widget added to sub_filter `</body>` injection
+- `/home/deploy/marketing/data.db` — 4 new banners (IDs 26-29) + placements, social_posts/social_mentions/social_accounts tables created
 
-### Platform Automation Reality
-| Platform | Auto-post? | Auto-comment? | Best approach |
-|----------|-----------|---------------|---------------|
-| X/Twitter | Yes (free: 50/day) | Risky | Schedule 2-3 posts/day |
-| Bluesky | Yes (bot-friendly) | Yes if disclosed | Mirror X content |
-| Mastodon | Yes (native scheduling) | Yes if bot-flagged | Technical content |
-| Dev.to | Yes (free API) | N/A | Cross-post with canonical URLs |
-| Reddit | NO (shadowban) | NO | Manual helpful answers only |
-| YouTube | Uploads yes | NO (ML spam filter) | Create Shorts demos |
-| HN | NO (no write API) | NO | Show HN = highest leverage |
-
-### Highest-Impact Marketing Actions
-1. Brutto-Netto Rechner on LohnCheck (1M+ German searches/month)
-2. Programmatic SEO pages across German tools
-3. Show HN: "18 apps, 1 server, $12/month" (community launch)
-4. awesome-selfhosted submission for Dockfolio
-5. Cross-promo banners across career pipeline
-6. Fachschaft email outreach (12 remaining)
-
-### German Market Keyword Opportunities (Low Competition)
-- "Bewerbungsfoto KI" — bewerbungsfotos-ai.de
-- "Gehaltsrechner Deutschland 2026" — lohnpruefung.de
-- "Abschlussarbeit Checkliste" — abschlusscheck.de
-- "Abfindung berechnen" — abfindungsoptimizer.de
-- "Schenkungssteuer Freibetrag" — schenkungsplaner.eu
-
-### Competitor Weaknesses We Can Exploit
-- Portainer: no revenue tracking, no marketing tools (Dockfolio unique angle)
-- HeadshotPro/Aragon: English-only, no German-language SEO (bewerbungsfotos-ai.de wide open)
-- Scribbr.de: expensive (EUR 50-200), slow (days). We: EUR 14-29, 5 minutes
-- Gehalt.de: generic, StepStone-owned. LohnCheck: "Is your payslip correct?" = unique angle
+### Unchanged from Prior Sessions (uncommitted)
+- `dashboard/routes/kettenreaktion.js` — WIP streak endpoint (session 4)
+- `marketing/index.html` — Prior session changes
 
 ## Open Questions
 
-- **Reddit monitoring rate limits** — How aggressive can we poll Reddit's public JSON API? Currently 2s delay between queries. May need to increase if we get 429s.
-- **Twitter free tier** — 1,500 tweets/month (50/day) is sufficient, but read access is 0 on free tier. Worth $100/month for Basic to enable monitoring?
-- **Crosslinks widget placement** — Should it be a fixed bottom bar or a footer section? Fixed bar is more visible but might annoy users.
-- **Bundle pricing** — Career Bundle at EUR 29.90 (vs EUR 48+ separately) — is the discount too aggressive?
+- **Twitter free vs Basic tier** — Free tier gives 1,500 tweets/month but 0 read access (can't monitor mentions via API). Is $100/month for Basic worth it to add Twitter monitoring?
+- **Reddit monitoring frequency** — Currently scanning 6 subreddits every 15 min with 2s delay. Is this too aggressive? Should we reduce to every 30 min?
+- **Cross-promo banner priority** — Existing smartsteuer banners (session 5) have higher priority than new career pipeline banners. Should we adjust priority weights so career pipeline shows more often?
+- **Crosslinks widget placement** — Fixed bottom bar might annoy users on mobile. Consider making it a footer section instead?
+- **How to handle Fachschaft replies** — 17 emails sent. Replies will come to kevin@abschlusscheck.de. Who monitors and responds?
+- **Bundle pricing viability** — Career Bundle at EUR 29.90 (vs EUR 48+ separately). Is 38% discount too aggressive for the margin?
+
+## Research Findings Summary (Preserved for Next Sessions)
+
+### Platform Automation Rules
+- **Automatable:** X/Twitter (free: 50/day), Bluesky (generous limits), Mastodon (native scheduling), Dev.to (free API)
+- **Manual only:** Reddit (shadowban), YouTube (ML spam filter), HN (no write API), Quora (no API)
+
+### German SEO Gold Mine (Low Competition)
+- "Brutto Netto Rechner" — 1M+ searches/month
+- "Bewerbungsfoto KI" — wide open, few competitors
+- "Abschlussarbeit Checkliste" — natural for AbschlussCheck
+- "Abfindung berechnen" — AbfindungsOptimizer
+- "Gehaltsvergleich [Job] [City]" — programmatic SEO opportunity
+
+### Competitor Weaknesses
+- Portainer: no revenue tracking (Dockfolio unique)
+- HeadshotPro: English-only (bewerbungsfotos-ai.de owns German)
+- Scribbr: EUR 50-200, days wait (AbschlussCheck: EUR 14-29, 5 min)
+- Gehalt.de: generic (LohnCheck: "Is your payslip correct?" unique angle)
+
+### Self-Hosted Growth Playbook (from Plausible, Uptime Kuma case studies)
+1. awesome-selfhosted listing (180K+ stars)
+2. Show HN with compelling story
+3. r/selfhosted post
+4. Build-in-public transparency
+5. One-command Docker install
 
 ## Awin Account Reference (carried forward)
 - **Publisher ID:** 2820526
