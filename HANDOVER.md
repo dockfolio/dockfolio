@@ -1,12 +1,12 @@
 # Session Handover
 
 **Date:** 2026-04-08 (Session 10)
-**Duration:** ~1.5 hours
-**Goal:** Expand social monitoring bots to cover all apps across all platforms, fix crosslinks coverage, submit to awesome-selfhosted.
+**Duration:** ~3 hours
+**Goal:** Expand social monitoring, crosslinks, submit awesome-selfhosted, programmatic SEO, Show HN prep.
 
 ## Summary
 
-This session massively expanded the social monitoring system from a narrow Dockfolio-focused scanner to a full-portfolio engagement engine covering all 25 apps across 5 platforms. Reddit monitoring now uses OAuth (required because Hetzner IPs are blocked from Reddit's public API). HN comment search was added alongside stories. YouTube, X/Twitter, and Quora adapters are wired up but need API keys. The crosslinks widget was expanded from 9 to 16 sites and now shows 8 random apps (was 5) from a pool of 24 (was ~12). Dockfolio was submitted to awesome-selfhosted. 69 HN mentions were found and are waiting for draft responses.
+Massive marketing execution session. Social monitoring expanded from 6 subreddits to 47 across 5 platforms covering all 25 apps. Crosslinks widget expanded to all 25 sites. Dockfolio submitted to awesome-selfhosted. Generated and deployed 2,400 programmatic SEO pages for LohnCheck (48 jobs × 50 German cities), taking total indexed URLs from 190 to 2,596. Added city links to all 48 existing job pages. Prepared Show HN draft. Generated 6 social posts and 5 AI draft replies for top HN mentions. Committed Kettenreaktion WIP from session 4. Committed marketing landing page changes. Working tree is fully clean.
 
 ## What Got Done
 
@@ -25,8 +25,17 @@ This session massively expanded the social monitoring system from a narrow Dockf
 - [x] **Crosslinks injected into 7 more sites** — bewerbungsfotos-ai, abfindungsoptimizer, best-age, schenkungsplaner, logos, creativeprogrammer, kettenreaktion, dockfolio.dev
 - [x] **awesome-selfhosted submission** — Issue awesome-selfhosted/awesome-selfhosted-data#2311 created (Personal Dashboards category)
 - [x] **69 HN mentions found** — from first monitoring test, all status='new'
-- [x] **3 commits pushed** — all deployed to production
-- [x] **Brutto-Netto Rechner verified** — already built with 76 salary pages + 19 Bundesland pages + 190 URLs in sitemap
+- [x] **2,400 programmatic SEO pages generated for LohnCheck** — gehalt-{job}-{city}.html (48 jobs × 50 cities) with Schema.org, FAQPage, brutto-netto tables, crosslinks
+- [x] **Sitemap index created** — sitemap.xml → sitemap-main.xml (190 URLs) + sitemap-cities.xml (2,406 URLs) = 2,596 total
+- [x] **City links injected into 48 job pages** — each gehalt-{job}.html now links to 12 city variants
+- [x] **Berufe index page updated** — gehaelter-berufe.html now has "Gehälter nach Stadt" section with 16 featured city links
+- [x] **Show HN draft prepared** — saved at plans/show-hn-draft.md, ready to post
+- [x] **6 social posts generated** — queued across Twitter/Bluesky/Mastodon/LinkedIn (failed: platforms not enabled)
+- [x] **5 AI draft replies** — for top HN mentions including 76-pt "Real-time dashboard" Show HN
+- [x] **Kettenreaktion streak endpoint committed** — cleared session 4 WIP
+- [x] **Marketing landing page committed** — cleared last uncommitted file
+- [x] **9 commits pushed** — all deployed to production
+- [x] **Working tree fully clean** — zero uncommitted changes
 
 ## What's In Progress
 
