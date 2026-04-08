@@ -1587,6 +1587,7 @@
       <button class="mkt-tab" onclick="switchMktTab('crosspromo',this)">Cross-Promo</button>
       <button class="mkt-tab" onclick="switchMktTab('banners',this)">Banners</button>
       <button class="mkt-tab" onclick="switchMktTab('playbook',this)">Playbook</button>
+      <button class="mkt-tab" onclick="switchMktTab('social',this)">Social</button>
     </div>
     <div id="mkt-overview" class="mkt-tab-content active">
       <div id="mktOverviewContent"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div>
@@ -1870,6 +1871,63 @@
         </div>
       </div>
       <div id="mktPlaybookGrid" class="marketing-grid"></div>
+    </div>
+    <div id="mkt-social" class="mkt-tab-content">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div id="socialStats" style="display:flex;gap:16px;font-size:12px"></div>
+        <div style="display:flex;gap:4px">
+          <button class="btn" onclick="socialGenerate()" style="color:var(--purple)">Generate Posts</button>
+          <button class="btn" onclick="socialMonitor()" style="color:var(--cyan)">Scan Mentions</button>
+          <button class="btn" onclick="socialRefresh()" style="color:var(--text-muted)">&#8635;</button>
+        </div>
+      </div>
+      <!-- Accounts -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px">Platform Accounts</div>
+        <div id="socialAccounts" style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px"></div>
+      </div>
+      <!-- Post Queue -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <span style="font-size:12px;font-weight:600">Post Queue</span>
+            <select id="socialPostFilter" class="search-input" style="width:auto;font-size:11px" onchange="socialRefresh()">
+              <option value="queued">Queued</option>
+              <option value="posted">Posted</option>
+              <option value="failed">Failed</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+          <div id="socialPosts" style="max-height:400px;overflow-y:auto"></div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <span style="font-size:12px;font-weight:600">Mentions</span>
+            <select id="socialMentionFilter" class="search-input" style="width:auto;font-size:11px" onchange="socialRefreshMentions()">
+              <option value="new">New</option>
+              <option value="drafted">Drafted</option>
+              <option value="dismissed">Dismissed</option>
+            </select>
+          </div>
+          <div id="socialMentions" style="max-height:400px;overflow-y:auto"></div>
+        </div>
+      </div>
+      <!-- Quick Post -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px">Quick Post</div>
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <select id="socialPostPlatform" class="search-input" style="width:auto">
+            <option value="twitter">X/Twitter</option>
+            <option value="bluesky">Bluesky</option>
+            <option value="mastodon">Mastodon</option>
+          </select>
+          <div style="flex:1">
+            <textarea id="socialPostContent" class="search-input" style="width:100%;min-height:48px;resize:vertical;font-family:monospace;font-size:12px" placeholder="Write your post..."></textarea>
+          </div>
+          <button class="btn" onclick="socialQueuePost()" style="color:var(--cyan);padding:6px 16px">Queue</button>
+          <button class="btn" onclick="socialPostNow()" style="color:var(--green);padding:6px 16px">Post Now</button>
+        </div>
+      </div>
     </div>
   </div>
     <!-- Build in Public -->
@@ -4460,6 +4518,7 @@
       if (tabName === 'banners') { if (!bannersData) fetchBanners(); checkInjectionStatus(); }
       // Lazy-load playbook tab data
       if (tabName === 'playbook') { initPlaybookFilter(); if (!playbookData) fetchPlaybook(); }
+      if (tabName === 'social') socialRefresh();
     }
 
     function switchRevenueSubtab(name, btn) {
@@ -5769,12 +5828,240 @@
             <div style="display:flex;justify-content:space-between;margin-top:6px">
               <span style="font-size:10px;color:var(--text-muted)">${tweet.length} chars</span>
               <button class="btn" onclick="navigator.clipboard.writeText(${JSON.stringify(tweet).replace(/'/g, "\\'")}).then(()=>showToast('Copied!'))" style="font-size:10px;color:var(--cyan)">Copy</button>
+              <button class="btn" onclick="bipQueueTweet(${JSON.stringify(tweet).replace(/'/g, "\\'")})" style="font-size:10px;color:var(--purple)">Queue to Social</button>
             </div>
           </div>`;
         }
-        html += `<div style="font-size:10px;color:var(--text-muted);margin-top:4px">${data.stats.totalMRR} EUR MRR | ${data.stats.totalApps} apps | ${data.stats.healingEvents} auto-heals this week</div>`;
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+          <span style="font-size:10px;color:var(--text-muted)">${data.stats.totalMRR} EUR MRR | ${data.stats.totalApps} apps | ${data.stats.healingEvents} auto-heals this week</span>
+          <button class="btn" onclick="bipQueueAll()" style="font-size:11px;color:var(--green)">Queue All to Social</button>
+        </div>`;
+        window._bipTweets = tweets;
         el.innerHTML = html;
       } catch (err) { el.innerHTML = `<span style="color:var(--red)">Error: ${escapeHtml(err.message)}</span>`; }
+    }
+
+    async function bipQueueTweet(text) {
+      const platforms = ['twitter', 'bluesky'];
+      let queued = 0;
+      for (const platform of platforms) {
+        try {
+          await apiFetch('/api/social/posts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ platform, content: text }),
+          });
+          queued++;
+        } catch {}
+      }
+      showToast(`Queued to ${queued} platforms`);
+    }
+
+    async function bipQueueAll() {
+      const tweets = window._bipTweets || [];
+      if (!tweets.length) return showToast('Generate tweets first', 'error');
+      let queued = 0;
+      for (const t of tweets) {
+        const text = typeof t === 'string' ? t : JSON.stringify(t);
+        for (const platform of ['twitter', 'bluesky']) {
+          try {
+            await apiFetch('/api/social/posts', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ platform, content: text }),
+            });
+            queued++;
+          } catch {}
+        }
+      }
+      showToast(`Queued ${queued} posts across platforms`);
+    }
+
+    // --- Social Autopilot ---
+    async function socialRefresh() {
+      try {
+        const [statsRes, accountsRes, postsRes] = await Promise.all([
+          apiFetch('/api/social/stats'),
+          apiFetch('/api/social/accounts'),
+          apiFetch('/api/social/posts?status=' + (document.getElementById('socialPostFilter')?.value || 'queued')),
+        ]);
+        const stats = await statsRes.json();
+        const accounts = await accountsRes.json();
+        const posts = await postsRes.json();
+
+        // Stats bar
+        const el = document.getElementById('socialStats');
+        if (el) el.innerHTML = `
+          <span><b style="color:var(--green)">${stats.posted_today}</b> posted today</span>
+          <span><b style="color:var(--cyan)">${stats.queued}</b> queued</span>
+          <span><b style="color:var(--yellow)">${stats.new_mentions}</b> new mentions</span>
+          <span style="color:var(--text-muted)">${stats.total_posted} total posts</span>
+        `;
+
+        // Accounts
+        const acEl = document.getElementById('socialAccounts');
+        if (acEl) acEl.innerHTML = accounts.map(a => {
+          const icon = { twitter: 'X', bluesky: 'BS', mastodon: 'M', devto: 'D', linkedin: 'Li' }[a.platform] || '?';
+          const color = a.enabled && a.configured ? 'var(--green)' : a.configured ? 'var(--yellow)' : 'var(--text-muted)';
+          const statusText = !a.configured ? 'not configured' : !a.enabled ? 'disabled' : `${a.posts_today}/${a.daily_limit} today`;
+          return `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bg-lighter);border-radius:6px;cursor:pointer" onclick="socialToggleAccount('${a.platform}',${a.enabled?0:1})">
+            <span style="font-weight:700;color:${color}">${icon}</span>
+            <span>${a.platform}</span>
+            <span style="color:var(--text-muted);font-size:10px">${statusText}</span>
+          </div>`;
+        }).join('');
+
+        // Posts
+        const pEl = document.getElementById('socialPosts');
+        if (pEl) {
+          if (!posts.length) { pEl.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:8px">No posts</div>'; }
+          else pEl.innerHTML = posts.slice(0, 30).map(p => {
+            const color = { queued: 'var(--cyan)', posted: 'var(--green)', failed: 'var(--red)' }[p.status] || 'var(--text-muted)';
+            const actions = p.status === 'queued' ? `<button class="btn" onclick="socialPublish(${p.id})" style="font-size:10px;color:var(--green)">Publish</button>
+              <button class="btn" onclick="socialDeletePost(${p.id})" style="font-size:10px;color:var(--red)">Delete</button>` : '';
+            const link = p.external_url ? `<a href="${escapeHtml(p.external_url)}" target="_blank" style="font-size:10px;color:var(--cyan)">View</a>` : '';
+            return `<div style="padding:8px;border-bottom:1px solid var(--border)">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                <span style="font-size:10px;font-weight:600;text-transform:uppercase;color:${color}">${escapeHtml(p.platform)} &middot; ${p.status}</span>
+                <span style="font-size:10px;color:var(--text-muted)">${p.posted_at || p.scheduled_at || p.created_at || ''}</span>
+              </div>
+              <div style="font-size:12px;white-space:pre-wrap;word-break:break-word">${escapeHtml(p.content).slice(0,300)}</div>
+              <div style="display:flex;gap:8px;margin-top:4px">${actions}${link}</div>
+            </div>`;
+          }).join('');
+        }
+
+        socialRefreshMentions();
+      } catch (err) { console.error('Social refresh error:', err); }
+    }
+
+    async function socialRefreshMentions() {
+      try {
+        const status = document.getElementById('socialMentionFilter')?.value || 'new';
+        const res = await apiFetch('/api/social/mentions?status=' + status);
+        const mentions = await res.json();
+        const el = document.getElementById('socialMentions');
+        if (!el) return;
+        if (!mentions.length) { el.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:8px">No mentions</div>'; return; }
+        el.innerHTML = mentions.slice(0, 30).map(m => {
+          const icon = m.source === 'reddit' ? 'R' : 'HN';
+          const color = m.source === 'reddit' ? 'var(--orange)' : 'var(--yellow)';
+          const actions = m.status === 'new' ? `<button class="btn" onclick="socialDraftReply(${m.id})" style="font-size:10px;color:var(--purple)">Draft Reply</button>
+            <button class="btn" onclick="socialDismiss(${m.id})" style="font-size:10px;color:var(--text-muted)">Dismiss</button>` :
+            m.status === 'drafted' ? `<div style="font-size:11px;color:var(--text-dim);margin-top:4px;padding:6px;background:var(--bg-lighter);border-radius:4px">${escapeHtml(m.response_draft || '')}</div>
+            <button class="btn" onclick="navigator.clipboard.writeText(${JSON.stringify(m.response_draft||'').replace(/'/g,"\\'")}).then(()=>showToast('Copied!'))" style="font-size:10px;color:var(--cyan);margin-top:4px">Copy Draft</button>` : '';
+          return `<div style="padding:8px;border-bottom:1px solid var(--border)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <span style="font-size:10px;font-weight:700;color:${color}">${icon}</span>
+              <span style="font-size:10px;color:var(--text-muted)">${m.keywords_matched || ''}</span>
+            </div>
+            <a href="${escapeHtml(m.url || '')}" target="_blank" style="font-size:12px;color:var(--cyan);text-decoration:none">${escapeHtml(m.title || 'Untitled')}</a>
+            <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${m.score || 0} pts &middot; ${m.num_comments || 0} comments</div>
+            ${actions}
+          </div>`;
+        }).join('');
+      } catch (err) { console.error('Mentions refresh error:', err); }
+    }
+
+    async function socialGenerate() {
+      showToast('Generating posts...');
+      try {
+        const res = await apiFetch('/api/social/generate', { method: 'POST' });
+        const data = await res.json();
+        showToast(`Generated ${data.generated} posts`);
+        socialRefresh();
+      } catch (err) { showToast('Generation failed: ' + err.message, 'error'); }
+    }
+
+    async function socialMonitor() {
+      showToast('Scanning Reddit + HN...');
+      try {
+        const res = await apiFetch('/api/social/monitor', { method: 'POST' });
+        const data = await res.json();
+        showToast(`Found ${data.mentions_found} new mentions`);
+        socialRefresh();
+      } catch (err) { showToast('Scan failed: ' + err.message, 'error'); }
+    }
+
+    async function socialPublish(id) {
+      try {
+        const res = await apiFetch(`/api/social/posts/${id}/publish`, { method: 'POST' });
+        const data = await res.json();
+        showToast(data.ok ? 'Posted!' : ('Failed: ' + (data.error || 'unknown')), data.ok ? 'success' : 'error');
+        socialRefresh();
+      } catch (err) { showToast('Publish failed: ' + err.message, 'error'); }
+    }
+
+    async function socialDeletePost(id) {
+      try {
+        await apiFetch(`/api/social/posts/${id}`, { method: 'DELETE' });
+        showToast('Deleted');
+        socialRefresh();
+      } catch (err) { showToast('Delete failed', 'error'); }
+    }
+
+    async function socialQueuePost() {
+      const platform = document.getElementById('socialPostPlatform').value;
+      const content = document.getElementById('socialPostContent').value.trim();
+      if (!content) return showToast('Write something first', 'error');
+      try {
+        await apiFetch('/api/social/posts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform, content }),
+        });
+        document.getElementById('socialPostContent').value = '';
+        showToast('Queued!');
+        socialRefresh();
+      } catch (err) { showToast('Queue failed: ' + err.message, 'error'); }
+    }
+
+    async function socialPostNow() {
+      const platform = document.getElementById('socialPostPlatform').value;
+      const content = document.getElementById('socialPostContent').value.trim();
+      if (!content) return showToast('Write something first', 'error');
+      try {
+        const qRes = await apiFetch('/api/social/posts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ platform, content }),
+        });
+        const { id } = await qRes.json();
+        const pRes = await apiFetch(`/api/social/posts/${id}/publish`, { method: 'POST' });
+        const data = await pRes.json();
+        document.getElementById('socialPostContent').value = '';
+        showToast(data.ok ? 'Posted!' : ('Failed: ' + (data.error || 'unknown')), data.ok ? 'success' : 'error');
+        socialRefresh();
+      } catch (err) { showToast('Post failed: ' + err.message, 'error'); }
+    }
+
+    async function socialDraftReply(id) {
+      showToast('Drafting reply...');
+      try {
+        const res = await apiFetch(`/api/social/mentions/${id}/draft`, { method: 'POST' });
+        const data = await res.json();
+        showToast('Draft ready');
+        socialRefreshMentions();
+      } catch (err) { showToast('Draft failed: ' + err.message, 'error'); }
+    }
+
+    async function socialDismiss(id) {
+      try {
+        await apiFetch(`/api/social/mentions/${id}/dismiss`, { method: 'POST' });
+        socialRefreshMentions();
+      } catch (err) { showToast('Failed', 'error'); }
+    }
+
+    async function socialToggleAccount(platform, enabled) {
+      try {
+        await apiFetch(`/api/social/accounts/${platform}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: !!enabled }),
+        });
+        showToast(`${platform} ${enabled ? 'enabled' : 'disabled'}`);
+        socialRefresh();
+      } catch (err) { showToast('Failed', 'error'); }
     }
 
     // --- Security Leaderboard ---

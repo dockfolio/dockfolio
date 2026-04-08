@@ -43,6 +43,7 @@ import registerSnapshotRoutes from './routes/snapshots.js';
 import registerPortfolioRoutes from './routes/portfolio.js';
 import registerMiscRoutes from './routes/misc.js';
 import registerKettenreaktionRoutes from './routes/kettenreaktion.js';
+import registerSocialAutopilotRoutes from './routes/social-autopilot.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -295,7 +296,7 @@ function isSetupComplete() {
 }
 
 // --- Auth Middleware ---
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners/embed.js', '/api/banners/serve', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status', '/status', '/api/status-page', '/api/analytics/pixel.gif', '/api/analytics/track.js', '/api/analytics/event', '/api/webhooks', '/api/kr'];
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners/embed.js', '/api/banners/serve', '/api/crosslinks/widget.js', '/api/social/feed.xml', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status', '/status', '/api/status-page', '/api/analytics/pixel.gif', '/api/analytics/track.js', '/api/analytics/event', '/api/webhooks', '/api/kr'];
 
 function authMiddleware(req, res, next) {
   // Normalize path to prevent traversal bypass (e.g. /api/crosspromo/../marketing/crosspromo)
@@ -2820,6 +2821,13 @@ registerMiscRoutes({
 });
 
 registerKettenreaktionRoutes({ app, db, rateLimit });
+registerSocialAutopilotRoutes({
+  app, db, config, cron,
+  getSetting, getEnvKeyFromApps,
+  cbAnthropic,
+  cronFail, sendTelegram,
+  TIMEOUT_STANDARD, TIMEOUT_AI,
+});
 
 // Health check endpoint
 app.get('/health', (_req, res) => res.send('ok'));

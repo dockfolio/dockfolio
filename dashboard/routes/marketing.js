@@ -1793,6 +1793,57 @@ export default function registerMarketingRoutes({
     res.json({ ok: true });
   }));
 
+  // Public cross-site links widget (injected via nginx sub_filter on all sites)
+
+  app.get('/api/crosslinks/widget.js', (_req, res) => {
+    setCORS(res);
+    res.setHeader('Content-Type', 'application/javascript');
+    res.setHeader('Cache-Control', 'public, max-age=600');
+
+    // Build links from config — only apps with domains that have marketing metadata
+    const apps = (config.apps || []).filter(a => a.domain && a.marketing && a.type !== 'redirect' && a.type !== 'infrastructure');
+    const links = apps.map(a => ({
+      name: a.name,
+      domain: a.domain,
+      tagline: a.marketing?.tagline || a.description || '',
+      type: a.type || 'tool',
+    }));
+
+    res.send(`(function(){
+  var s=document.currentScript;
+  var current=location.hostname.replace(/^www\\./,'');
+  var links=${JSON.stringify(links)};
+  var related=links.filter(function(l){return l.domain!==current});
+  if(!related.length)return;
+  var el=document.createElement('div');
+  el.id='crelvo-crosslinks';
+  el.style.cssText='position:fixed;bottom:0;left:0;right:0;background:rgba(15,15,30,0.95);backdrop-filter:blur(8px);border-top:1px solid rgba(255,255,255,0.1);padding:8px 16px;display:flex;align-items:center;gap:12px;overflow-x:auto;z-index:9999;font-family:system-ui,-apple-system,sans-serif;font-size:12px';
+  var label=document.createElement('span');
+  label.style.cssText='color:rgba(255,255,255,0.5);white-space:nowrap;font-size:10px';
+  label.textContent='Also by Crelvo:';
+  el.appendChild(label);
+  var shown=related.sort(function(){return 0.5-Math.random()}).slice(0,5);
+  shown.forEach(function(l){
+    var a=document.createElement('a');
+    a.href='https://'+l.domain+'?ref='+encodeURIComponent(current);
+    a.target='_blank';
+    a.rel='noopener';
+    a.style.cssText='color:#a78bfa;text-decoration:none;white-space:nowrap;padding:4px 8px;border-radius:4px;transition:background 0.2s';
+    a.textContent=l.name;
+    a.title=l.tagline;
+    a.onmouseover=function(){this.style.background='rgba(167,139,250,0.15)'};
+    a.onmouseout=function(){this.style.background='none'};
+    el.appendChild(a);
+  });
+  var close=document.createElement('button');
+  close.textContent='\\u00d7';
+  close.style.cssText='margin-left:auto;background:none;border:none;color:rgba(255,255,255,0.4);cursor:pointer;font-size:16px;padding:0 4px';
+  close.onclick=function(){el.remove()};
+  el.appendChild(close);
+  document.body.appendChild(el);
+})();`);
+  });
+
   // Public banner serve endpoints
 
   app.get('/api/banners/embed.js', (_req, res) => {
