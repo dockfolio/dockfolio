@@ -5944,8 +5944,12 @@
         if (!el) return;
         if (!mentions.length) { el.innerHTML = '<div style="color:var(--text-muted);font-size:11px;padding:8px">No mentions</div>'; return; }
         el.innerHTML = mentions.slice(0, 30).map(m => {
-          const icon = m.source === 'reddit' ? 'R' : 'HN';
-          const color = m.source === 'reddit' ? 'var(--orange)' : 'var(--yellow)';
+          const icons = { reddit: ['R','var(--orange)'], hackernews: ['HN','var(--yellow)'], youtube: ['YT','#f00'], twitter: ['X','#1da1f2'], quora: ['Q','#b92b27'] };
+          const [icon, color] = icons[m.source] || ['?','var(--text-muted)'];
+          // Parse keywords_matched — may be JSON {keyword, app} or plain string
+          let kwLabel = m.keywords_matched || '';
+          let appLabel = '';
+          try { const p = JSON.parse(kwLabel); kwLabel = p.keyword || kwLabel; appLabel = p.app ? ` · ${p.app}` : ''; } catch {}
           const actions = m.status === 'new' ? `<button class="btn" onclick="socialDraftReply(${m.id})" style="font-size:10px;color:var(--purple)">Draft Reply</button>
             <button class="btn" onclick="socialDismiss(${m.id})" style="font-size:10px;color:var(--text-muted)">Dismiss</button>` :
             m.status === 'drafted' ? `<div style="font-size:11px;color:var(--text-dim);margin-top:4px;padding:6px;background:var(--bg-lighter);border-radius:4px">${escapeHtml(m.response_draft || '')}</div>
@@ -5953,9 +5957,9 @@
           return `<div style="padding:8px;border-bottom:1px solid var(--border)">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
               <span style="font-size:10px;font-weight:700;color:${color}">${icon}</span>
-              <span style="font-size:10px;color:var(--text-muted)">${m.keywords_matched || ''}</span>
+              <span style="font-size:10px;color:var(--text-muted)">${escapeHtml(kwLabel)}${appLabel}</span>
             </div>
-            <a href="${escapeHtml(m.url || '')}" target="_blank" style="font-size:12px;color:var(--cyan);text-decoration:none">${escapeHtml(m.title || 'Untitled')}</a>
+            <a href="${escapeHtml(m.url || '')}" target="_blank" style="font-size:12px;color:var(--cyan);text-decoration:none">${escapeHtml((m.title || 'Untitled').slice(0, 120))}</a>
             <div style="font-size:10px;color:var(--text-muted);margin-top:2px">${m.score || 0} pts &middot; ${m.num_comments || 0} comments</div>
             ${actions}
           </div>`;
@@ -5974,7 +5978,7 @@
     }
 
     async function socialMonitor() {
-      showToast('Scanning Reddit + HN...');
+      showToast('Scanning Reddit + HN + YouTube + X + Quora...');
       try {
         const res = await apiFetch('/api/social/monitor', { method: 'POST' });
         const data = await res.json();

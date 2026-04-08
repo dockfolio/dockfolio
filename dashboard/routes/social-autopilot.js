@@ -101,13 +101,53 @@ async function postToDevTo(getSetting, title, markdown, tags, canonicalUrl, time
 
 // --- Monitoring adapters ---
 
-async function searchReddit(subreddit, query, timeout) {
+// Reddit OAuth token cache (server-to-server, no user login needed)
+let redditToken = null;
+let redditTokenExpires = 0;
+
+async function getRedditToken(getSetting, timeout) {
+  if (redditToken && Date.now() < redditTokenExpires) return redditToken;
+
+  const clientId = getSetting('REDDIT_CLIENT_ID');
+  const clientSecret = getSetting('REDDIT_CLIENT_SECRET');
+  if (!clientId || !clientSecret) return null;
+
   try {
-    const url = `https://www.reddit.com/r/${subreddit}/search.json?q=${encodeURIComponent(query)}&sort=new&t=week&restrict_sr=on&limit=10`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Dockfolio-Monitor/1.0' },
+    const res = await fetch('https://www.reddit.com/api/v1/access_token', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Dockfolio-Monitor/2.0 (by /u/crelvo)',
+      },
+      body: 'grant_type=client_credentials',
       signal: AbortSignal.timeout(timeout),
     });
+    if (!res.ok) return null;
+    const data = await res.json();
+    redditToken = data.access_token;
+    redditTokenExpires = Date.now() + (data.expires_in - 60) * 1000; // refresh 60s early
+    return redditToken;
+  } catch {
+    return null;
+  }
+}
+
+async function searchReddit(subreddit, query, timeout, getSetting) {
+  // Try OAuth API first (works from server IPs), fallback to public API
+  const token = getSetting ? await getRedditToken(getSetting, timeout) : null;
+
+  try {
+    let url, headers;
+    if (token) {
+      url = `https://oauth.reddit.com/r/${subreddit}/search?q=${encodeURIComponent(query)}&sort=new&t=week&restrict_sr=on&limit=10`;
+      headers = { 'Authorization': `Bearer ${token}`, 'User-Agent': 'Dockfolio-Monitor/2.0 (by /u/crelvo)' };
+    } else {
+      url = `https://www.reddit.com/r/${subreddit}/search.json?q=${encodeURIComponent(query)}&sort=new&t=week&restrict_sr=on&limit=10`;
+      headers = { 'User-Agent': 'Dockfolio-Monitor/2.0 (by /u/crelvo)' };
+    }
+
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeout) });
     if (!res.ok) return [];
     const data = await res.json();
     return (data?.data?.children || []).map(c => ({
@@ -146,20 +186,51 @@ async function searchHackerNews(query, timeout) {
   }
 }
 
+async function searchHNComments(query, timeout) {
+  try {
+    const since = Math.floor(Date.now() / 1000) - 86400; // last 24h
+    const url = `https://hn.algolia.com/api/v1/search_by_date?query=${encodeURIComponent(query)}&tags=comment&numericFilters=created_at_i>${since}&hitsPerPage=10`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeout) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.hits || []).map(h => ({
+      id: h.objectID,
+      text: (h.comment_text || '').replace(/<[^>]+>/g, ' ').slice(0, 500),
+      url: `https://news.ycombinator.com/item?id=${h.objectID}`,
+      storyId: h.story_id,
+      points: h.points,
+      created: h.created_at,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // --- Content generation ---
 
 async function generateSocialContent(anthropicKey, appContext, cbAnthropic, timeout) {
-  const prompt = `Generate 4 social media posts for a solo developer's product portfolio. Context:
+  const prompt = `Generate 6 social media posts for a solo developer who runs 18 apps on a single server. Context:
 ${appContext}
 
-Generate exactly 4 posts as JSON array. Each post has: platform (twitter/bluesky/mastodon/linkedin), text, hashtags.
+Also promote: Crelvo Dev Studio (crelvo.dev) — a solo dev studio available for hire. 18 live products. Build web apps, SaaS, and tools for clients.
+
+Generate exactly 6 posts as JSON array. Each post has: platform (twitter/bluesky/mastodon/linkedin), text, hashtags.
 Rules:
-- Twitter: max 270 chars (leave room for link), punchy, 1-2 hashtags
+- Twitter: max 270 chars, punchy, 1-2 hashtags
 - Bluesky: max 290 chars, similar to twitter
 - Mastodon: max 490 chars, slightly more technical, include hashtags
 - LinkedIn: 2-3 short paragraphs, professional tone, end with a question
 
-Mix content types: tip, behind-the-scenes, product highlight, industry insight.
+Content mix (pick 6 from these types, vary daily):
+- Product highlight (feature one specific app with its URL)
+- Behind-the-scenes / build-in-public (real numbers, real challenges)
+- Industry tip (genuinely useful, positions you as expert)
+- "Hire us" angle (showcase portfolio as proof of capability)
+- German-language post (for German apps: AbschlussCheck, LohnCheck, Bewerbungsfotos AI, etc.)
+- Engagement bait (ask a question, start a discussion)
+- Thread starter (numbered insights, "3 things I learned...")
+
+Include the relevant URL in every product-focused post. For German apps, write in German.
 Output ONLY the JSON array, no other text.`;
 
   const result = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
@@ -251,19 +322,221 @@ export default function registerSocialAutopilotRoutes({
   const bumpPostCount = db.prepare(`UPDATE social_accounts SET posts_today = posts_today + 1, last_posted_at = datetime('now') WHERE platform = ?`);
   const resetDailyCounts = db.prepare(`UPDATE social_accounts SET posts_today = 0`);
 
+  // --- App context for AI drafts ---
+  const APP_CONTEXT = {
+    dockfolio: { name: 'Dockfolio', domain: 'dockfolio.dev', pitch: 'Self-hosted Docker dashboard with business intelligence — manage 30+ apps from one panel', tags: ['selfhosted', 'docker', 'devops', 'infrastructure'] },
+    abschlusscheck: { name: 'AbschlussCheck', domain: 'abschlusscheck.de', pitch: 'AI-powered thesis review for German students — structure, citation, formatting check in 5 minutes for €14-29', tags: ['education', 'thesis', 'german', 'ai'] },
+    lohncheck: { name: 'LohnCheck', domain: 'lohnpruefung.de', pitch: 'German payslip verification tool — checks if your salary, taxes, and deductions are correct', tags: ['finance', 'salary', 'german', 'employment'] },
+    headshot: { name: 'Bewerbungsfotos AI', domain: 'bewerbungsfotos-ai.de', pitch: 'AI-generated professional headshots for German job applications — no photographer needed', tags: ['ai', 'photos', 'career', 'german'] },
+    abfindung: { name: 'AbfindungsOptimizer', domain: 'abfindungsoptimizer.de', pitch: 'German severance pay calculator — optimize your Abfindung for taxes', tags: ['finance', 'legal', 'german', 'employment'] },
+    schenkung: { name: 'SchenkungsPlaner', domain: 'schenkungsplaner.eu', pitch: 'German gift tax planner — calculate Schenkungssteuer and optimize gift timing', tags: ['finance', 'tax', 'german', 'family'] },
+    sacredlens: { name: 'SacredLens', domain: 'sacredlens.de', pitch: 'AI tool for analyzing religious art and symbolism', tags: ['ai', 'art', 'religion', 'education'] },
+    theadhdmind: { name: 'TheADHDMind', domain: 'theadhdmind.org', pitch: 'Resources and tools for developers with ADHD — productivity tips, community', tags: ['adhd', 'productivity', 'mental-health', 'developer'] },
+    promoforge: { name: 'PromoForge', domain: 'promoforge.app', pitch: 'AI-powered promotional material generator for indie makers', tags: ['marketing', 'ai', 'saas', 'indie'] },
+    bannerforge: { name: 'BannerForge', domain: 'bannerforge.app', pitch: 'AI banner ad generator — create display ads in seconds', tags: ['marketing', 'ai', 'design', 'ads'] },
+    crelvo: { name: 'Crelvo Dev Studio', domain: 'crelvo.dev', pitch: 'Solo dev studio — we build web apps, SaaS products, and tools. 18 live products. Hire us for your next project.', tags: ['freelance', 'developer', 'agency', 'web'] },
+    oldworldlogos: { name: 'Old World Logos', domain: 'oldworldlogos.com', pitch: 'Curated collection of vintage and classic logo designs for inspiration', tags: ['design', 'logos', 'vintage', 'branding'] },
+  };
+
   // --- Monitoring config ---
+  // Structure: per-app keyword groups so AI drafts know which product to recommend
   const MONITOR_SUBREDDITS = [
-    { sub: 'selfhosted', keywords: ['docker dashboard', 'self-hosted dashboard', 'dockfolio', 'portainer alternative'] },
-    { sub: 'Finanzen', keywords: ['gehaltsrechner', 'gehalt prüfen', 'lohnabrechnung', 'abfindung berechnen'] },
-    { sub: 'StudiumDE', keywords: ['abschlussarbeit', 'bachelorarbeit check', 'thesis feedback'] },
-    { sub: 'arbeitsleben', keywords: ['gehalt verhandeln', 'bewerbungsfoto', 'salary negotiation germany'] },
-    { sub: 'docker', keywords: ['docker dashboard', 'docker gui', 'container management'] },
-    { sub: 'webdev', keywords: ['self-hosted', 'docker dashboard', 'saas dashboard'] },
+    // Dockfolio — selfhosted & Docker
+    { sub: 'selfhosted', keywords: ['docker dashboard', 'self-hosted dashboard', 'dockfolio', 'portainer alternative', 'container management ui', 'docker gui', 'manage containers', 'docker compose ui'] },
+    { sub: 'docker', keywords: ['docker dashboard', 'docker gui', 'container management', 'portainer alternative', 'docker monitoring', 'manage docker containers'] },
+    { sub: 'homelab', keywords: ['docker dashboard', 'self-hosted dashboard', 'container management', 'homelab dashboard'] },
+    { sub: 'webdev', keywords: ['self-hosted', 'docker dashboard', 'saas dashboard', 'deploy side project', 'vps setup'] },
+    { sub: 'devops', keywords: ['docker dashboard', 'container monitoring', 'self-hosted monitoring', 'single server deployment'] },
+
+    // AbschlussCheck — thesis / academic
+    { sub: 'StudiumDE', keywords: ['abschlussarbeit', 'bachelorarbeit', 'masterarbeit', 'thesis check', 'korrekturlesen', 'abgabe bachelorarbeit', 'thesis feedback'] },
+    { sub: 'de', keywords: ['bachelorarbeit hilfe', 'masterarbeit korrektur', 'abschlussarbeit tipps'] },
+    { sub: 'germany', keywords: ['thesis help germany', 'bachelor thesis german university'] },
+    { sub: 'GradSchool', keywords: ['thesis review', 'thesis feedback', 'dissertation check', 'thesis proofreading'] },
+    { sub: 'college', keywords: ['thesis review tool', 'check my thesis', 'thesis feedback ai'] },
+
+    // LohnCheck — salary / payslip
+    { sub: 'Finanzen', keywords: ['gehaltsrechner', 'gehalt prüfen', 'lohnabrechnung', 'lohnabrechnung prüfen', 'gehaltsabrechnung fehler', 'brutto netto', 'nettolohn berechnen'] },
+    { sub: 'arbeitsleben', keywords: ['gehalt verhandeln', 'lohnabrechnung falsch', 'gehaltsabrechnung verstehen', 'gehaltscheck', 'lohn prüfen'] },
+    { sub: 'antiwork', keywords: ['payslip wrong', 'salary deduction wrong', 'paycheck incorrect', 'employer underpaying'] },
+    { sub: 'personalfinance', keywords: ['payslip check', 'salary verification', 'paycheck calculator'] },
+
+    // Bewerbungsfotos AI — job application photos
+    { sub: 'arbeitsleben', keywords: ['bewerbungsfoto', 'bewerbungsfotos kosten', 'bewerbungsfoto selber machen', 'professionelles foto bewerbung'] },
+    { sub: 'Bewerbung', keywords: ['bewerbungsfoto', 'foto bewerbung', 'bewerbungsfotos', 'lebenslauf foto'] },
+    { sub: 'remotework', keywords: ['ai headshot', 'professional headshot ai', 'linkedin photo ai'] },
+    { sub: 'jobs', keywords: ['ai headshot', 'professional photo resume', 'headshot generator'] },
+    { sub: 'linkedin', keywords: ['ai headshot', 'professional headshot', 'linkedin photo generator'] },
+
+    // AbfindungsOptimizer — severance pay
+    { sub: 'Finanzen', keywords: ['abfindung berechnen', 'abfindung steuer', 'abfindung versteuern', 'abfindungsrechner'] },
+    { sub: 'arbeitsleben', keywords: ['abfindung', 'abfindung verhandeln', 'kündigung abfindung', 'aufhebungsvertrag abfindung'] },
+    { sub: 'recht', keywords: ['abfindung steuer', 'abfindung berechnen', 'fünftelregelung'] },
+
+    // SchenkungsPlaner — gift tax
+    { sub: 'Finanzen', keywords: ['schenkung steuer', 'schenkungssteuer', 'schenkung freibetrag', 'geld verschenken steuer'] },
+    { sub: 'recht', keywords: ['schenkung steuer', 'schenkungssteuer freibetrag', 'immobilie verschenken'] },
+
+    // TheADHDMind — ADHD + productivity
+    { sub: 'ADHD', keywords: ['adhd developer', 'adhd programmer', 'adhd productivity tools', 'adhd coding', 'adhd software developer'] },
+    { sub: 'adhdwomen', keywords: ['adhd work tips', 'adhd productivity', 'adhd career'] },
+    { sub: 'ADHDers', keywords: ['adhd developer', 'adhd productivity', 'adhd work strategies'] },
+
+    // Crelvo Dev Studio — freelance / hire a developer
+    { sub: 'startups', keywords: ['looking for developer', 'need a developer', 'hire developer', 'find technical cofounder', 'solo developer', 'mvp developer'] },
+    { sub: 'SideProject', keywords: ['need developer', 'looking for developer', 'hire developer for side project', 'build my app'] },
+    { sub: 'Entrepreneur', keywords: ['need a developer', 'looking for developer', 'hire developer', 'build mvp', 'technical cofounder'] },
+    { sub: 'indiehackers', keywords: ['hire developer', 'need developer', 'looking for dev', 'solo developer portfolio'] },
+    { sub: 'forhire', keywords: ['developer', 'web developer', 'fullstack developer', 'react developer', 'node developer'] },
+    { sub: 'freelance', keywords: ['web developer', 'fullstack developer', 'hire developer'] },
+
+    // PromoForge / BannerForge — marketing tools
+    { sub: 'marketing', keywords: ['banner generator', 'ad creative tool', 'promotional material generator', 'create ads free'] },
+    { sub: 'EntrepreneurRideAlong', keywords: ['marketing tools', 'banner ads', 'promotional material', 'indie marketing'] },
+
+    // SacredLens — religious art
+    { sub: 'ArtHistory', keywords: ['religious art analysis', 'symbolism art', 'analyze painting', 'christian art symbols'] },
+    { sub: 'Christianity', keywords: ['religious art', 'christian symbolism', 'sacred art analysis'] },
+
+    // Old World Logos — design
+    { sub: 'graphic_design', keywords: ['vintage logo', 'classic logo design', 'retro logo inspiration', 'old logos'] },
+    { sub: 'logodesign', keywords: ['vintage logo', 'logo inspiration', 'classic logo', 'retro branding'] },
   ];
 
   const MONITOR_HN_QUERIES = [
+    // Dockfolio
     'docker dashboard', 'self-hosted dashboard', 'solopreneur tools',
-    'indie hacker infrastructure', 'salary calculator germany',
+    'indie hacker infrastructure', 'portainer alternative',
+    // Career tools (German market)
+    'salary calculator germany', 'ai headshot generator',
+    // Dev studio / freelance
+    'solo developer portfolio', 'indie developer', 'one person saas',
+    'side project to saas', 'build in public',
+    // Thesis / education
+    'ai thesis review', 'thesis proofreading tool',
+    // ADHD
+    'adhd developer', 'adhd programmer productivity',
+    // Marketing
+    'banner ad generator', 'promotional material ai',
+  ];
+
+  // --- YouTube monitoring ---
+  async function searchYouTube(query, timeout) {
+    const apiKey = getSetting('YOUTUBE_API_KEY');
+    if (!apiKey) return [];
+    try {
+      const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=video&order=date&maxResults=5&publishedAfter=${new Date(Date.now() - 7 * 86400000).toISOString()}&key=${apiKey}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(timeout) });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.items || []).map(item => ({
+        id: item.id.videoId,
+        title: item.snippet.title,
+        description: (item.snippet.description || '').slice(0, 500),
+        url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
+        channel: item.snippet.channelTitle,
+        created: item.snippet.publishedAt,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  const MONITOR_YOUTUBE_QUERIES = [
+    // Dockfolio / selfhosted
+    'docker dashboard 2026', 'self hosted dashboard', 'portainer alternative',
+    'homelab dashboard setup',
+    // German career / finance
+    'Bewerbungsfoto KI', 'Gehaltsabrechnung prüfen', 'Abschlussarbeit Tipps',
+    'Brutto Netto Rechner', 'Abfindung berechnen',
+    // ADHD dev
+    'ADHD programmer', 'ADHD developer productivity',
+    // Dev freelance
+    'hire a developer 2026', 'solo developer saas',
+  ];
+
+  // --- Quora monitoring ---
+  async function searchQuora(query, timeout) {
+    try {
+      // Quora has no API — use Google site search as proxy
+      const url = `https://www.google.com/search?q=site:quora.com+${encodeURIComponent(query)}&tbs=qdr:w&num=5`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        signal: AbortSignal.timeout(timeout),
+      });
+      if (!res.ok) return [];
+      const html = await res.text();
+      // Extract Quora URLs from Google results
+      const matches = [...html.matchAll(/href="(https:\/\/(?:www\.)?quora\.com\/[^"&]+)"/g)];
+      return matches.slice(0, 5).map((m, i) => {
+        const qUrl = m[1];
+        // Extract question from URL
+        const question = decodeURIComponent(qUrl.split('/').pop() || '').replace(/-/g, ' ');
+        return {
+          id: `quora-${Buffer.from(qUrl).toString('base64').slice(0, 20)}`,
+          title: question,
+          url: qUrl,
+          created: new Date().toISOString(),
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  const MONITOR_QUORA_QUERIES = [
+    // German career / finance (Quora has German content)
+    'Gehaltsabrechnung prüfen lassen', 'Bewerbungsfoto selber machen',
+    'Bachelorarbeit prüfen lassen', 'Abfindung berechnen Steuer',
+    // English
+    'best docker dashboard', 'self hosted server dashboard',
+    'AI headshot generator', 'ADHD developer tips',
+    'hire solo developer', 'freelance web developer portfolio',
+  ];
+
+  // --- X/Twitter search monitoring ---
+  async function searchTwitter(query, timeout) {
+    // Requires Twitter API Basic tier ($100/mo) for search endpoint
+    const appKey = getSetting('TWITTER_APP_KEY');
+    const appSecret = getSetting('TWITTER_APP_SECRET');
+    const accessToken = getSetting('TWITTER_ACCESS_TOKEN');
+    const accessSecret = getSetting('TWITTER_ACCESS_SECRET');
+    if (!appKey || !appSecret || !accessToken || !accessSecret) return [];
+
+    try {
+      const { TwitterApi } = await import('twitter-api-v2');
+      const client = new TwitterApi({ appKey, appSecret, accessToken, accessSecret });
+      const result = await client.v2.search(query, {
+        'tweet.fields': 'created_at,public_metrics,author_id',
+        max_results: 10,
+        sort_order: 'recency',
+      });
+      return (result.data?.data || []).map(tweet => ({
+        id: tweet.id,
+        title: tweet.text.slice(0, 140),
+        text: tweet.text,
+        url: `https://x.com/i/status/${tweet.id}`,
+        created: tweet.created_at,
+        likes: tweet.public_metrics?.like_count || 0,
+        retweets: tweet.public_metrics?.retweet_count || 0,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  const MONITOR_TWITTER_QUERIES = [
+    // Dockfolio / selfhosted
+    '"docker dashboard" -portainer', '"self-hosted dashboard"',
+    '"portainer alternative"',
+    // German career (German Twitter is active)
+    'Bewerbungsfoto KI', 'Gehaltsabrechnung prüfen',
+    'Bachelorarbeit Hilfe', 'Abfindung berechnen',
+    // Dev / freelance
+    '"looking for a developer"', '"need a developer"',
+    '"hire a developer"', 'solo developer saas',
+    // ADHD
+    'ADHD developer', 'ADHD programmer',
   ];
 
   // --- API Routes ---
@@ -333,10 +606,35 @@ export default function registerSocialAutopilotRoutes({
     const anthropicKey = getEnvKeyFromApps('ANTHROPIC_API_KEY');
     if (!anthropicKey) return res.status(500).json({ error: 'Anthropic API key not configured' });
 
+    // Parse keywords_matched to find which app this mention is about
+    let matchedApp = null;
+    let matchedKeyword = mention.keywords_matched;
+    try {
+      const parsed = JSON.parse(mention.keywords_matched);
+      matchedApp = parsed.app ? APP_CONTEXT[parsed.app] : null;
+      matchedKeyword = parsed.keyword || mention.keywords_matched;
+    } catch { /* old format — plain keyword string */ }
+
+    const appList = Object.values(APP_CONTEXT).map(a =>
+      `- ${a.name} (${a.domain}): ${a.pitch}`
+    ).join('\n');
+
+    const focusApp = matchedApp
+      ? `\n\nThe MOST relevant product for this post is: ${matchedApp.name} (${matchedApp.domain}) — ${matchedApp.pitch}. Prioritize mentioning this one if it fits naturally.`
+      : '';
+
+    const platformGuide = {
+      reddit: 'Write a Reddit comment. Be genuinely helpful first — answer their question or share relevant experience. Only mention a product if it directly solves their problem. Use casual tone. Never say "check out" or "you should try" — instead say "I\'ve been using X for this" or "there\'s a tool called X that does exactly this". 2-4 sentences.',
+      hackernews: 'Write a Hacker News comment. Be technical, substantive, and add real value to the discussion. HN users hate marketing — only mention a tool if it\'s genuinely relevant and you can explain WHY it\'s good. Share technical insight first. 2-4 sentences.',
+      youtube: 'Write a YouTube comment. Be friendly, add value to the video topic. If relevant, mention a tool that could help. Keep it natural — 1-3 sentences.',
+      twitter: 'Write a Twitter/X reply. Be concise, engaging, add value. If a product is relevant, mention it casually. Max 280 chars.',
+      quora: 'Write a Quora answer. Be thorough and genuinely helpful — Quora rewards detailed answers. Structure your response clearly. Mention relevant tools as part of a complete answer, not as the main point. 3-5 sentences.',
+    }[mention.source] || 'Write a helpful reply. 2-3 sentences.';
+
     const result = await cbAnthropic.call(() => callAnthropic(anthropicKey, {
-      messages: [{ role: 'user', content: `A user posted on ${mention.source}: "${mention.title}"\n\nSnippet: ${mention.snippet || 'N/A'}\n\nKeywords matched: ${mention.keywords_matched}\n\nWrite a helpful, genuine reply (2-3 sentences). Be helpful first, mention a relevant tool only if natural. Never be salesy. The tools available: Dockfolio (Docker dashboard), LohnCheck (German salary checker), AbschlussCheck (thesis review), Bewerbungsfotos AI (AI headshots for German job applications). Only mention tools that are genuinely relevant to the post.` }],
-      system: 'You write genuine, helpful Reddit/HN replies. No marketing speak. Be a real person helping another person.',
-      maxTokens: 256,
+      messages: [{ role: 'user', content: `A user posted on ${mention.source}: "${mention.title}"\n\nSnippet: ${mention.snippet || 'N/A'}\n\nKeyword that matched: ${matchedKeyword}\n\nOur product portfolio:\n${appList}\n${focusApp}\n\n${platformGuide}` }],
+      system: 'You are a solo developer who genuinely helps people online. You built 18 apps and run them on a single server. You share real experience, not marketing pitches. When mentioning your own tools, frame it as personal experience: "I built X for this exact reason" or "I use X myself". Your tone matches the platform culture. For German posts, reply in German. For English posts, reply in English.',
+      maxTokens: 400,
       timeout: TIMEOUT_AI,
     }));
 
@@ -481,8 +779,10 @@ ${items}
     if (!anthropicKey) return [];
 
     const apps = config.apps || [];
-    const marketable = apps.filter(a => a.marketing).slice(0, 5);
-    const appContext = marketable.map(a =>
+    const marketable = apps.filter(a => a.marketing && a.domain && a.type !== 'redirect');
+    // Rotate focus: pick 6 random apps each day so content varies
+    const shuffled = marketable.sort(() => Math.random() - 0.5).slice(0, 8);
+    const appContext = shuffled.map(a =>
       `- ${a.name} (${a.domain}): ${a.marketing?.tagline || a.description || 'No description'}`
     ).join('\n');
 
@@ -499,17 +799,36 @@ ${items}
     return queued;
   }
 
+  // Figure out which app a keyword match is about (for smarter AI drafts)
+  function matchKeywordToApp(keyword, title) {
+    const combined = `${keyword} ${title}`.toLowerCase();
+    if (/docker|portainer|self.hosted|homelab|container|devops/.test(combined)) return 'dockfolio';
+    if (/abschluss|bachelor|master|thesis|korrektur|diplomarbeit/.test(combined)) return 'abschlusscheck';
+    if (/gehalt|lohn|brutto|netto|payslip|salary|gehaltsabrechnung|lohnpr/.test(combined)) return 'lohncheck';
+    if (/bewerbungsfoto|headshot|bewerbung foto|linkedin photo|resume photo/.test(combined)) return 'headshot';
+    if (/abfindung|severance|aufhebungsvertrag|fünftelregel/.test(combined)) return 'abfindung';
+    if (/schenkung|gift tax|verschenken steuer|freibetrag/.test(combined)) return 'schenkung';
+    if (/adhd|adhs|aufmerksamkeit/.test(combined)) return 'theadhdmind';
+    if (/hire.*dev|need.*dev|looking.*dev|freelance|mvp|cofounder|build.*app|forhire/.test(combined)) return 'crelvo';
+    if (/banner.*gen|ad.*creative|promo.*material/.test(combined)) return 'promoforge';
+    if (/vintage.*logo|classic.*logo|retro.*logo|old.*logo/.test(combined)) return 'oldworldlogos';
+    if (/religious.*art|sacred|christian.*symbol/.test(combined)) return 'sacredlens';
+    return null;
+  }
+
   async function runMonitoring() {
     let found = 0;
 
     // Reddit monitoring
     for (const { sub, keywords } of MONITOR_SUBREDDITS) {
       for (const kw of keywords) {
-        const posts = await searchReddit(sub, kw, TIMEOUT_STANDARD);
+        const posts = await searchReddit(sub, kw, TIMEOUT_STANDARD, getSetting);
         for (const post of posts) {
+          const appMatch = matchKeywordToApp(kw, post.title);
           const changes = insertMention.run(
             'reddit', `reddit-${post.id}`, post.title, post.url,
-            post.selftext, post.score, post.num_comments, kw,
+            post.selftext, post.score, post.num_comments,
+            JSON.stringify({ keyword: kw, app: appMatch }),
           );
           if (changes.changes > 0) found++;
         }
@@ -518,21 +837,97 @@ ${items}
       }
     }
 
-    // Hacker News monitoring
+    // Hacker News monitoring — stories
     for (const query of MONITOR_HN_QUERIES) {
       const stories = await searchHackerNews(query, TIMEOUT_STANDARD);
       for (const story of stories) {
+        const appMatch = matchKeywordToApp(query, story.title);
         const changes = insertMention.run(
           'hackernews', `hn-${story.id}`, story.title, story.hn_url,
-          '', story.points, story.num_comments, query,
+          '', story.points, story.num_comments,
+          JSON.stringify({ keyword: query, app: appMatch }),
         );
         if (changes.changes > 0) found++;
       }
     }
 
-    // Notify via Telegram if new mentions found
+    // Hacker News comments — people asking questions (higher engagement value)
+    for (const query of MONITOR_HN_QUERIES.slice(0, 8)) {
+      const comments = await searchHNComments(query, TIMEOUT_STANDARD);
+      for (const comment of comments) {
+        const appMatch = matchKeywordToApp(query, comment.text);
+        const changes = insertMention.run(
+          'hackernews', `hn-comment-${comment.id}`, comment.text.slice(0, 200), comment.url,
+          comment.text.slice(0, 500), comment.points || 0, 0,
+          JSON.stringify({ keyword: query, app: appMatch, type: 'comment' }),
+        );
+        if (changes.changes > 0) found++;
+      }
+    }
+
+    // YouTube monitoring (if API key configured)
+    if (getSetting('YOUTUBE_API_KEY')) {
+      for (const query of MONITOR_YOUTUBE_QUERIES) {
+        const videos = await searchYouTube(query, TIMEOUT_STANDARD);
+        for (const video of videos) {
+          const appMatch = matchKeywordToApp(query, video.title);
+          const changes = insertMention.run(
+            'youtube', `yt-${video.id}`, video.title, video.url,
+            video.description, 0, 0,
+            JSON.stringify({ keyword: query, app: appMatch, channel: video.channel }),
+          );
+          if (changes.changes > 0) found++;
+        }
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    // X/Twitter search monitoring (if configured — requires Basic tier)
+    const hasTwitter = getSetting('TWITTER_APP_KEY') && getSetting('TWITTER_ACCESS_TOKEN');
+    if (hasTwitter) {
+      for (const query of MONITOR_TWITTER_QUERIES) {
+        const tweets = await searchTwitter(query, TIMEOUT_STANDARD);
+        for (const tweet of tweets) {
+          const appMatch = matchKeywordToApp(query, tweet.text || tweet.title);
+          const changes = insertMention.run(
+            'twitter', `tw-${tweet.id}`, tweet.title, tweet.url,
+            tweet.text || '', tweet.likes || 0, tweet.retweets || 0,
+            JSON.stringify({ keyword: query, app: appMatch }),
+          );
+          if (changes.changes > 0) found++;
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+
+    // Quora monitoring (via Google site search — less reliable, run less often)
+    // Only run Quora on every 4th cycle (~hourly instead of every 15 min)
+    const minute = new Date().getMinutes();
+    if (minute < 15) {
+      for (const query of MONITOR_QUORA_QUERIES) {
+        const questions = await searchQuora(query, TIMEOUT_STANDARD);
+        for (const q of questions) {
+          const appMatch = matchKeywordToApp(query, q.title);
+          const changes = insertMention.run(
+            'quora', q.id, q.title, q.url,
+            '', 0, 0,
+            JSON.stringify({ keyword: query, app: appMatch }),
+          );
+          if (changes.changes > 0) found++;
+        }
+        await new Promise(r => setTimeout(r, 3000)); // slower for Google scraping
+      }
+    }
+
+    // Notify via Telegram if new mentions found — include platform breakdown
     if (found > 0) {
-      sendTelegram(`📡 Social Monitor: ${found} new mention${found > 1 ? 's' : ''} found across Reddit/HN. Check /api/social/mentions`);
+      const breakdown = db.prepare(`
+        SELECT source, COUNT(*) as c FROM social_mentions
+        WHERE status = 'new' AND found_at > datetime('now', '-1 hour')
+        GROUP BY source
+      `).all();
+      const parts = breakdown.map(r => `${r.source}: ${r.c}`).join(', ');
+      sendTelegram(`📡 Social Monitor: ${found} new mention${found > 1 ? 's' : ''} found (${parts}). Check /api/social/mentions`);
     }
 
     return found;
