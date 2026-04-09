@@ -22,10 +22,11 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #09090b;
-      --surface: #0f0f14;
-      --surface2: #16161e;
+      --surface: rgba(15,15,20,0.75);
+      --surface-solid: #0f0f14;
+      --surface2: rgba(22,22,30,0.8);
       --surface3: #1e1e28;
-      --border: #27272a;
+      --border: rgba(39,39,42,0.6);
       --border-hover: #3f3f46;
       --text: #fafafa;
       --text-dim: #a1a1aa;
@@ -37,6 +38,7 @@
       --yellow: #eab308;
       --red: #ef4444;
     }
+    html { scroll-behavior: smooth; }
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
       background: var(--bg);
@@ -49,16 +51,57 @@
     a { color: var(--cyan); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
-    /* Scroll animations */
-    .fade-in { opacity: 0; transform: translateY(24px); transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1); }
-    .fade-in.visible { opacity: 1; transform: translateY(0); }
+    /* ---- Three.js Canvas ---- */
+    #scene-canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 0;
+      pointer-events: none;
+    }
 
-    /* Nav */
+    /* ---- Scroll Container ---- */
+    #scroll-container {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ---- Glass Sections ---- */
+    .glass-section {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 24px;
+    }
+    .glass-panel {
+      background: rgba(9,9,11,0.65);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 48px;
+      max-width: 900px;
+      width: 100%;
+      opacity: 0;
+      transform: translateY(40px);
+      transition: opacity 0.8s cubic-bezier(0.16,1,0.3,1), transform 0.8s cubic-bezier(0.16,1,0.3,1);
+    }
+    .glass-panel.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .glass-panel-wide {
+      max-width: 1100px;
+    }
+
+    /* ---- Nav ---- */
     nav {
       position: fixed; top: 0; width: 100%; z-index: 100;
-      background: rgba(9,9,11,0.85);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      background: rgba(9,9,11,0.7);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
       border-bottom: 1px solid var(--border);
       padding: 0 32px;
       height: 56px;
@@ -68,6 +111,8 @@
     .nav-links { display: flex; gap: 28px; align-items: center; }
     .nav-links a { color: var(--text-dim); font-size: 13px; font-weight: 500; }
     .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* ---- Buttons ---- */
     .btn-primary {
       background: var(--cyan);
       color: var(--bg);
@@ -75,9 +120,10 @@
       border-radius: 8px;
       font-weight: 600;
       font-size: 13px;
-      transition: opacity 0.15s;
+      transition: opacity 0.15s, transform 0.15s;
+      display: inline-block;
     }
-    .btn-primary:hover { opacity: 0.85; text-decoration: none; }
+    .btn-primary:hover { opacity: 0.85; text-decoration: none; transform: translateY(-1px); }
     .btn-primary.btn-lg { padding: 12px 28px; font-size: 15px; }
     .btn-outline {
       border: 1px solid var(--border);
@@ -89,10 +135,10 @@
       transition: border-color 0.15s, background 0.15s;
       display: inline-flex; align-items: center; gap: 8px;
     }
-    .btn-outline:hover { border-color: var(--text-muted); background: rgba(255,255,255,0.02); text-decoration: none; }
+    .btn-outline:hover { border-color: var(--text-muted); background: rgba(255,255,255,0.04); text-decoration: none; }
     .btn-outline.btn-lg { padding: 12px 28px; font-size: 15px; }
 
-    /* Floating CTA bar */
+    /* ---- Floating CTA ---- */
     .floating-cta {
       position: fixed; bottom: 0; left: 0; right: 0; z-index: 99;
       background: rgba(9,9,11,0.92);
@@ -106,27 +152,25 @@
     .floating-cta.show { transform: translateY(0); }
     .floating-cta span { font-size: 13px; color: var(--text-dim); font-weight: 500; }
 
-    /* Hero */
-    .hero {
-      position: relative;
-      padding: 160px 24px 100px;
+    /* ---- Hero ---- */
+    .hero-section {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       text-align: center;
+      padding: 80px 24px;
+      position: relative;
+    }
+    .hero-content {
       max-width: 860px;
-      margin: 0 auto;
+      position: relative;
+      z-index: 1;
     }
-    .hero-canvas-wrap {
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 100vh;
-      overflow: hidden;
-      pointer-events: none;
-      z-index: 0;
-    }
-    .hero-canvas-wrap canvas { width: 100%; height: 100%; display: block; }
-    .hero > *:not(.hero-canvas-wrap) { position: relative; z-index: 1; }
     .hero-badge {
       display: inline-block;
-      background: var(--surface2);
+      background: rgba(22,22,30,0.8);
+      backdrop-filter: blur(12px);
       border: 1px solid var(--border);
       border-radius: 20px;
       padding: 5px 16px;
@@ -136,18 +180,18 @@
       letter-spacing: 0.04em;
       font-weight: 500;
     }
-    .hero h1 {
-      font-size: clamp(40px, 6vw, 60px);
+    .hero-content h1 {
+      font-size: clamp(40px, 6vw, 64px);
       font-weight: 800;
-      line-height: 1.08;
+      line-height: 1.05;
       margin-bottom: 20px;
-      letter-spacing: -0.035em;
-      background: linear-gradient(135deg, var(--text) 30%, var(--cyan) 100%);
+      letter-spacing: -0.04em;
+      background: linear-gradient(135deg, var(--text) 20%, var(--cyan) 80%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
     }
-    .hero p {
+    .hero-content p {
       font-size: 17px;
       color: var(--text-dim);
       max-width: 580px;
@@ -161,12 +205,11 @@
     .hero-stat { text-align: center; }
     .hero-stat .num { font-size: 24px; font-weight: 700; letter-spacing: -0.025em; color: var(--text); }
     .hero-stat .label { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-
-    /* Install block */
     .install-block {
       max-width: 560px;
       margin: 48px auto 0;
-      background: var(--surface);
+      background: rgba(15,15,20,0.8);
+      backdrop-filter: blur(12px);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 14px 20px;
@@ -175,12 +218,37 @@
       color: var(--green);
       text-align: left;
       overflow-x: auto;
-      position: relative;
     }
     .install-block .prompt { color: var(--text-muted); user-select: none; }
 
-    /* Sections */
-    section { padding: 100px 24px; max-width: 1100px; margin: 0 auto; }
+    /* ---- Scroll Indicator ---- */
+    .scroll-indicator {
+      position: absolute;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      animation: scrollBounce 2s ease-in-out infinite;
+    }
+    .scroll-indicator .arrow {
+      width: 20px; height: 20px;
+      border-right: 2px solid var(--text-muted);
+      border-bottom: 2px solid var(--text-muted);
+      transform: rotate(45deg);
+    }
+    @keyframes scrollBounce {
+      0%, 100% { opacity: 0.4; transform: translateX(-50%) translateY(0); }
+      50% { opacity: 1; transform: translateX(-50%) translateY(6px); }
+    }
+
+    /* ---- Section Typography ---- */
     .section-label {
       font-size: 12px;
       text-transform: uppercase;
@@ -189,21 +257,46 @@
       font-weight: 600;
       margin-bottom: 10px;
     }
-    section h2 {
+    .glass-panel h2 {
       font-size: 36px;
       font-weight: 700;
       margin-bottom: 14px;
       letter-spacing: -0.025em;
     }
-    section .subtitle {
+    .glass-panel .subtitle {
       font-size: 16px;
       color: var(--text-dim);
-      margin-bottom: 56px;
+      margin-bottom: 40px;
       max-width: 560px;
       line-height: 1.6;
     }
 
-    /* Problem section */
+    /* ---- Social Proof ---- */
+    .social-proof {
+      display: flex;
+      gap: 32px;
+      justify-content: center;
+      flex-wrap: wrap;
+      padding: 20px 0;
+    }
+    .proof-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-dim);
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .proof-icon {
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      background: rgba(15,15,20,0.6);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+
+    /* ---- Problem ---- */
     .problem-grid {
       display: flex;
       align-items: center;
@@ -213,7 +306,7 @@
       margin-bottom: 32px;
     }
     .problem-tab {
-      background: var(--surface);
+      background: rgba(15,15,20,0.6);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 12px 18px;
@@ -232,65 +325,54 @@
     }
     .problem-solution strong { color: var(--cyan); font-size: 18px; }
 
-    /* Feature grid */
+    /* ---- Feature Grid ---- */
     .feature-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
     }
     .feature-card {
-      background: var(--surface);
+      background: rgba(15,15,20,0.5);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 24px;
+      padding: 22px;
       transition: border-color 0.2s, transform 0.2s;
     }
     .feature-card:hover { border-color: var(--border-hover); transform: translateY(-2px); }
     .feature-card.featured {
       border-color: rgba(6,182,212,0.2);
-      background: linear-gradient(135deg, var(--surface) 0%, rgba(6,182,212,0.03) 100%);
+      background: linear-gradient(135deg, rgba(15,15,20,0.5) 0%, rgba(6,182,212,0.05) 100%);
     }
     .feature-icon {
-      width: 40px; height: 40px;
+      width: 38px; height: 38px;
       border-radius: 10px;
       display: flex; align-items: center; justify-content: center;
-      font-size: 18px;
-      margin-bottom: 14px;
+      font-size: 17px;
+      margin-bottom: 12px;
       font-weight: 700;
     }
-    .feature-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 6px; letter-spacing: -0.01em; }
-    .feature-card p { font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+    .feature-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 5px; letter-spacing: -0.01em; }
+    .feature-card p { font-size: 12.5px; color: var(--text-dim); line-height: 1.55; }
     .feature-badge {
       display: inline-block;
       font-size: 10px;
       padding: 2px 8px;
       border-radius: 4px;
       font-weight: 600;
-      margin-left: 8px;
+      margin-left: 6px;
       vertical-align: middle;
     }
     .badge-unique { background: rgba(6,182,212,0.15); color: var(--cyan); }
     .badge-new { background: rgba(139,92,246,0.15); color: var(--purple); }
 
-    /* Claude Code section */
-    .claude-callout {
-      background: linear-gradient(135deg, rgba(6,182,212,0.04) 0%, rgba(139,92,246,0.04) 100%);
-      border: 1px solid rgba(6,182,212,0.15);
-      border-radius: 16px;
-      padding: 56px 48px;
-      text-align: center;
-      max-width: 900px;
-      margin: 0 auto;
-    }
-    .claude-callout h2 { font-size: 30px; margin-bottom: 16px; letter-spacing: -0.025em; }
-    .claude-callout > p { color: var(--text-dim); max-width: 600px; margin: 0 auto 32px; font-size: 15px; }
-    .claude-features {
+    /* ---- Claude/AI Section ---- */
+    .ai-features {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 16px;
-      text-align: left;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px;
+      margin-top: 28px;
     }
-    .claude-feature {
+    .ai-feature {
       background: rgba(255,255,255,0.02);
       border: 1px solid rgba(255,255,255,0.04);
       border-radius: 10px;
@@ -299,8 +381,8 @@
       color: var(--text-dim);
       line-height: 1.5;
     }
-    .claude-feature strong { display: block; margin-bottom: 4px; color: var(--text); font-size: 14px; }
-    .claude-feature code {
+    .ai-feature strong { display: block; margin-bottom: 4px; color: var(--text); font-size: 14px; }
+    .ai-feature code {
       font-family: 'JetBrains Mono', monospace;
       font-size: 11px;
       background: rgba(255,255,255,0.06);
@@ -308,21 +390,10 @@
       border-radius: 4px;
     }
 
-    /* ADHD callout */
-    .adhd-callout {
-      background: linear-gradient(135deg, rgba(139,92,246,0.04) 0%, rgba(6,182,212,0.04) 100%);
-      border: 1px solid rgba(139,92,246,0.15);
-      border-radius: 16px;
-      padding: 56px 48px;
-      text-align: center;
-      max-width: 800px;
-      margin: 0 auto;
-    }
-    .adhd-callout h2 { font-size: 28px; margin-bottom: 16px; letter-spacing: -0.025em; }
-    .adhd-callout > p { color: var(--text-dim); max-width: 600px; margin: 0 auto 28px; }
+    /* ---- ADHD Section ---- */
     .adhd-features {
       display: flex;
-      gap: 16px;
+      gap: 14px;
       justify-content: center;
       flex-wrap: wrap;
       margin-top: 24px;
@@ -338,26 +409,33 @@
     }
     .adhd-feature strong { display: block; margin-bottom: 4px; color: var(--text); }
 
-    /* Pricing */
+    /* ---- Screenshots ---- */
+    .screenshot-container {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .screenshot-container img { width: 100%; display: block; }
+
+    /* ---- Pricing ---- */
     .pricing-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 16px;
-      max-width: 1000px;
-      margin: 0 auto;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
     }
     .pricing-card {
-      background: var(--surface);
+      background: rgba(15,15,20,0.6);
       border: 1px solid var(--border);
       border-radius: 14px;
-      padding: 32px 28px;
+      padding: 28px 24px;
       text-align: center;
       transition: border-color 0.2s, transform 0.2s;
     }
     .pricing-card:hover { transform: translateY(-2px); }
     .pricing-card.popular {
       border-color: var(--cyan);
-      background: linear-gradient(180deg, rgba(6,182,212,0.06) 0%, var(--surface) 40%);
+      background: linear-gradient(180deg, rgba(6,182,212,0.08) 0%, rgba(15,15,20,0.6) 40%);
       position: relative;
     }
     .pricing-card.popular::before {
@@ -370,17 +448,16 @@
       font-weight: 700;
       padding: 3px 14px;
       border-radius: 10px;
-      letter-spacing: 0.02em;
     }
     .pricing-name { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
-    .pricing-price { font-size: 40px; font-weight: 800; letter-spacing: -0.03em; margin: 12px 0 4px; }
-    .pricing-price span { font-size: 15px; font-weight: 500; color: var(--text-dim); }
-    .pricing-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
-    .pricing-features { list-style: none; text-align: left; margin-bottom: 28px; }
+    .pricing-price { font-size: 36px; font-weight: 800; letter-spacing: -0.03em; margin: 10px 0 4px; }
+    .pricing-price span { font-size: 14px; font-weight: 500; color: var(--text-dim); }
+    .pricing-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+    .pricing-features { list-style: none; text-align: left; margin-bottom: 24px; }
     .pricing-features li {
       font-size: 13px;
       color: var(--text-dim);
-      padding: 6px 0;
+      padding: 5px 0;
       border-bottom: 1px solid rgba(255,255,255,0.03);
       display: flex; align-items: center; gap: 8px;
     }
@@ -402,24 +479,69 @@
     .pricing-btn-primary { background: var(--cyan); color: var(--bg); }
     .pricing-btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
 
-    /* Guide section */
-    .guide-section {
-      max-width: 1000px;
-      margin: 0 auto;
-      padding: 100px 24px;
+    /* ---- Comparison ---- */
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
     }
+    .comparison-table th, .comparison-table td {
+      padding: 10px 14px;
+      text-align: center;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .comparison-table th {
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .comparison-table th:first-child, .comparison-table td:first-child { text-align: left; }
+    .comparison-table td:first-child { font-weight: 500; }
+    .check { color: var(--green); }
+    .cross { color: var(--text-muted); }
+    .highlight-col { background: rgba(6,182,212,0.04); }
+    .comparison-wrapper { overflow-x: auto; }
+
+    /* ---- Savings ---- */
+    .savings-banner {
+      background: rgba(34,197,94,0.04);
+      border: 1px solid rgba(34,197,94,0.15);
+      border-radius: 12px;
+      padding: 24px 32px;
+      text-align: center;
+      margin: 40px auto 0;
+      max-width: 700px;
+    }
+    .savings-banner .amount { font-size: 36px; font-weight: 800; color: var(--green); letter-spacing: -0.025em; }
+    .savings-banner p { color: var(--text-dim); font-size: 14px; margin-top: 4px; }
+
+    /* ---- Stats ---- */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 12px;
+    }
+    .stat-card {
+      background: rgba(15,15,20,0.5);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 14px;
+      text-align: center;
+    }
+    .stat-card .num { font-size: 28px; font-weight: 700; letter-spacing: -0.025em; }
+    .stat-card .label { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+    /* ---- Guide ---- */
     .guide-card {
       display: grid;
       grid-template-columns: 1fr 1.4fr;
-      gap: 48px;
+      gap: 40px;
       align-items: center;
-      background: linear-gradient(135deg, var(--surface) 0%, rgba(6,182,212,0.03) 100%);
-      border: 1px solid rgba(6,182,212,0.15);
-      border-radius: 16px;
-      padding: 48px;
     }
     .guide-cover {
-      background: var(--surface2);
+      background: rgba(22,22,30,0.6);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 32px 24px;
@@ -434,21 +556,9 @@
       height: 4px;
       background: linear-gradient(90deg, var(--cyan), var(--purple));
     }
-    .guide-cover-icon {
-      font-size: 48px;
-      margin-bottom: 16px;
-      display: block;
-    }
-    .guide-cover-title {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      margin-bottom: 6px;
-    }
-    .guide-cover-sub {
-      font-size: 13px;
-      color: var(--text-dim);
-    }
+    .guide-cover-icon { font-size: 48px; margin-bottom: 16px; display: block; }
+    .guide-cover-title { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
+    .guide-cover-sub { font-size: 13px; color: var(--text-dim); }
     .guide-cover-pages {
       margin-top: 16px;
       font-size: 11px;
@@ -457,148 +567,63 @@
       text-transform: uppercase;
       letter-spacing: 0.06em;
     }
-    .guide-info h2 { font-size: 30px; font-weight: 700; margin-bottom: 14px; letter-spacing: -0.025em; }
-    .guide-info > p { color: var(--text-dim); font-size: 15px; line-height: 1.65; margin-bottom: 24px; }
-    .guide-features {
-      list-style: none;
-      margin-bottom: 28px;
-    }
+    .guide-info h2 { font-size: 28px; }
+    .guide-info > p { color: var(--text-dim); font-size: 15px; line-height: 1.65; margin-bottom: 20px; }
+    .guide-features { list-style: none; margin-bottom: 24px; }
     .guide-features li {
-      font-size: 14px;
+      font-size: 13px;
       color: var(--text-dim);
-      padding: 7px 0;
-      display: flex;
-      align-items: center;
-      gap: 10px;
+      padding: 6px 0;
+      display: flex; align-items: center; gap: 10px;
     }
     .guide-features li::before { content: '\2713'; color: var(--green); font-weight: 700; font-size: 13px; }
-    .guide-price {
-      display: flex;
-      align-items: baseline;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
+    .guide-price { display: flex; align-items: baseline; gap: 10px; margin-bottom: 16px; }
     .guide-price .amount { font-size: 36px; font-weight: 800; letter-spacing: -0.025em; }
     .guide-price .format { font-size: 14px; color: var(--text-muted); }
     .guide-cta { display: flex; gap: 12px; flex-wrap: wrap; }
-    .guide-guarantee { margin-top: 16px; font-size: 12px; color: var(--text-muted); }
+    .guide-guarantee { margin-top: 14px; font-size: 12px; color: var(--text-muted); }
 
-    @media (max-width: 768px) {
-      .guide-card { grid-template-columns: 1fr; padding: 28px 20px; gap: 28px; }
-      .guide-info h2 { font-size: 24px; }
-    }
-
-    /* Social proof */
-    .social-proof {
+    /* ---- CTA ---- */
+    .cta-section {
+      text-align: center;
+      min-height: 80vh;
       display: flex;
-      gap: 32px;
-      justify-content: center;
-      flex-wrap: wrap;
-      padding: 48px 0;
-    }
-    .proof-item {
-      display: flex;
+      flex-direction: column;
       align-items: center;
-      gap: 10px;
-      color: var(--text-dim);
-      font-size: 14px;
-      font-weight: 500;
-    }
-    .proof-icon {
-      width: 36px; height: 36px;
-      border-radius: 8px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 16px;
-    }
-
-    /* Comparison table */
-    .comparison-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
-    .comparison-table th, .comparison-table td {
-      padding: 12px 16px;
-      text-align: center;
-      border-bottom: 1px solid var(--border);
-    }
-    .comparison-table th {
-      color: var(--text-muted);
-      font-weight: 500;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-    }
-    .comparison-table th:first-child, .comparison-table td:first-child { text-align: left; }
-    .comparison-table td:first-child { font-weight: 500; }
-    .check { color: var(--green); }
-    .cross { color: var(--text-muted); }
-    .highlight-col { background: rgba(6,182,212,0.03); }
-    .comparison-wrapper { overflow-x: auto; }
-
-    /* Savings */
-    .savings-banner {
-      background: rgba(34,197,94,0.04);
-      border: 1px solid rgba(34,197,94,0.15);
-      border-radius: 12px;
-      padding: 24px 32px;
-      text-align: center;
-      margin: 56px auto 0;
-      max-width: 700px;
-    }
-    .savings-banner .amount { font-size: 36px; font-weight: 800; color: var(--green); letter-spacing: -0.025em; }
-    .savings-banner p { color: var(--text-dim); font-size: 14px; margin-top: 4px; }
-
-    /* Stats grid */
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 12px;
-    }
-    .stat-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px 16px;
-      text-align: center;
-    }
-    .stat-card .num { font-size: 28px; font-weight: 700; letter-spacing: -0.025em; }
-    .stat-card .label { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
-
-    /* CTA */
-    .cta {
-      text-align: center;
-      padding: 100px 24px;
-      border-top: 1px solid var(--border);
+      justify-content: center;
+      padding: 80px 24px;
       position: relative;
     }
-    .cta::before {
-      content: '';
-      position: absolute;
-      bottom: 0; left: 50%; transform: translateX(-50%);
-      width: 600px; height: 400px;
-      background: radial-gradient(ellipse at center, rgba(6,182,212,0.06) 0%, transparent 70%);
-      pointer-events: none;
+    .cta-section h2 {
+      font-size: 40px;
+      font-weight: 800;
+      margin-bottom: 14px;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, var(--text) 30%, var(--cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
-    .cta h2 { font-size: 32px; margin-bottom: 14px; letter-spacing: -0.025em; }
-    .cta p { color: var(--text-dim); margin-bottom: 32px; font-size: 16px; }
+    .cta-section p { color: var(--text-dim); margin-bottom: 32px; font-size: 16px; }
 
-    /* Footer */
+    /* ---- Footer ---- */
     footer {
       text-align: center;
       padding: 40px 24px;
       color: var(--text-muted);
       font-size: 12px;
       border-top: 1px solid var(--border);
+      position: relative;
+      z-index: 1;
+      background: rgba(9,9,11,0.8);
+      backdrop-filter: blur(12px);
     }
     footer a { color: var(--text-dim); }
     .footer-links { margin-top: 8px; }
     .footer-links a { margin: 0 12px; }
 
-    /* Legal pages */
-    .legal-page { display: none; max-width: 720px; margin: 80px auto 40px; padding: 32px 24px; color: var(--text-dim); line-height: 1.8; }
+    /* ---- Legal Pages ---- */
+    .legal-page { display: none; max-width: 720px; margin: 80px auto 40px; padding: 32px 24px; color: var(--text-dim); line-height: 1.8; position: relative; z-index: 10; background: var(--bg); }
     .legal-page.active { display: block; }
     .legal-page h1 { color: var(--text); font-size: 28px; margin-bottom: 24px; }
     .legal-page h2 { color: var(--text); font-size: 18px; margin: 28px 0 12px; }
@@ -608,34 +633,42 @@
     .legal-page a { color: var(--cyan); }
     .legal-page .back-link { display: inline-block; margin-bottom: 24px; font-size: 13px; color: var(--text-dim); }
 
-    /* Screenshots */
-    .screenshot-container {
-      position: relative;
-      border-radius: 12px;
-      overflow: hidden;
-      border: 1px solid var(--border);
+    /* ---- Progress Bar ---- */
+    .scroll-progress {
+      position: fixed;
+      top: 56px; left: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--cyan), var(--purple));
+      z-index: 101;
+      width: 0%;
+      transition: none;
     }
-    .screenshot-container img { width: 100%; display: block; }
 
+    /* ---- Mobile ---- */
     @media (max-width: 768px) {
       nav { padding: 0 16px; }
       .nav-links { gap: 16px; }
-      .hero { padding: 120px 16px 60px; }
-      .hero h1 { font-size: 32px; }
-      .hero-stats { gap: 24px; flex-wrap: wrap; }
-      section { padding: 60px 16px; }
-      section h2 { font-size: 28px; }
-      .adhd-callout, .claude-callout { padding: 32px 20px; }
-      .adhd-features, .claude-features { flex-direction: column; align-items: center; }
-      .problem-grid { flex-direction: column; }
-      .pricing-grid { grid-template-columns: 1fr; max-width: 360px; }
-      .floating-cta span { display: none; }
+      .nav-links a:not(.btn-primary) { display: none; }
+      .hero-content h1 { font-size: 32px; }
+      .hero-stats { gap: 20px; flex-wrap: wrap; }
+      .glass-panel { padding: 28px 20px; }
+      .glass-panel h2 { font-size: 26px; }
       .feature-grid { grid-template-columns: 1fr; }
+      .pricing-grid { grid-template-columns: 1fr; max-width: 340px; margin: 0 auto; }
+      .guide-card { grid-template-columns: 1fr; gap: 24px; }
+      .adhd-features { flex-direction: column; align-items: center; }
+      .ai-features { grid-template-columns: 1fr; }
+      .floating-cta span { display: none; }
+      .problem-grid { flex-direction: column; }
+      .glass-section { padding: 60px 16px; }
     }
   </style>
   <script defer data-domain="dockfolio.dev" src="https://plausible.crelvo.dev/js/script.js"></script>
 </head>
 <body>
+  <canvas id="scene-canvas"></canvas>
+  <div class="scroll-progress" id="scrollProgress"></div>
+
   <nav>
     <span class="nav-brand">Dockfolio</span>
     <div class="nav-links">
@@ -648,410 +681,394 @@
     </div>
   </nav>
 
-  <!-- Floating CTA (appears on scroll) -->
   <div class="floating-cta" id="floatingCta">
     <span>Free and open source. Self-hosted. One command to install.</span>
     <a href="https://github.com/dockfolio/dockfolio" class="btn-primary">Get Started</a>
   </div>
 
-  <!-- Hero -->
-  <div class="hero">
-    <div class="hero-canvas-wrap" id="heroCanvasWrap">
-      <canvas id="heroCanvas"></canvas>
-    </div>
-    <div class="hero-badge">Open Source &middot; AGPL-3.0 &middot; ADHD-Friendly</div>
-    <h1>Stop dashboard-hopping. Run your portfolio from one screen.</h1>
-    <p>The first self-hosted Docker dashboard that combines infrastructure management with business intelligence. Built by a developer with ADHD, for developers who ship.</p>
-    <div class="hero-actions">
-      <a href="https://github.com/dockfolio/dockfolio" class="btn-primary btn-lg">Get Started Free</a>
-      <a href="#install" class="btn-outline btn-lg">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 8h6M8 5v6"/></svg>
-        Install in 60 seconds
-      </a>
-    </div>
-    <div class="hero-stats">
-      <div class="hero-stat"><div class="num">144</div><div class="label">API endpoints</div></div>
-      <div class="hero-stat"><div class="num">33</div><div class="label">SQLite tables</div></div>
-      <div class="hero-stat"><div class="num">21</div><div class="label">Keyboard shortcuts</div></div>
-      <div class="hero-stat"><div class="num">0</div><div class="label">External deps</div></div>
-    </div>
-    <div class="install-block" id="install">
-      <span class="prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/dockfolio/dockfolio/master/install.sh | bash
-    </div>
-  </div>
+  <div id="scroll-container">
 
-  <!-- Social Proof -->
-  <div class="social-proof fade-in">
-    <div class="proof-item">
-      <div class="proof-icon">&#9733;</div>
-      <div>Open source on GitHub</div>
-    </div>
-    <div class="proof-item">
-      <div class="proof-icon">&#x1F433;</div>
-      <div>Single Docker container</div>
-    </div>
-    <div class="proof-item">
-      <div class="proof-icon">&#x1F512;</div>
-      <div>Your server, your data</div>
-    </div>
-    <div class="proof-item">
-      <div class="proof-icon">&#x26A1;</div>
-      <div>~370KB frontend</div>
-    </div>
-  </div>
-
-  <!-- Screenshots -->
-  <section id="screenshots" class="fade-in" style="text-align:center">
-    <div class="section-label">See it in action</div>
-    <h2>One dashboard, full visibility</h2>
-    <p class="subtitle" style="margin-left:auto;margin-right:auto">Dark theme, keyboard-driven, designed for developers who ship.</p>
-    <div style="display:flex;flex-direction:column;gap:32px;margin-top:32px">
-      <div class="screenshot-container">
-        <img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/01-dashboard-overview.png" alt="Dashboard Overview" loading="lazy">
+    <!-- ===== HERO ===== -->
+    <section class="hero-section" id="hero">
+      <div class="hero-content">
+        <div class="hero-badge">Open Source &middot; AGPL-3.0 &middot; ADHD-Friendly</div>
+        <h1>Stop dashboard-hopping. Run your portfolio from one screen.</h1>
+        <p>The first self-hosted Docker dashboard that combines infrastructure management with business intelligence. Built by a developer with ADHD, for developers who ship.</p>
+        <div class="hero-actions">
+          <a href="https://github.com/dockfolio/dockfolio" class="btn-primary btn-lg">Get Started Free</a>
+          <a href="#install" class="btn-outline btn-lg">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 8h6M8 5v6"/></svg>
+            Install in 60 seconds
+          </a>
+        </div>
+        <div class="hero-stats">
+          <div class="hero-stat"><div class="num">144</div><div class="label">API endpoints</div></div>
+          <div class="hero-stat"><div class="num">33</div><div class="label">SQLite tables</div></div>
+          <div class="hero-stat"><div class="num">21</div><div class="label">Keyboard shortcuts</div></div>
+          <div class="hero-stat"><div class="num">0</div><div class="label">External deps</div></div>
+        </div>
+        <div class="install-block" id="install">
+          <span class="prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/dockfolio/dockfolio/master/install.sh | bash
+        </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-        <div>
+      <div class="scroll-indicator">
+        <span>Scroll</span>
+        <div class="arrow"></div>
+      </div>
+    </section>
+
+    <!-- ===== SOCIAL PROOF ===== -->
+    <section class="glass-section" style="min-height:auto;padding:20px 24px 40px">
+      <div class="social-proof glass-panel visible" style="opacity:1;transform:none;padding:24px;display:flex;gap:32px;justify-content:center;flex-wrap:wrap">
+        <div class="proof-item"><div class="proof-icon">&#9733;</div><div>Open source on GitHub</div></div>
+        <div class="proof-item"><div class="proof-icon">&#x1F433;</div><div>Single Docker container</div></div>
+        <div class="proof-item"><div class="proof-icon">&#x1F512;</div><div>Your server, your data</div></div>
+        <div class="proof-item"><div class="proof-icon">&#x26A1;</div><div>~370KB frontend</div></div>
+      </div>
+    </section>
+
+    <!-- ===== SCREENSHOTS ===== -->
+    <section class="glass-section" id="screenshots">
+      <div class="glass-panel glass-panel-wide" style="text-align:center">
+        <div class="section-label">See it in action</div>
+        <h2>One dashboard, full visibility</h2>
+        <p class="subtitle" style="margin-left:auto;margin-right:auto">Dark theme, keyboard-driven, designed for developers who ship.</p>
+        <div style="display:flex;flex-direction:column;gap:24px;margin-top:24px">
           <div class="screenshot-container">
-            <img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/02-marketing-revenue.png" alt="Revenue Tracking" loading="lazy">
+            <img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/01-dashboard-overview.png" alt="Dashboard Overview" loading="lazy">
           </div>
-          <p style="font-size:12px;color:var(--text-muted);margin-top:8px">Stripe revenue per app</p>
-        </div>
-        <div>
-          <div class="screenshot-container">
-            <img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/03-command-palette.png" alt="Command Palette" loading="lazy">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div>
+              <div class="screenshot-container"><img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/02-marketing-revenue.png" alt="Revenue Tracking" loading="lazy"></div>
+              <p style="font-size:12px;color:var(--text-muted);margin-top:8px">Stripe revenue per app</p>
+            </div>
+            <div>
+              <div class="screenshot-container"><img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/03-command-palette.png" alt="Command Palette" loading="lazy"></div>
+              <p style="font-size:12px;color:var(--text-muted);margin-top:8px">Ctrl+K command palette</p>
+            </div>
           </div>
-          <p style="font-size:12px;color:var(--text-muted);margin-top:8px">Ctrl+K command palette</p>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-        <div>
-          <div class="screenshot-container">
-            <img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/04-morning-briefing.png" alt="Morning Briefing" loading="lazy">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div>
+              <div class="screenshot-container"><img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/04-morning-briefing.png" alt="Morning Briefing" loading="lazy"></div>
+              <p style="font-size:12px;color:var(--text-muted);margin-top:8px">AI morning briefing</p>
+            </div>
+            <div>
+              <div class="screenshot-container"><img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/05-ops-panel.png" alt="Ops Panel" loading="lazy"></div>
+              <p style="font-size:12px;color:var(--text-muted);margin-top:8px">Ops panel with worry score</p>
+            </div>
           </div>
-          <p style="font-size:12px;color:var(--text-muted);margin-top:8px">AI morning briefing</p>
         </div>
-        <div>
-          <div class="screenshot-container">
-            <img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/05-ops-panel.png" alt="Ops Panel" loading="lazy">
+      </div>
+    </section>
+
+    <!-- ===== PROBLEM ===== -->
+    <section class="glass-section">
+      <div class="glass-panel" style="text-align:center">
+        <div class="section-label">The Problem</div>
+        <h2>You check 5 tabs every morning</h2>
+        <p class="subtitle" style="margin:12px auto 32px">Portainer. Stripe. Plausible. Sentry. Search Console. That's 15 minutes before you write a single line of code.</p>
+        <div class="problem-grid">
+          <div class="problem-tab"><span class="tab-label">Portainer</span><br>Is it running?</div>
+          <span class="problem-plus">+</span>
+          <div class="problem-tab"><span class="tab-label">Stripe</span><br>Is it earning?</div>
+          <span class="problem-plus">+</span>
+          <div class="problem-tab"><span class="tab-label">Plausible</span><br>Is anyone visiting?</div>
+          <span class="problem-plus">+</span>
+          <div class="problem-tab"><span class="tab-label">Sentry</span><br>Is it crashing?</div>
+        </div>
+        <div style="margin-bottom:16px">
+          <span class="problem-arrow">&darr;</span>
+        </div>
+        <div class="problem-solution">
+          <strong>Dockfolio replaces all of them.</strong>
+          <p style="color:var(--text-dim);font-size:14px;margin-top:4px">One dashboard. One Worry Score. If it's under 15, go back to sleep.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== AI SECTION ===== -->
+    <section class="glass-section">
+      <div class="glass-panel" style="text-align:center">
+        <div class="section-label">AI-Native</div>
+        <h2>Built for developers who use AI</h2>
+        <p class="subtitle" style="margin-left:auto;margin-right:auto">Dockfolio is designed to work seamlessly with AI coding tools like Claude Code. Every feature is API-accessible, scriptable, and automatable.</p>
+        <div class="ai-features">
+          <div class="ai-feature">
+            <strong>144 REST Endpoints</strong>
+            Every dashboard feature is an API call. Claude Code can manage your infrastructure, check revenue, restart containers, and run security audits.
           </div>
-          <p style="font-size:12px;color:var(--text-muted);margin-top:8px">Ops panel with worry score</p>
+          <div class="ai-feature">
+            <strong>AI Morning Briefing</strong>
+            Automated daily intelligence report covering system health, overnight events, revenue changes, and action items. Cost: ~$0.001/day.
+          </div>
+          <div class="ai-feature">
+            <strong>Command Palette</strong>
+            <code>Ctrl+K</code> fuzzy search across apps, commands, and actions. Same keyboard-first UX you know from your editor.
+          </div>
+          <div class="ai-feature">
+            <strong>Self-Hosted Data</strong>
+            Your metrics, revenue, errors, and traffic data stay on your server. Feed it to AI tools without sharing with SaaS platforms.
+          </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Problem -->
-  <section class="fade-in">
-    <div style="text-align:center">
-      <div class="section-label">The Problem</div>
-      <h2>You check 5 tabs every morning</h2>
-      <p class="subtitle" style="margin:12px auto 40px">Portainer. Stripe. Plausible. Sentry. Search Console. That's 15 minutes before you write a single line of code.</p>
-    </div>
-    <div class="problem-grid">
-      <div class="problem-tab"><span class="tab-label">Portainer</span><br>Is it running?</div>
-      <span class="problem-plus">+</span>
-      <div class="problem-tab"><span class="tab-label">Stripe</span><br>Is it earning?</div>
-      <span class="problem-plus">+</span>
-      <div class="problem-tab"><span class="tab-label">Plausible</span><br>Is anyone visiting?</div>
-      <span class="problem-plus">+</span>
-      <div class="problem-tab"><span class="tab-label">Sentry</span><br>Is it crashing?</div>
-    </div>
-    <div style="text-align:center;margin-bottom:16px">
-      <span class="problem-arrow">&darr;</span>
-    </div>
-    <div class="problem-solution">
-      <strong>Dockfolio replaces all of them.</strong>
-      <p style="color:var(--text-dim);font-size:14px;margin-top:4px">One dashboard. One Worry Score. If it's under 15, go back to sleep.</p>
-    </div>
-  </section>
-
-  <!-- Claude Code Section -->
-  <section class="fade-in">
-    <div class="claude-callout">
-      <div class="section-label">AI-Native</div>
-      <h2>Built for developers who use AI</h2>
-      <p>Dockfolio is designed to work seamlessly with AI coding tools like Claude Code. Every feature is API-accessible, scriptable, and automatable.</p>
-      <div class="claude-features">
-        <div class="claude-feature">
-          <strong>144 REST Endpoints</strong>
-          Every dashboard feature is an API call. Claude Code can manage your infrastructure, check revenue, restart containers, and run security audits — all through natural language.
-        </div>
-        <div class="claude-feature">
-          <strong>AI Morning Briefing</strong>
-          Automated daily intelligence report covering system health, overnight events, revenue changes, and action items. Powered by Anthropic Haiku. Cost: ~$0.001/day.
-        </div>
-        <div class="claude-feature">
-          <strong>Command Palette</strong>
-          <code>Ctrl+K</code> fuzzy search across apps, commands, and actions. Same keyboard-first UX you know from your editor and terminal.
-        </div>
-        <div class="claude-feature">
-          <strong>Self-Hosted Data</strong>
-          Your metrics, revenue, errors, and traffic data stay on your server. Feed it to AI tools without sharing with third-party SaaS platforms.
+    <!-- ===== ADHD ===== -->
+    <section class="glass-section">
+      <div class="glass-panel" style="text-align:center">
+        <div class="section-label" style="color:var(--purple)">Built Different</div>
+        <h2>The first ADHD-friendly DevOps dashboard</h2>
+        <p class="subtitle" style="margin-left:auto;margin-right:auto">Built by a developer with ADHD who got tired of noisy dashboards with too many blinking lights. Press <strong>A</strong> to enter a calmer experience.</p>
+        <div class="adhd-features">
+          <div class="adhd-feature"><strong>Kill the Noise</strong>Dims healthy items. Stops all animations. Boosts contrast. You only see what needs attention.</div>
+          <div class="adhd-feature"><strong>Focus Mode</strong>Shift+Z strips the dashboard to a single app. Zero distractions. One thing at a time.</div>
+          <div class="adhd-feature"><strong>Streak Bar</strong>Gamified uptime tracking. Maintain your incident-free streak. Small dopamine hits for keeping things healthy.</div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ADHD Callout -->
-  <section class="fade-in">
-    <div class="adhd-callout">
-      <div class="section-label" style="color:var(--purple)">Built Different</div>
-      <h2>The first ADHD-friendly DevOps dashboard</h2>
-      <p>Built by a developer with ADHD who got tired of noisy dashboards with too many blinking lights. Press <strong>A</strong> to enter a calmer, focused experience.</p>
-      <div class="adhd-features">
-        <div class="adhd-feature">
-          <strong>Kill the Noise</strong>
-          Dims healthy items. Stops all animations. Boosts contrast. You only see what needs attention.
+    <!-- ===== FEATURES ===== -->
+    <section class="glass-section" id="features">
+      <div class="glass-panel glass-panel-wide">
+        <div class="section-label">Why Dockfolio</div>
+        <h2>Infrastructure meets business intelligence</h2>
+        <p class="subtitle">No other self-hosted dashboard combines container management with revenue tracking, security auditing, and AI operations.</p>
+        <div class="feature-grid">
+          <div class="feature-card featured">
+            <div class="feature-icon" style="background:rgba(6,182,212,0.1);color:var(--cyan)">0</div>
+            <h3>Worry Score <span class="feature-badge badge-unique">Unique</span></h3>
+            <p>One number, 0-100. Composite of container health, API keys, disk, backups, security, and SEO. Under 15? Go back to sleep.</p>
+          </div>
+          <div class="feature-card featured">
+            <div class="feature-icon" style="background:rgba(139,92,246,0.1);color:var(--purple)">AI</div>
+            <h3>Morning Briefing <span class="feature-badge badge-unique">Unique</span></h3>
+            <p>AI-generated daily summary. System health, overnight events, revenue changes, action items. All in 30 seconds.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(34,197,94,0.1);color:var(--green)">&#x2764;</div>
+            <h3>Auto-Healing</h3>
+            <p>Automatic restart of unhealthy containers, disk cleanup, loop detection. Telegram alerts. Your apps fix themselves at 3 AM.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(59,130,246,0.1);color:var(--blue)">$</div>
+            <h3>Revenue Tracking</h3>
+            <p>Stripe MRR, 30-day revenue, per-app breakdown with charts, cross-app customer cohorts.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(239,68,68,0.1);color:var(--red)">&#x1f6e1;</div>
+            <h3>Security Auditing</h3>
+            <p>Container hardening, SSL/TLS, HTTP headers, network exposure. Weighted scoring (A-F), radar charts.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(239,68,68,0.1);color:var(--red)">!</div>
+            <h3>Error Tracking <span class="feature-badge badge-new">New</span></h3>
+            <p>Built-in Sentry replacement. Error fingerprinting, browser SDK, performance metrics, trend charts.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(6,182,212,0.1);color:var(--cyan)">&#8984;K</div>
+            <h3>Command Palette</h3>
+            <p>Ctrl+K fuzzy search across apps, commands, and actions. Restart containers, check SEO, open revenue.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(59,130,246,0.1);color:var(--blue)">&#x1f4ca;</div>
+            <h3>Built-In Analytics <span class="feature-badge badge-new">New</span></h3>
+            <p>Privacy-first traffic analytics. No cookies, no third parties. Hourly/daily rollups and charts.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(234,179,8,0.1);color:var(--yellow)">SEO</div>
+            <h3>SEO Auditing</h3>
+            <p>13-check audit for every app: meta tags, headers, mobile, speed. A-F scoring with recommendations.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(139,92,246,0.1);color:var(--purple)">&#x1f4cb;</div>
+            <h3>Projects + Kanban</h3>
+            <p>Track every app's lifecycle, tasks, and roadmap. Kanban board, AI-generated insights.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(234,179,8,0.1);color:var(--yellow)">&#x2709;</div>
+            <h3>Marketing Automation</h3>
+            <p>Email sequences, AI content pipeline, cross-promotion campaigns, banner management.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(34,197,94,0.1);color:var(--green)">&#x26a1;</div>
+            <h3>Alert Rules</h3>
+            <p>Custom thresholds for CPU, memory, disk, error rates. 2-minute evaluation cycle. Telegram notifications.</p>
+          </div>
         </div>
-        <div class="adhd-feature">
-          <strong>Focus Mode</strong>
-          Shift+Z strips the dashboard to a single app. Zero distractions. One thing at a time.
+      </div>
+    </section>
+
+    <!-- ===== PRICING ===== -->
+    <section class="glass-section" id="pricing">
+      <div class="glass-panel glass-panel-wide" style="text-align:center">
+        <div class="section-label">Pricing</div>
+        <h2>Free forever. Pay for more.</h2>
+        <p class="subtitle" style="margin-left:auto;margin-right:auto">Self-host for free with full features. Paid plans add multi-server support, priority updates, and dedicated help.</p>
+        <div class="pricing-grid">
+          <div class="pricing-card">
+            <div class="pricing-name">Free</div>
+            <div class="pricing-price">$0<span>/mo</span></div>
+            <div class="pricing-desc">Perfect for solo developers</div>
+            <ul class="pricing-features">
+              <li>1 server</li>
+              <li>All dashboard features</li>
+              <li>Unlimited apps</li>
+              <li>All 144 API endpoints</li>
+              <li>Community support</li>
+            </ul>
+            <a href="https://github.com/dockfolio/dockfolio" class="pricing-btn pricing-btn-outline">Self-Host Free</a>
+          </div>
+          <div class="pricing-card">
+            <div class="pricing-name">Solo</div>
+            <div class="pricing-price">$9<span>/mo</span></div>
+            <div class="pricing-desc">For serious side-project builders</div>
+            <ul class="pricing-features">
+              <li>1 server</li>
+              <li>Priority updates</li>
+              <li>Email support</li>
+              <li>Custom branding</li>
+              <li>Export reports</li>
+            </ul>
+            <a href="#" class="pricing-btn pricing-btn-outline">Coming Soon</a>
+          </div>
+          <div class="pricing-card popular">
+            <div class="pricing-name">Builder</div>
+            <div class="pricing-price">$19<span>/mo</span></div>
+            <div class="pricing-desc">For indie hackers with multiple apps</div>
+            <ul class="pricing-features">
+              <li>Up to 3 servers</li>
+              <li>Multi-server dashboard</li>
+              <li>Team members (3)</li>
+              <li>Webhook integrations</li>
+              <li>Priority support</li>
+            </ul>
+            <a href="#" class="pricing-btn pricing-btn-primary">Coming Soon</a>
+          </div>
+          <div class="pricing-card">
+            <div class="pricing-name">Portfolio</div>
+            <div class="pricing-price">$39<span>/mo</span></div>
+            <div class="pricing-desc">For agencies and power users</div>
+            <ul class="pricing-features">
+              <li>Unlimited servers</li>
+              <li>Unlimited team members</li>
+              <li>White-label option</li>
+              <li>API rate limit boost</li>
+              <li>Dedicated support</li>
+            </ul>
+            <a href="#" class="pricing-btn pricing-btn-outline">Coming Soon</a>
+          </div>
         </div>
-        <div class="adhd-feature">
-          <strong>Streak Bar</strong>
-          Gamified uptime tracking. Maintain your incident-free streak. Small dopamine hits for keeping things healthy.
+        <div style="margin-top:28px">
+          <p style="color:var(--text-muted);font-size:13px">Launch special: <strong style="color:var(--green)">$199 lifetime</strong> for early supporters. Limited to first 50 customers.</p>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Features -->
-  <section id="features" class="fade-in">
-    <div class="section-label">Why Dockfolio</div>
-    <h2>Infrastructure meets business intelligence</h2>
-    <p class="subtitle">No other self-hosted dashboard combines container management with revenue tracking, security auditing, and AI operations.</p>
-
-    <div class="feature-grid">
-      <div class="feature-card featured">
-        <div class="feature-icon" style="background:rgba(6,182,212,0.1);color:var(--cyan)">0</div>
-        <h3>Worry Score <span class="feature-badge badge-unique">Unique</span></h3>
-        <p>One number, 0-100. Composite of container health, API keys, disk, backups, security, and SEO. If it's under 15, go back to sleep.</p>
-      </div>
-      <div class="feature-card featured">
-        <div class="feature-icon" style="background:rgba(139,92,246,0.1);color:var(--purple)">AI</div>
-        <h3>Morning Briefing <span class="feature-badge badge-unique">Unique</span></h3>
-        <p>AI-generated daily summary of your entire portfolio. System health, overnight events, revenue changes, action items. All in 30 seconds.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(34,197,94,0.1);color:var(--green)">&#x2764;</div>
-        <h3>Auto-Healing</h3>
-        <p>Automatic restart of unhealthy containers, disk cleanup, loop detection. Telegram alerts. Your apps fix themselves at 3 AM.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(59,130,246,0.1);color:var(--blue)">$</div>
-        <h3>Revenue Tracking</h3>
-        <p>Stripe MRR, 30-day revenue, per-app breakdown with charts, cross-app customer cohorts. See your business next to your containers.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(239,68,68,0.1);color:var(--red)">&#x1f6e1;</div>
-        <h3>Security Auditing</h3>
-        <p>Container hardening, SSL/TLS, HTTP headers, network exposure. Weighted scoring (A-F), radar charts, Telegram alerts.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(239,68,68,0.1);color:var(--red)">!</div>
-        <h3>Error Tracking <span class="feature-badge badge-new">New</span></h3>
-        <p>Built-in Sentry replacement. Error fingerprinting, browser SDK, performance metrics, trend charts. Own your error data.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(6,182,212,0.1);color:var(--cyan)">&#8984;K</div>
-        <h3>Command Palette</h3>
-        <p>Ctrl+K fuzzy search across apps, commands, and actions. Restart containers, check SEO, open revenue. All from your keyboard.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(59,130,246,0.1);color:var(--blue)">&#x1f4ca;</div>
-        <h3>Built-In Analytics <span class="feature-badge badge-new">New</span></h3>
-        <p>Privacy-first traffic analytics. No cookies, no third parties. Pixel tracker + JS snippet with hourly/daily rollups and charts.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(234,179,8,0.1);color:var(--yellow)">SEO</div>
-        <h3>SEO Auditing</h3>
-        <p>13-check audit for every app: meta tags, headers, mobile, speed, security headers. A-F scoring with actionable recommendations.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(139,92,246,0.1);color:var(--purple)">&#x1f4cb;</div>
-        <h3>Projects + Kanban</h3>
-        <p>Track every app's lifecycle, tasks, and roadmap. Kanban board, AI-generated insights, due-date reminders.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(234,179,8,0.1);color:var(--yellow)">&#x2709;</div>
-        <h3>Marketing Automation</h3>
-        <p>Email sequences, AI content pipeline, cross-promotion campaigns, banner management. Lifecycle marketing for indie SaaS.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(34,197,94,0.1);color:var(--green)">&#x26a1;</div>
-        <h3>Alert Rules</h3>
-        <p>Custom thresholds for CPU, memory, disk, error rates. 2-minute evaluation cycle. Telegram notifications with cooldown.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Pricing -->
-  <section id="pricing" class="fade-in">
-    <div style="text-align:center">
-      <div class="section-label">Pricing</div>
-      <h2>Free forever. Pay for more.</h2>
-      <p class="subtitle" style="margin-left:auto;margin-right:auto">Self-host for free with full features. Paid plans add multi-server support, priority updates, and dedicated help.</p>
-    </div>
-    <div class="pricing-grid">
-      <div class="pricing-card">
-        <div class="pricing-name">Free</div>
-        <div class="pricing-price">$0<span>/mo</span></div>
-        <div class="pricing-desc">Perfect for solo developers</div>
-        <ul class="pricing-features">
-          <li>1 server</li>
-          <li>All dashboard features</li>
-          <li>Unlimited apps</li>
-          <li>All 144 API endpoints</li>
-          <li>Community support</li>
-        </ul>
-        <a href="https://github.com/dockfolio/dockfolio" class="pricing-btn pricing-btn-outline">Self-Host Free</a>
-      </div>
-      <div class="pricing-card">
-        <div class="pricing-name">Solo</div>
-        <div class="pricing-price">$9<span>/mo</span></div>
-        <div class="pricing-desc">For serious side-project builders</div>
-        <ul class="pricing-features">
-          <li>1 server</li>
-          <li>Priority updates</li>
-          <li>Email support</li>
-          <li>Custom branding</li>
-          <li>Export reports</li>
-        </ul>
-        <a href="#" class="pricing-btn pricing-btn-outline">Coming Soon</a>
-      </div>
-      <div class="pricing-card popular">
-        <div class="pricing-name">Builder</div>
-        <div class="pricing-price">$19<span>/mo</span></div>
-        <div class="pricing-desc">For indie hackers with multiple apps</div>
-        <ul class="pricing-features">
-          <li>Up to 3 servers</li>
-          <li>Multi-server dashboard</li>
-          <li>Team members (3)</li>
-          <li>Webhook integrations</li>
-          <li>Priority support</li>
-        </ul>
-        <a href="#" class="pricing-btn pricing-btn-primary">Coming Soon</a>
-      </div>
-      <div class="pricing-card">
-        <div class="pricing-name">Portfolio</div>
-        <div class="pricing-price">$39<span>/mo</span></div>
-        <div class="pricing-desc">For agencies and power users</div>
-        <ul class="pricing-features">
-          <li>Unlimited servers</li>
-          <li>Unlimited team members</li>
-          <li>White-label option</li>
-          <li>API rate limit boost</li>
-          <li>Dedicated support</li>
-        </ul>
-        <a href="#" class="pricing-btn pricing-btn-outline">Coming Soon</a>
-      </div>
-    </div>
-    <div style="text-align:center;margin-top:32px">
-      <p style="color:var(--text-muted);font-size:13px">Launch special: <strong style="color:var(--green)">$199 lifetime</strong> for early supporters. Limited to first 50 customers.</p>
-    </div>
-  </section>
-
-  <!-- Comparison -->
-  <section id="compare" class="fade-in">
-    <div class="section-label">Comparison</div>
-    <h2>Different from everything else</h2>
-    <p class="subtitle">Coolify deploys apps. Portainer manages containers. Dockfolio helps you understand and grow your entire portfolio.</p>
-
-    <div class="comparison-wrapper">
-      <table class="comparison-table">
-        <thead>
-          <tr>
-            <th>Feature</th>
-            <th class="highlight-col">Dockfolio</th>
-            <th>Coolify</th>
-            <th>Portainer</th>
-            <th>Homepage</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td>Container management</td><td class="highlight-col check">&#10003;</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="cross">&mdash;</td></tr>
-          <tr><td>Revenue tracking (Stripe)</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
-          <tr><td>Built-in analytics</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
-          <tr><td>Error tracking</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
-          <tr><td>Security auditing</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
-          <tr><td>AI operations</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
-          <tr><td>Auto-healing</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
-          <tr><td>ADHD mode</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
-          <tr><td>Charts + visualizations</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
-          <tr><td>Command palette</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
-          <tr><td>Marketing automation</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
-          <tr><td>Git deployments</td><td class="cross">&mdash;</td><td class="check">&#10003;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
-          <tr><td>Multi-server</td><td class="cross">Planned</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="cross">&mdash;</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="savings-banner">
-      <div class="amount">$158/mo saved</div>
-      <p>Self-host for $12/mo what would cost $171/mo as separate SaaS tools (93% savings)</p>
-    </div>
-  </section>
-
-  <!-- Architecture -->
-  <section class="fade-in">
-    <div style="text-align:center">
-      <div class="section-label">Architecture</div>
-      <h2>Minimal by design</h2>
-      <p class="subtitle" style="margin-left:auto;margin-right:auto">Single-container Node.js app. ~370KB frontend. SQLite database. No external dependencies. Connects to Docker socket and auto-discovers containers.</p>
-    </div>
-    <div class="stats-grid">
-      <div class="stat-card"><div class="num" style="color:var(--cyan)">144</div><div class="label">API endpoints</div></div>
-      <div class="stat-card"><div class="num" style="color:var(--green)">33</div><div class="label">SQLite tables</div></div>
-      <div class="stat-card"><div class="num" style="color:var(--purple)">28</div><div class="label">Cron jobs</div></div>
-      <div class="stat-card"><div class="num" style="color:var(--yellow)">21</div><div class="label">Keyboard shortcuts</div></div>
-      <div class="stat-card"><div class="num" style="color:var(--red)">0</div><div class="label">External deps required</div></div>
-      <div class="stat-card"><div class="num" style="color:var(--text)">94</div><div class="label">Automated tests</div></div>
-    </div>
-  </section>
-
-  <!-- Guide -->
-  <section class="guide-section fade-in" id="guide">
-    <div class="guide-card">
-      <div class="guide-cover">
-        <span class="guide-cover-icon">&#x1F433;</span>
-        <div class="guide-cover-title">The Dockfolio Playbook</div>
-        <div class="guide-cover-sub">From Zero to Production-Grade Dashboard</div>
-        <div class="guide-cover-pages">PDF &middot; 85 pages &middot; 12 chapters</div>
-      </div>
-      <div class="guide-info">
-        <div class="section-label">Premium Guide</div>
-        <h2>Master your Docker portfolio</h2>
-        <p>Everything we learned running 30+ apps on a single Hetzner VPS. Real configs, real numbers, real mistakes. Not theory -- battle-tested playbooks for indie hackers who self-host.</p>
-        <ul class="guide-features">
-          <li>Production nginx configs with security headers, SSL, and rate limiting</li>
-          <li>Stripe + Plausible integration walkthroughs with real revenue dashboards</li>
-          <li>Auto-healing playbooks: restart policies, disk cleanup, loop detection</li>
-          <li>Security hardening checklist (container, network, SSH, fail2ban)</li>
-          <li>AI ops setup: morning briefings, worry scores, Telegram alerts</li>
-          <li>ADHD-friendly workflow: from 5-tab chaos to single Worry Score</li>
-        </ul>
-        <div class="guide-price">
-          <span class="amount">$19</span>
-          <span class="format">PDF &middot; instant download &middot; lifetime updates</span>
+    <!-- ===== COMPARISON ===== -->
+    <section class="glass-section" id="compare">
+      <div class="glass-panel glass-panel-wide">
+        <div class="section-label">Comparison</div>
+        <h2>Different from everything else</h2>
+        <p class="subtitle">Coolify deploys apps. Portainer manages containers. Dockfolio helps you understand and grow your entire portfolio.</p>
+        <div class="comparison-wrapper">
+          <table class="comparison-table">
+            <thead>
+              <tr>
+                <th>Feature</th>
+                <th class="highlight-col">Dockfolio</th>
+                <th>Coolify</th>
+                <th>Portainer</th>
+                <th>Homepage</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Container management</td><td class="highlight-col check">&#10003;</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Revenue tracking (Stripe)</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Built-in analytics</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Error tracking</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Security auditing</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>AI operations</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Auto-healing</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>ADHD mode</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Charts + visualizations</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Command palette</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Marketing automation</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Git deployments</td><td class="cross">&mdash;</td><td class="check">&#10003;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Multi-server</td><td class="cross">Planned</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="cross">&mdash;</td></tr>
+            </tbody>
+          </table>
         </div>
-        <div class="guide-cta">
-          <a href="#" class="btn-primary btn-lg">Buy the Playbook</a>
-          <a href="#" class="btn-outline btn-lg">Preview Chapter 1</a>
+        <div class="savings-banner">
+          <div class="amount">$158/mo saved</div>
+          <p>Self-host for $12/mo what would cost $171/mo as separate SaaS tools (93% savings)</p>
         </div>
-        <p class="guide-guarantee">30-day money-back guarantee. No questions asked.</p>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- CTA -->
-  <div class="cta fade-in">
-    <h2>Ready to take control?</h2>
-    <p>Free forever. Self-hosted. AGPL-3.0 licensed. One command to install.</p>
-    <div class="hero-actions">
-      <a href="https://github.com/dockfolio/dockfolio" class="btn-primary btn-lg">Get Started Free</a>
-      <a href="#install" class="btn-outline btn-lg">One-command install</a>
-    </div>
-  </div>
+    <!-- ===== ARCHITECTURE ===== -->
+    <section class="glass-section">
+      <div class="glass-panel" style="text-align:center">
+        <div class="section-label">Architecture</div>
+        <h2>Minimal by design</h2>
+        <p class="subtitle" style="margin-left:auto;margin-right:auto">Single-container Node.js app. ~370KB frontend. SQLite database. No external dependencies.</p>
+        <div class="stats-grid">
+          <div class="stat-card"><div class="num" style="color:var(--cyan)">144</div><div class="label">API endpoints</div></div>
+          <div class="stat-card"><div class="num" style="color:var(--green)">33</div><div class="label">SQLite tables</div></div>
+          <div class="stat-card"><div class="num" style="color:var(--purple)">28</div><div class="label">Cron jobs</div></div>
+          <div class="stat-card"><div class="num" style="color:var(--yellow)">21</div><div class="label">Keyboard shortcuts</div></div>
+          <div class="stat-card"><div class="num" style="color:var(--red)">0</div><div class="label">External deps required</div></div>
+          <div class="stat-card"><div class="num" style="color:var(--text)">94</div><div class="label">Automated tests</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== GUIDE ===== -->
+    <section class="glass-section" id="guide">
+      <div class="glass-panel glass-panel-wide">
+        <div class="guide-card">
+          <div class="guide-cover">
+            <span class="guide-cover-icon">&#x1F433;</span>
+            <div class="guide-cover-title">The Dockfolio Playbook</div>
+            <div class="guide-cover-sub">From Zero to Production-Grade Dashboard</div>
+            <div class="guide-cover-pages">PDF &middot; 85 pages &middot; 12 chapters</div>
+          </div>
+          <div class="guide-info">
+            <div class="section-label">Premium Guide</div>
+            <h2>Master your Docker portfolio</h2>
+            <p>Everything we learned running 30+ apps on a single Hetzner VPS. Real configs, real numbers, real mistakes.</p>
+            <ul class="guide-features">
+              <li>Production nginx configs with security headers, SSL, and rate limiting</li>
+              <li>Stripe + Plausible integration walkthroughs with real revenue dashboards</li>
+              <li>Auto-healing playbooks: restart policies, disk cleanup, loop detection</li>
+              <li>Security hardening checklist (container, network, SSH, fail2ban)</li>
+              <li>AI ops setup: morning briefings, worry scores, Telegram alerts</li>
+              <li>ADHD-friendly workflow: from 5-tab chaos to single Worry Score</li>
+            </ul>
+            <div class="guide-price">
+              <span class="amount">$19</span>
+              <span class="format">PDF &middot; instant download &middot; lifetime updates</span>
+            </div>
+            <div class="guide-cta">
+              <a href="#" class="btn-primary btn-lg">Buy the Playbook</a>
+              <a href="#" class="btn-outline btn-lg">Preview Chapter 1</a>
+            </div>
+            <p class="guide-guarantee">30-day money-back guarantee. No questions asked.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== FINAL CTA ===== -->
+    <section class="cta-section" id="cta">
+      <h2>Ready to take control?</h2>
+      <p>Free forever. Self-hosted. AGPL-3.0 licensed. One command to install.</p>
+      <div class="hero-actions">
+        <a href="https://github.com/dockfolio/dockfolio" class="btn-primary btn-lg">Get Started Free</a>
+        <a href="#install" class="btn-outline btn-lg">One-command install</a>
+      </div>
+    </section>
+
+  </div><!-- /scroll-container -->
 
   <!-- Impressum -->
   <div id="impressum" class="legal-page">
@@ -1080,10 +1097,8 @@
   <div id="datenschutz" class="legal-page">
     <a href="#" class="back-link">&larr; Back to Dockfolio</a>
     <h1>Datenschutzerkl&auml;rung</h1>
-
     <h2>1. Verantwortlicher</h2>
     <p>Konrad Reyhe<br>c/o MDC Management#6099<br>Welserstra&szlig;e 3<br>87463 Dietmannsried<br>E-Mail: kreyhe@yahoo.com</p>
-
     <h2>2. &Uuml;bersicht der Verarbeitungen</h2>
     <p>Die nachfolgende &Uuml;bersicht fasst die Arten der verarbeiteten Daten und die Zwecke ihrer Verarbeitung zusammen und verweist auf die betroffenen Personen.</p>
     <ul>
@@ -1091,39 +1106,18 @@
       <li>Webanalyse (anonymisiert, cookielos)</li>
       <li>Kontaktaufnahme per E-Mail</li>
     </ul>
-
     <h2>3. Hosting</h2>
-    <p>Unser Hosting-Anbieter erhebt in sog. Server-Logfiles folgende Daten, die Ihr Browser &uuml;bermittelt: IP-Adresse, Datum und Uhrzeit der Anfrage, Zeitzonendifferenz zur GMT, Inhalt der Anforderung, HTTP-Statuscode, &uuml;bertragene Datenmenge, Referrer-URL, Browser-Typ und -Version, Betriebssystem.</p>
-    <p>Hoster: <strong>Hetzner Online GmbH</strong>, Industriestr. 25, 91710 Gunzenhausen, Deutschland. Server-Logfiles werden nach 14 Tagen automatisch gel&ouml;scht. Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an sicherem Betrieb).</p>
-
+    <p>Hoster: <strong>Hetzner Online GmbH</strong>, Industriestr. 25, 91710 Gunzenhausen, Deutschland. Server-Logfiles werden nach 14 Tagen automatisch gel&ouml;scht. Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO.</p>
     <h2>4. Webanalyse</h2>
-    <p>Wir setzen <strong>Plausible Analytics</strong> ein, ein datenschutzfreundliches Analysetool. Plausible verwendet keine Cookies, speichert keine personenbezogenen Daten und erhebt keine IP-Adressen. Alle Daten werden aggregiert und anonymisiert erhoben. Es findet kein Cross-Site-Tracking statt. Der Dienst wird auf unserem eigenen Server (self-hosted) betrieben.</p>
-    <p>Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der Analyse der Website-Nutzung zur Verbesserung des Angebots).</p>
-
+    <p>Wir setzen <strong>Plausible Analytics</strong> ein (self-hosted). Keine Cookies, keine personenbezogenen Daten, keine IP-Adressen. Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO.</p>
     <h2>5. Kontaktaufnahme</h2>
-    <p>Bei der Kontaktaufnahme per E-Mail werden Ihre Angaben zur Bearbeitung der Anfrage und f&uuml;r den Fall von Anschlussfragen gespeichert. Diese Daten geben wir nicht ohne Ihre Einwilligung weiter. Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO (Vertragserf&uuml;llung) bzw. Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse).</p>
-
+    <p>Bei der Kontaktaufnahme per E-Mail werden Ihre Angaben zur Bearbeitung gespeichert. Rechtsgrundlage: Art. 6 Abs. 1 lit. b/f DSGVO.</p>
     <h2>6. SSL/TLS-Verschl&uuml;sselung</h2>
-    <p>Diese Seite nutzt aus Sicherheitsgr&uuml;nden eine SSL- bzw. TLS-Verschl&uuml;sselung. Eine verschl&uuml;sselte Verbindung erkennen Sie daran, dass die Adresszeile des Browsers von &bdquo;http://&ldquo; auf &bdquo;https://&ldquo; wechselt.</p>
-
+    <p>Diese Seite nutzt SSL/TLS-Verschl&uuml;sselung.</p>
     <h2>7. Ihre Rechte</h2>
-    <p>Sie haben gem&auml;&szlig; DSGVO folgende Rechte:</p>
-    <ul>
-      <li><strong>Auskunft</strong> (Art. 15 DSGVO) &mdash; Welche Daten wir &uuml;ber Sie gespeichert haben</li>
-      <li><strong>Berichtigung</strong> (Art. 16 DSGVO) &mdash; Korrektur unrichtiger Daten</li>
-      <li><strong>L&ouml;schung</strong> (Art. 17 DSGVO) &mdash; L&ouml;schung Ihrer gespeicherten Daten</li>
-      <li><strong>Einschr&auml;nkung</strong> (Art. 18 DSGVO) &mdash; Einschr&auml;nkung der Verarbeitung</li>
-      <li><strong>Daten&uuml;bertragbarkeit</strong> (Art. 20 DSGVO) &mdash; Herausgabe Ihrer Daten in maschinenlesbarem Format</li>
-      <li><strong>Widerspruch</strong> (Art. 21 DSGVO) &mdash; Widerspruch gegen die Verarbeitung</li>
-      <li><strong>Beschwerde</strong> &mdash; Recht auf Beschwerde bei einer Aufsichtsbeh&ouml;rde</li>
-    </ul>
-
+    <p>Auskunft (Art. 15), Berichtigung (Art. 16), L&ouml;schung (Art. 17), Einschr&auml;nkung (Art. 18), Daten&uuml;bertragbarkeit (Art. 20), Widerspruch (Art. 21), Beschwerde bei der Aufsichtsbeh&ouml;rde.</p>
     <h2>8. Aufsichtsbeh&ouml;rde</h2>
-    <p>S&auml;chsischer Datenschutzbeauftragter<br>Devrientstra&szlig;e 5<br>01067 Dresden<br><a href="https://www.saechsdsb.de" target="_blank" rel="noopener">www.saechsdsb.de</a></p>
-
-    <h2>9. &Auml;nderungen</h2>
-    <p>Wir behalten uns vor, diese Datenschutzerkl&auml;rung anzupassen, damit sie stets den aktuellen rechtlichen Anforderungen entspricht oder um &Auml;nderungen unserer Leistungen umzusetzen.</p>
-
+    <p>S&auml;chsischer Datenschutzbeauftragter, Devrientstra&szlig;e 5, 01067 Dresden</p>
     <p style="margin-top: 24px; font-size: 12px; color: var(--text-muted);">Stand: M&auml;rz 2026</p>
   </div>
 
@@ -1133,32 +1127,37 @@
   </footer>
 
   <script>
-    // Intersection Observer for scroll animations
-    const observer = new IntersectionObserver((entries) => {
+    // ---- Glass panel reveal on scroll ----
+    const panelObserver = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           entry.target.classList.add('visible');
-          observer.unobserve(entry.target);
+          panelObserver.unobserve(entry.target);
         }
       });
-    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
-    document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+    }, { threshold: 0.08, rootMargin: '0px 0px -60px 0px' });
+    document.querySelectorAll('.glass-panel').forEach(el => panelObserver.observe(el));
 
-    // Floating CTA bar — show after scrolling past hero
-    const hero = document.querySelector('.hero');
+    // ---- Floating CTA ----
+    const heroEl = document.getElementById('hero');
     const floatingCta = document.getElementById('floatingCta');
-    const ctaObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        floatingCta.classList.toggle('show', !entry.isIntersecting);
-      });
+    const ctaObs = new IntersectionObserver(([e]) => {
+      floatingCta.classList.toggle('show', !e.isIntersecting);
     }, { threshold: 0 });
-    ctaObserver.observe(hero);
+    ctaObs.observe(heroEl);
 
-    // Legal page hash routing
+    // ---- Scroll progress bar ----
+    const progressBar = document.getElementById('scrollProgress');
+    window.addEventListener('scroll', () => {
+      const h = document.documentElement.scrollHeight - window.innerHeight;
+      progressBar.style.width = (window.scrollY / h * 100) + '%';
+    }, { passive: true });
+
+    // ---- Legal page hash routing ----
     function handleHash() {
       const hash = location.hash.slice(1);
       const legalPages = document.querySelectorAll('.legal-page');
-      const mainContent = document.querySelectorAll('nav, .hero, section, .cta, .floating-cta');
+      const mainContent = document.querySelectorAll('nav, #scroll-container, .floating-cta, #scene-canvas, .scroll-progress');
       if (hash === 'impressum' || hash === 'datenschutz') {
         legalPages.forEach(p => p.classList.toggle('active', p.id === hash));
         mainContent.forEach(el => el.style.display = 'none');
@@ -1172,186 +1171,441 @@
     if (location.hash === '#impressum' || location.hash === '#datenschutz') handleHash();
   </script>
 
-  <!-- Three.js Hero Background -->
+  <!-- ===== THREE.JS IMMERSIVE SCENE ===== -->
   <script type="importmap">
-    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.172.0/build/three.module.js" } }
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.172.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/" } }
   </script>
   <script type="module">
     import * as THREE from 'three';
+    import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
-    const canvas = document.getElementById('heroCanvas');
-    const wrap = document.getElementById('heroCanvasWrap');
-    if (!canvas || !wrap) throw new Error('Canvas not found');
-
-    let w = wrap.clientWidth;
-    let h = wrap.clientHeight;
-
-    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false });
+    // ---- SETUP ----
+    const canvas = document.getElementById('scene-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(w, h);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 120);
-    camera.position.z = 35;
+    scene.fog = new THREE.FogExp2(0x09090b, 0.012);
 
-    // Network-node particle system — Docker containers floating in space
-    const COUNT = 800;
-    const geometry = new THREE.BufferGeometry();
-    const pos = new Float32Array(COUNT * 3);
-    const base = new Float32Array(COUNT * 3);
-    const col = new Float32Array(COUNT * 3);
-    const siz = new Float32Array(COUNT);
-    const pha = new Float32Array(COUNT);
+    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(0, 2, 30);
 
-    const cyan = new THREE.Color(0x06b6d4);
-    const purple = new THREE.Color(0x8b5cf6);
-    const blue = new THREE.Color(0x3b82f6);
-    const dim = new THREE.Color(0x1a3a4a);
-    const palette = [cyan, purple, blue, dim, dim, dim];
+    // ---- COLORS ----
+    const CYAN = new THREE.Color(0x06b6d4);
+    const PURPLE = new THREE.Color(0x8b5cf6);
+    const BLUE = new THREE.Color(0x3b82f6);
+    const GREEN = new THREE.Color(0x22c55e);
+    const RED = new THREE.Color(0xef4444);
+    const DIM = new THREE.Color(0x1a2a3a);
+    const COLORS = [CYAN, PURPLE, BLUE, GREEN, CYAN, BLUE, DIM];
 
-    for (let i = 0; i < COUNT; i++) {
-      const x = (Math.random() - 0.5) * 70;
-      const y = (Math.random() - 0.5) * 50;
-      const z = (Math.random() - 0.5) * 30;
-      pos[i*3] = x; pos[i*3+1] = y; pos[i*3+2] = z;
-      base[i*3] = x; base[i*3+1] = y; base[i*3+2] = z;
-      const c = palette[Math.floor(Math.random() * palette.length)];
-      col[i*3] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
-      siz[i] = 0.6 + Math.random() * 1.4;
-      pha[i] = Math.random() * Math.PI * 2;
+    // ---- CONTAINER NODES (Instanced rounded boxes) ----
+    const NODE_COUNT = 30;
+    const boxGeo = new RoundedBoxGeometry(1, 1, 1, 4, 0.15);
+    const boxMat = new THREE.MeshPhysicalMaterial({
+      color: 0x111118,
+      metalness: 0.3,
+      roughness: 0.4,
+      transmission: 0.1,
+      thickness: 0.5,
+      emissive: new THREE.Color(0x06b6d4),
+      emissiveIntensity: 0.15,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const nodesMesh = new THREE.InstancedMesh(boxGeo, boxMat, NODE_COUNT);
+    scene.add(nodesMesh);
+
+    // Node data
+    const nodeData = [];
+    const dummy = new THREE.Object3D();
+    const nodeColor = new THREE.Color();
+
+    for (let i = 0; i < NODE_COUNT; i++) {
+      const theta = (i / NODE_COUNT) * Math.PI * 2;
+      const r = 6 + Math.random() * 10;
+      const y = (Math.random() - 0.5) * 12;
+      const scale = 0.4 + Math.random() * 0.6;
+      const color = COLORS[i % COLORS.length];
+
+      nodeData.push({
+        baseX: Math.cos(theta) * r,
+        baseY: y,
+        baseZ: Math.sin(theta) * r,
+        scale,
+        phase: Math.random() * Math.PI * 2,
+        speed: 0.15 + Math.random() * 0.25,
+        orbitSpeed: 0.02 + Math.random() * 0.04,
+        color,
+        rotSpeed: (Math.random() - 0.5) * 0.5,
+      });
+
+      // Set initial instance color (emissive tint per instance via color attribute)
+      nodeColor.copy(color).multiplyScalar(0.3).add(new THREE.Color(0x111118));
+      nodesMesh.setColorAt(i, nodeColor);
+    }
+    nodesMesh.instanceColor.needsUpdate = true;
+
+    // ---- GLOW SPRITES for each node ----
+    const glowTex = createGlowTexture();
+    const glowGroup = new THREE.Group();
+    scene.add(glowGroup);
+
+    const glowSprites = [];
+    for (let i = 0; i < NODE_COUNT; i++) {
+      const spriteMat = new THREE.SpriteMaterial({
+        map: glowTex,
+        color: nodeData[i].color,
+        transparent: true,
+        opacity: 0.25,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.scale.set(3, 3, 1);
+      glowGroup.add(sprite);
+      glowSprites.push(sprite);
     }
 
-    geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    geometry.setAttribute('size', new THREE.BufferAttribute(siz, 1));
+    function createGlowTexture() {
+      const size = 128;
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.3, 'rgba(255,255,255,0.3)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, size, size);
+      const tex = new THREE.CanvasTexture(c);
+      return tex;
+    }
 
-    const material = new THREE.ShaderMaterial({
+    // ---- CONNECTION LINES ----
+    const MAX_CONNECTIONS = 200;
+    const linePositions = new Float32Array(MAX_CONNECTIONS * 6);
+    const lineColors = new Float32Array(MAX_CONNECTIONS * 6);
+    const lineGeo = new THREE.BufferGeometry();
+    lineGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+    lineGeo.setAttribute('color', new THREE.BufferAttribute(lineColors, 3));
+    const lineMat = new THREE.LineBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.2,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const connectionLines = new THREE.LineSegments(lineGeo, lineMat);
+    scene.add(connectionLines);
+
+    // ---- AMBIENT PARTICLES ----
+    const PARTICLE_COUNT = 2000;
+    const pGeo = new THREE.BufferGeometry();
+    const pPositions = new Float32Array(PARTICLE_COUNT * 3);
+    const pSizes = new Float32Array(PARTICLE_COUNT);
+    const pPhases = new Float32Array(PARTICLE_COUNT);
+    const pColors = new Float32Array(PARTICLE_COUNT * 3);
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      pPositions[i*3]   = (Math.random() - 0.5) * 100;
+      pPositions[i*3+1] = (Math.random() - 0.5) * 60;
+      pPositions[i*3+2] = (Math.random() - 0.5) * 80;
+      pSizes[i] = 0.3 + Math.random() * 1.2;
+      pPhases[i] = Math.random() * Math.PI * 2;
+      const c = COLORS[Math.floor(Math.random() * COLORS.length)];
+      pColors[i*3] = c.r; pColors[i*3+1] = c.g; pColors[i*3+2] = c.b;
+    }
+
+    pGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
+    pGeo.setAttribute('aSize', new THREE.BufferAttribute(pSizes, 1));
+    pGeo.setAttribute('color', new THREE.BufferAttribute(pColors, 3));
+
+    const particleMat = new THREE.ShaderMaterial({
       vertexShader: `
-        attribute float size;
+        attribute float aSize;
         varying vec3 vColor;
+        varying float vAlpha;
+        uniform float uTime;
         void main() {
           vColor = color;
-          vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = size * (140.0 / -mv.z);
+          vec3 pos = position;
+          pos.x += sin(uTime * 0.1 + position.y * 0.1) * 0.5;
+          pos.y += cos(uTime * 0.08 + position.x * 0.1) * 0.4;
+          vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+          float dist = -mv.z;
+          vAlpha = smoothstep(80.0, 10.0, dist) * 0.35;
+          gl_PointSize = aSize * (120.0 / dist);
           gl_Position = projectionMatrix * mv;
         }
       `,
       fragmentShader: `
         varying vec3 vColor;
+        varying float vAlpha;
         void main() {
           float d = length(gl_PointCoord - vec2(0.5));
           if (d > 0.5) discard;
-          float a = smoothstep(0.5, 0.05, d) * 0.4;
+          float a = smoothstep(0.5, 0.0, d) * vAlpha;
           gl_FragColor = vec4(vColor, a);
         }
       `,
+      uniforms: { uTime: { value: 0 } },
       vertexColors: true,
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
 
-    // Connection lines between nearby particles
-    const MAX_LINES = 300;
-    const linePos = new Float32Array(MAX_LINES * 6);
-    const lineCol = new Float32Array(MAX_LINES * 6);
-    const lineGeo = new THREE.BufferGeometry();
-    lineGeo.setAttribute('position', new THREE.BufferAttribute(linePos, 3));
-    lineGeo.setAttribute('color', new THREE.BufferAttribute(lineCol, 3));
-    const lineMat = new THREE.LineBasicMaterial({
+    scene.add(new THREE.Points(pGeo, particleMat));
+
+    // ---- DATA FLOW PARTICLES (along connections) ----
+    const FLOW_COUNT = 120;
+    const flowGeo = new THREE.BufferGeometry();
+    const flowPos = new Float32Array(FLOW_COUNT * 3);
+    const flowCol = new Float32Array(FLOW_COUNT * 3);
+    flowGeo.setAttribute('position', new THREE.BufferAttribute(flowPos, 3));
+    flowGeo.setAttribute('color', new THREE.BufferAttribute(flowCol, 3));
+
+    const flowMat = new THREE.PointsMaterial({
+      size: 0.15,
       vertexColors: true,
+      transparent: true,
+      opacity: 0.7,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const flowPoints = new THREE.Points(flowGeo, flowMat);
+    scene.add(flowPoints);
+
+    const flowData = [];
+    for (let i = 0; i < FLOW_COUNT; i++) {
+      flowData.push({
+        fromNode: Math.floor(Math.random() * NODE_COUNT),
+        toNode: Math.floor(Math.random() * NODE_COUNT),
+        t: Math.random(),
+        speed: 0.3 + Math.random() * 0.7,
+      });
+      const c = CYAN;
+      flowCol[i*3] = c.r; flowCol[i*3+1] = c.g; flowCol[i*3+2] = c.b;
+    }
+
+    // ---- ORBITAL RING ----
+    const ringGeo = new THREE.TorusGeometry(14, 0.02, 8, 128);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: CYAN,
       transparent: true,
       opacity: 0.12,
       blending: THREE.AdditiveBlending,
-      depthWrite: false,
     });
-    const lines = new THREE.LineSegments(lineGeo, lineMat);
-    scene.add(lines);
+    const ring1 = new THREE.Mesh(ringGeo, ringMat);
+    ring1.rotation.x = Math.PI / 2.2;
+    scene.add(ring1);
 
-    scene.add(new THREE.Points(geometry, material));
+    const ring2 = new THREE.Mesh(
+      new THREE.TorusGeometry(18, 0.015, 8, 128),
+      new THREE.MeshBasicMaterial({ color: PURPLE, transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending })
+    );
+    ring2.rotation.x = Math.PI / 3;
+    ring2.rotation.z = 0.5;
+    scene.add(ring2);
 
-    const mouse = { x: 0, y: 0 };
-    let mouseActive = false;
-    const hero = document.querySelector('.hero');
-    hero.addEventListener('mousemove', (e) => {
-      const r = hero.getBoundingClientRect();
-      mouse.x = ((e.clientX - r.left) / r.width - 0.5) * 70;
-      mouse.y = -((e.clientY - r.top) / r.height - 0.5) * 50;
-      mouseActive = true;
+    // ---- CENTRAL GLOW ----
+    const centralGlowMat = new THREE.SpriteMaterial({
+      map: glowTex,
+      color: CYAN,
+      transparent: true,
+      opacity: 0.15,
+      blending: THREE.AdditiveBlending,
     });
-    hero.addEventListener('mouseleave', () => { mouseActive = false; });
+    const centralGlow = new THREE.Sprite(centralGlowMat);
+    centralGlow.scale.set(20, 20, 1);
+    scene.add(centralGlow);
 
+    // ---- LIGHTS ----
+    const ambientLight = new THREE.AmbientLight(0x1a1a2e, 0.5);
+    scene.add(ambientLight);
+
+    const pointLight1 = new THREE.PointLight(CYAN, 3, 50);
+    pointLight1.position.set(5, 5, 10);
+    scene.add(pointLight1);
+
+    const pointLight2 = new THREE.PointLight(PURPLE, 2, 40);
+    pointLight2.position.set(-8, -3, -5);
+    scene.add(pointLight2);
+
+    const pointLight3 = new THREE.PointLight(BLUE, 1.5, 35);
+    pointLight3.position.set(0, 8, -10);
+    scene.add(pointLight3);
+
+    // ---- MOUSE ----
+    const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
+    window.addEventListener('mousemove', (e) => {
+      mouse.tx = (e.clientX / window.innerWidth - 0.5) * 2;
+      mouse.ty = -(e.clientY / window.innerHeight - 0.5) * 2;
+    }, { passive: true });
+
+    // ---- SCROLL STATE ----
+    let scrollProgress = 0;
+    const docHeight = () => document.documentElement.scrollHeight - window.innerHeight;
+    window.addEventListener('scroll', () => {
+      scrollProgress = Math.min(window.scrollY / docHeight(), 1);
+    }, { passive: true });
+
+    // ---- CAMERA PATH (scroll-driven) ----
+    // Camera orbits around the node cluster, moving through different vantage points
+    function getCameraTarget(t) {
+      // t: 0..1 scroll progress
+      // Phase 1 (0-0.15): Starting position, looking at cluster
+      // Phase 2 (0.15-0.4): Orbit right, slightly above
+      // Phase 3 (0.4-0.65): Zoom closer, orbit below
+      // Phase 4 (0.65-0.85): Pull back, wide shot
+      // Phase 5 (0.85-1.0): Final approach, cinematic
+
+      const angle = t * Math.PI * 1.8 - 0.3;
+      const radius = 28 - Math.sin(t * Math.PI) * 10;
+      const height = 2 + Math.sin(t * Math.PI * 2) * 5;
+
+      return {
+        x: Math.sin(angle) * radius,
+        y: height,
+        z: Math.cos(angle) * radius,
+        lookX: Math.sin(t * 0.5) * 2,
+        lookY: Math.cos(t * Math.PI) * 1.5,
+        lookZ: 0,
+      };
+    }
+
+    // ---- ANIMATE ----
     const clock = new THREE.Clock();
-    let lineCount = 0;
+    let connectionFrame = 0;
 
     function animate() {
       requestAnimationFrame(animate);
       const t = clock.getElapsedTime();
+      const dt = clock.getDelta();
 
-      for (let i = 0; i < COUNT; i++) {
-        const p = pha[i];
-        pos[i*3]   = base[i*3]   + Math.sin(t * 0.2 + p) * 0.5;
-        pos[i*3+1] = base[i*3+1] + Math.cos(t * 0.18 + p * 1.3) * 0.4;
-        pos[i*3+2] = base[i*3+2] + Math.sin(t * 0.15 + p * 0.7) * 0.6;
+      // Smooth mouse
+      mouse.x += (mouse.tx - mouse.x) * 0.03;
+      mouse.y += (mouse.ty - mouse.y) * 0.03;
 
-        if (mouseActive) {
-          const dx = pos[i*3] - mouse.x;
-          const dy = pos[i*3+1] - mouse.y;
-          const dist = Math.sqrt(dx*dx + dy*dy);
-          if (dist < 10) {
-            const f = (1 - dist/10) * 3.5;
-            pos[i*3]   += (dx/dist) * f;
-            pos[i*3+1] += (dy/dist) * f;
-          }
-        }
+      // Camera
+      const cam = getCameraTarget(scrollProgress);
+      const targetX = cam.x + mouse.x * 3;
+      const targetY = cam.y + mouse.y * 2;
+      const targetZ = cam.z;
+      camera.position.x += (targetX - camera.position.x) * 0.04;
+      camera.position.y += (targetY - camera.position.y) * 0.04;
+      camera.position.z += (targetZ - camera.position.z) * 0.04;
+      camera.lookAt(cam.lookX, cam.lookY, cam.lookZ);
+
+      // Update particle shader time
+      particleMat.uniforms.uTime.value = t;
+
+      // Update nodes
+      const nodePositions = []; // store current positions for connections
+      for (let i = 0; i < NODE_COUNT; i++) {
+        const nd = nodeData[i];
+        const phase = nd.phase + t * nd.speed;
+        const orbit = t * nd.orbitSpeed;
+
+        const cx = nd.baseX * Math.cos(orbit) - nd.baseZ * Math.sin(orbit);
+        const cz = nd.baseX * Math.sin(orbit) + nd.baseZ * Math.cos(orbit);
+
+        const x = cx + Math.sin(phase) * 0.8;
+        const y = nd.baseY + Math.cos(phase * 1.3) * 0.6;
+        const z = cz + Math.sin(phase * 0.7) * 0.5;
+
+        dummy.position.set(x, y, z);
+        dummy.rotation.set(t * nd.rotSpeed, t * nd.rotSpeed * 0.7, t * nd.rotSpeed * 0.5);
+        dummy.scale.setScalar(nd.scale);
+        dummy.updateMatrix();
+        nodesMesh.setMatrixAt(i, dummy.matrix);
+
+        // Update glow sprite
+        glowSprites[i].position.set(x, y, z);
+        glowSprites[i].material.opacity = 0.15 + Math.sin(t * nd.speed + nd.phase) * 0.08;
+
+        nodePositions.push(x, y, z);
       }
-      geometry.attributes.position.needsUpdate = true;
+      nodesMesh.instanceMatrix.needsUpdate = true;
 
-      // Update connection lines (every 3rd frame for perf)
-      if (Math.floor(t * 60) % 3 === 0) {
-        lineCount = 0;
-        const threshold = 8;
-        for (let i = 0; i < COUNT && lineCount < MAX_LINES; i += 3) {
-          for (let j = i + 3; j < COUNT && lineCount < MAX_LINES; j += 3) {
-            const dx = pos[i*3] - pos[j*3];
-            const dy = pos[i*3+1] - pos[j*3+1];
-            const dz = pos[i*3+2] - pos[j*3+2];
-            const d = Math.sqrt(dx*dx + dy*dy + dz*dz);
-            if (d < threshold) {
-              const idx = lineCount * 6;
-              linePos[idx]   = pos[i*3]; linePos[idx+1] = pos[i*3+1]; linePos[idx+2] = pos[i*3+2];
-              linePos[idx+3] = pos[j*3]; linePos[idx+4] = pos[j*3+1]; linePos[idx+5] = pos[j*3+2];
-              const fade = 1 - d / threshold;
-              lineCol[idx] = 0.024*fade; lineCol[idx+1] = 0.71*fade; lineCol[idx+2] = 0.82*fade;
-              lineCol[idx+3] = 0.024*fade; lineCol[idx+4] = 0.71*fade; lineCol[idx+5] = 0.82*fade;
-              lineCount++;
+      // Update connections (every 4th frame)
+      connectionFrame++;
+      if (connectionFrame % 4 === 0) {
+        let lineIdx = 0;
+        const threshold = 12;
+        for (let i = 0; i < NODE_COUNT && lineIdx < MAX_CONNECTIONS; i++) {
+          for (let j = i + 1; j < NODE_COUNT && lineIdx < MAX_CONNECTIONS; j++) {
+            const dx = nodePositions[i*3] - nodePositions[j*3];
+            const dy = nodePositions[i*3+1] - nodePositions[j*3+1];
+            const dz = nodePositions[i*3+2] - nodePositions[j*3+2];
+            const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+            if (dist < threshold) {
+              const fade = 1 - dist / threshold;
+              const idx = lineIdx * 6;
+              linePositions[idx]   = nodePositions[i*3];
+              linePositions[idx+1] = nodePositions[i*3+1];
+              linePositions[idx+2] = nodePositions[i*3+2];
+              linePositions[idx+3] = nodePositions[j*3];
+              linePositions[idx+4] = nodePositions[j*3+1];
+              linePositions[idx+5] = nodePositions[j*3+2];
+              const c = nodeData[i].color;
+              lineColors[idx]   = c.r * fade; lineColors[idx+1] = c.g * fade; lineColors[idx+2] = c.b * fade;
+              lineColors[idx+3] = c.r * fade; lineColors[idx+4] = c.g * fade; lineColors[idx+5] = c.b * fade;
+              lineIdx++;
             }
           }
         }
-        lineGeo.setDrawRange(0, lineCount * 2);
+        lineGeo.setDrawRange(0, lineIdx * 2);
         lineGeo.attributes.position.needsUpdate = true;
         lineGeo.attributes.color.needsUpdate = true;
       }
 
-      camera.position.x = Math.sin(t * 0.08) * 0.6;
-      camera.position.y = Math.cos(t * 0.06) * 0.4;
-      camera.lookAt(0, 0, 0);
+      // Data flow particles
+      for (let i = 0; i < FLOW_COUNT; i++) {
+        const fd = flowData[i];
+        fd.t += fd.speed * 0.008;
+        if (fd.t > 1) {
+          fd.t = 0;
+          fd.fromNode = Math.floor(Math.random() * NODE_COUNT);
+          fd.toNode = Math.floor(Math.random() * NODE_COUNT);
+          if (fd.toNode === fd.fromNode) fd.toNode = (fd.toNode + 1) % NODE_COUNT;
+        }
+        const fi = fd.fromNode * 3;
+        const ti = fd.toNode * 3;
+        const lerp = fd.t;
+        flowPos[i*3]   = nodePositions[fi]   + (nodePositions[ti]   - nodePositions[fi])   * lerp;
+        flowPos[i*3+1] = nodePositions[fi+1] + (nodePositions[ti+1] - nodePositions[fi+1]) * lerp + Math.sin(lerp * Math.PI) * 1.5;
+        flowPos[i*3+2] = nodePositions[fi+2] + (nodePositions[ti+2] - nodePositions[fi+2]) * lerp;
+      }
+      flowGeo.attributes.position.needsUpdate = true;
+
+      // Rings
+      ring1.rotation.z = t * 0.05;
+      ring2.rotation.y = t * 0.04;
+
+      // Central glow pulse
+      centralGlow.material.opacity = 0.1 + Math.sin(t * 0.5) * 0.05;
+
+      // Lights
+      pointLight1.position.x = Math.sin(t * 0.3) * 12;
+      pointLight1.position.z = Math.cos(t * 0.3) * 12;
+      pointLight2.position.y = Math.sin(t * 0.2) * 8;
 
       renderer.render(scene, camera);
     }
 
     animate();
 
-    new ResizeObserver(() => {
-      w = wrap.clientWidth; h = wrap.clientHeight;
-      camera.aspect = w / h;
+    // ---- RESIZE ----
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
-    }).observe(wrap);
-
-    new IntersectionObserver(([e]) => {
-      if (e.isIntersecting) { clock.start(); animate(); }
-    }, { threshold: 0 }).observe(wrap);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
   </script>
 </body>
 </html>
