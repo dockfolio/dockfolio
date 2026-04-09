@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add crosslinks widget via sub_filter to proxied game sites."""
+"""Add crosslinks widget via sub_filter to proxied sites."""
 import os
 
 sites_dir = "/home/deploy/nginx-configs/sites"
@@ -19,9 +19,7 @@ crosslinks_block = '''
 
 targets = {
     "betpilot": "betpilot",
-    "diplomancy": "diplomancy",
     "orb": "orb",
-    "urlgame": "urlgame",
 }
 
 for name, filename in targets.items():

@@ -42,7 +42,6 @@ import registerStatusRoutes from './routes/status.js';
 import registerSnapshotRoutes from './routes/snapshots.js';
 import registerPortfolioRoutes from './routes/portfolio.js';
 import registerMiscRoutes from './routes/misc.js';
-import registerKettenreaktionRoutes from './routes/kettenreaktion.js';
 import registerSocialAutopilotRoutes from './routes/social-autopilot.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -226,7 +225,7 @@ app.use((req, res, next) => {
   // Validate on state-changing methods (skip public paths and static assets)
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
     const normalizedPath = req.path.replace(/\/\.\.+/g, '').replace(/\/+/g, '/');
-    const CSRF_EXEMPT = ['/api/auth/login', '/api/auth/setup', '/api/banners/', '/api/crosspromo/', '/api/errors/ingest', '/api/errors/envelope', '/api/analytics/', '/api/webhooks/', '/api/kr/'];
+    const CSRF_EXEMPT = ['/api/auth/login', '/api/auth/setup', '/api/banners/', '/api/crosspromo/', '/api/errors/ingest', '/api/errors/envelope', '/api/analytics/', '/api/webhooks/'];
     if (!CSRF_EXEMPT.some(p => normalizedPath.startsWith(p))) {
       const headerToken = req.headers['x-csrf-token'];
       const cookieToken = req.cookies._csrf;
@@ -296,7 +295,7 @@ function isSetupComplete() {
 }
 
 // --- Auth Middleware ---
-const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners/embed.js', '/api/banners/serve', '/api/crosslinks/widget.js', '/api/social/feed.xml', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status', '/status', '/api/status-page', '/api/analytics/pixel.gif', '/api/analytics/track.js', '/api/analytics/event', '/api/webhooks', '/api/kr'];
+const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/setup', '/api/auth/status', '/health', '/api/health', '/api/crosspromo', '/api/banners/embed.js', '/api/banners/serve', '/api/crosslinks/widget.js', '/api/social/feed.xml', '/api/errors/ingest', '/api/errors/envelope', '/api/errors/sdk.js', '/api/status', '/status', '/api/status-page', '/api/analytics/pixel.gif', '/api/analytics/track.js', '/api/analytics/event', '/api/webhooks'];
 
 function authMiddleware(req, res, next) {
   // Normalize path to prevent traversal bypass (e.g. /api/crosspromo/../marketing/crosspromo)
@@ -2820,7 +2819,6 @@ registerMiscRoutes({
   MS_PER_HOUR, MS_PER_DAY,
 });
 
-registerKettenreaktionRoutes({ app, db, rateLimit });
 registerSocialAutopilotRoutes({
   app, db, config, cron,
   getSetting, getEnvKeyFromApps,
