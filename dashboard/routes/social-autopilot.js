@@ -474,10 +474,6 @@ export default function registerSocialAutopilotRoutes({
     // German career / finance
     'Bewerbungsfoto KI', 'Gehaltsabrechnung prüfen', 'Abschlussarbeit Tipps',
     'Brutto Netto Rechner', 'Abfindung berechnen',
-    // ADHD dev
-    'ADHD programmer', 'ADHD developer productivity',
-    // Dev freelance
-    'hire a developer 2026', 'solo developer saas',
   ];
 
   // --- Quora monitoring ---
@@ -513,10 +509,9 @@ export default function registerSocialAutopilotRoutes({
     // German career / finance (Quora has German content)
     'Gehaltsabrechnung prüfen lassen', 'Bewerbungsfoto selber machen',
     'Bachelorarbeit prüfen lassen', 'Abfindung berechnen Steuer',
-    // English
+    // English — product-specific
     'best docker dashboard', 'self hosted server dashboard',
-    'AI headshot generator', 'ADHD developer tips',
-    'hire solo developer', 'freelance web developer portfolio',
+    'AI headshot generator',
   ];
 
   // --- X/Twitter search monitoring ---
@@ -557,11 +552,6 @@ export default function registerSocialAutopilotRoutes({
     // German career (German Twitter is active)
     'Bewerbungsfoto KI', 'Gehaltsabrechnung prüfen',
     'Bachelorarbeit Hilfe', 'Abfindung berechnen',
-    // Dev / freelance
-    '"looking for a developer"', '"need a developer"',
-    '"hire a developer"', 'solo developer saas',
-    // ADHD
-    'ADHD developer', 'ADHD programmer',
   ];
 
   // --- API Routes ---
