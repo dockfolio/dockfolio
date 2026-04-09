@@ -1,141 +1,167 @@
 # Session Handover
 
-**Date:** 2026-04-08 (Session 10)
-**Duration:** ~3 hours
-**Goal:** Expand social monitoring, crosslinks, submit awesome-selfhosted, programmatic SEO, Show HN prep.
+**Date:** 2026-04-09 (Session 11)
+**Duration:** ~2 hours
+**Goal:** Read session 10 handover, rebuild dockfolio.dev as Three.js experience, update crelvo.dev portfolio, fix misattributed apps.
 
 ## Summary
 
-Massive marketing execution session. Social monitoring expanded from 6 subreddits to 47 across 5 platforms covering all 25 apps. Crosslinks widget expanded to all 25 sites. Dockfolio submitted to awesome-selfhosted. Generated and deployed 2,400 programmatic SEO pages for LohnCheck (48 jobs × 50 German cities), taking total indexed URLs from 190 to 2,596. Added city links to all 48 existing job pages. Prepared Show HN draft. Generated 6 social posts and 5 AI draft replies for top HN mentions. Committed Kettenreaktion WIP from session 4. Committed marketing landing page changes. Working tree is fully clean.
+Big session covering Three.js, portfolio management, crosslinks, and deployment fixes across multiple sites.
+
+Started by reading the session 10 handover and verifying git state. Then rebuilt the entire dockfolio.dev marketing site as a full-page immersive Three.js experience — a fixed canvas with 30 instanced Docker container cubes, connection lines, data flow particles, orbital rings, and scroll-driven camera orbit. All original marketing content (features, pricing, comparison, guide, legal pages) preserved as glassmorphic HTML overlay panels. Hit two deployment issues: (1) deployed to wrong nginx root path (`/home/deploy/dockfolio.dev/` instead of `/home/deploy/dockfolio-landing/`), and (2) CSP headers blocking Three.js CDN. Both fixed.
+
+Updated crelvo.dev extensively: separated games from apps into dedicated sections, removed urlGame, added 5 missing projects (DREIRAUM Studio, SurvivorAI, PatternMusic, Forgelands, Orb), created a "Client Work" section for AgoraHoch3, and corrected Orb from being listed as a game to a betting bot tool. Expanded crosslinks widget injection to 4 more nginx sites. Rewrote CLAUDE.md app inventory from an outdated 15-app list to comprehensive 30+ categorized listing with client projects clearly separated.
+
+Also fixed AbschlussCheck — Three.js particle sphere had been committed (`a22cdca`) but never deployed. Ran `scripts/deploy.sh` which rebuilt the Docker image on VM. Three.js now live on abschlusscheck.de.
 
 ## What Got Done
 
-- [x] **Social monitoring expanded to 5 platforms** — Reddit (47 subreddits), HN (16 queries + comment search), YouTube, X/Twitter, Quora
-- [x] **All 25 apps covered** — APP_CONTEXT with pitch text for each, keyword-to-app matching for smart AI drafts
-- [x] **Reddit OAuth support** — `getRedditToken()` using client_credentials grant, caches token, falls back to public API
-- [x] **HN comment search** — `searchHNComments()` via Algolia, finds people asking questions (higher engagement value)
-- [x] **YouTube search adapter** — via YouTube Data API v3, needs `YOUTUBE_API_KEY`
-- [x] **X/Twitter search adapter** — uses twitter-api-v2 search endpoint, needs Basic tier
-- [x] **Quora monitoring** — via Google `site:quora.com` search, runs hourly (not every 15 min)
-- [x] **App-aware AI drafts** — `matchKeywordToApp()` auto-detects which product to promote, platform-specific tone guidelines
-- [x] **Content generation upgraded** — 6 posts/day (was 4), rotates 8 random apps, includes Crelvo "hire us" angle, German-language posts
-- [x] **Dashboard UI updated** — source icons for all 5 platforms (R/HN/YT/X/Q), parsed keyword+app labels
-- [x] **Crosslinks widget expanded** — 24 apps (was ~12), shows 8 random (was 5)
-- [x] **8 games/tools got marketing metadata** — Lufthafen, Diplomancy, CreatureForge, Grimhollow, Hunting Dragons, World Control, BetPilot, Orb
-- [x] **Crosslinks injected into 7 more sites** — bewerbungsfotos-ai, abfindungsoptimizer, best-age, schenkungsplaner, logos, creativeprogrammer, kettenreaktion, dockfolio.dev
-- [x] **awesome-selfhosted submission** — Issue awesome-selfhosted/awesome-selfhosted-data#2311 created (Personal Dashboards category)
-- [x] **69 HN mentions found** — from first monitoring test, all status='new'
-- [x] **2,400 programmatic SEO pages generated for LohnCheck** — gehalt-{job}-{city}.html (48 jobs × 50 cities) with Schema.org, FAQPage, brutto-netto tables, crosslinks
-- [x] **Sitemap index created** — sitemap.xml → sitemap-main.xml (190 URLs) + sitemap-cities.xml (2,406 URLs) = 2,596 total
-- [x] **City links injected into 48 job pages** — each gehalt-{job}.html now links to 12 city variants
-- [x] **Berufe index page updated** — gehaelter-berufe.html now has "Gehälter nach Stadt" section with 16 featured city links
-- [x] **Show HN draft prepared** — saved at plans/show-hn-draft.md, ready to post
-- [x] **6 social posts generated** — queued across Twitter/Bluesky/Mastodon/LinkedIn (failed: platforms not enabled)
-- [x] **5 AI draft replies** — for top HN mentions including 76-pt "Real-time dashboard" Show HN
-- [x] **Kettenreaktion streak endpoint committed** — cleared session 4 WIP
-- [x] **Marketing landing page committed** — cleared last uncommitted file
-- [x] **9 commits pushed** — all deployed to production
-- [x] **Working tree fully clean** — zero uncommitted changes
+- [x] **Dockfolio.dev Three.js rebuild** — Full immersive 3D: 30 instanced container nodes (RoundedBoxGeometry), 2000 ambient particles, 120 data flow particles, connection lines, orbital rings, scroll-driven camera, mouse parallax, glassmorphic content panels. Committed `bc716b3`, deployed live.
+- [x] **Dockfolio.dev CSP fix** — Updated nginx Content-Security-Policy to whitelist `cdn.jsdelivr.net`, `plausible.crelvo.dev`, `admin.crelvo.dev`, `googletagmanager.com`, `google-analytics.com`
+- [x] **Dockfolio.dev deployment path fix** — Discovered nginx root is `/home/deploy/dockfolio-landing/` not `/home/deploy/dockfolio.dev/`. Copied files to correct path.
+- [x] **Crelvo.dev portfolio reorganization** — 3 sections now: Live Projects (20 apps/sites), Games (8 browser games), Client Work (1). 4 commits in `Projekte/slebständig`.
+- [x] **Removed urlGame** from crelvo.dev
+- [x] **Added missing apps to crelvo.dev** — DREIRAUM Studio, SurvivorAI, PatternMusic, Forgelands, Orb
+- [x] **AgoraHoch3 marked as client project** — Separate "Client Work" section on crelvo.dev, `client: true` in VM config.yml, "CLIENT PROJECTS" section in CLAUDE.md
+- [x] **Orb corrected** — Moved from games to tools, described as betting bot platform. Local repo: `Projekte/bot`
+- [x] **CLAUDE.md app inventory rewrite** — 30+ apps organized: SaaS & Tools (10+), Content & Brands (10), Games (8+), Infrastructure (4), Redirects (2), Client Projects (1)
+- [x] **Crosslinks expanded to 4 sites** — agorahoch3.org, dreiraum.studio, survivorai.app, patternmusic.art
+- [x] **VM config.yml updated** — Added PatternMusic, Forgelands; marked AgoraHoch3 as client; corrected Orb description
+- [x] **AbschlussCheck Three.js restored** — Commit `a22cdca` existed but was never deployed. Ran `scripts/deploy.sh`, rebuilt Docker image, Three.js particle sphere now live.
 
 ## What's In Progress
 
-- [ ] **Social platform credentials** — Module deployed, all 5 platforms disabled. User must create accounts and add API keys.
-- [ ] **Kettenreaktion `/api/kr/streak` endpoint** — WIP in `dashboard/routes/kettenreaktion.js` (~93 lines, uncommitted since session 4).
+Nothing in progress — all items completed and deployed.
 
 ## What Didn't Get Done (and Why)
 
-- **Reddit monitoring from server** — Reddit blocks all Hetzner IPs (403 on public API). OAuth adapter is built but needs `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` credentials (user must create Reddit app at reddit.com/prefs/apps).
-- **AI draft generation for top mentions** — The 69 mentions are ready for drafting but need to be triggered via the dashboard UI or API. Didn't auto-draft because it costs API tokens.
-- **Game site crosslinks** — Games on crelvo.dev subdomains serve static files without nginx sub_filter. Need to inject `<script>` directly into their HTML source or add sub_filter to their nginx configs.
-- **Show HN post** — Prepared but requires user to be online 6 hours engaging with comments.
+- **Social platform credentials** — Requires user to create accounts/API keys. Carried from session 10.
+- **HN mention draft responses** — Deprioritized for Three.js and portfolio work
+- **Show HN post** — Requires user online 6+ hours
+- **LeadMe client project** — User mentioned alongside AgoraHoch3 but not found on VM. Needs details.
+- **deepresearch.business crosslinks** — No sub_filter in its nginx config, needs full setup
+- **Git push** — Both repos (appManager, slebständig) have unpushed commits
 
 ## Architecture & Design Decisions
 
 | Decision | Chosen Approach | Why | Alternatives Considered | Why Rejected |
 |----------|----------------|-----|------------------------|--------------|
-| Reddit OAuth | client_credentials grant (server-to-server) | No user login needed, read-only access sufficient for monitoring | Public .json API | Blocked on Hetzner IPs (403) |
-| Quora monitoring | Google site:quora.com search | Quora has no API, Google indexes all Quora questions | Direct Quora scraping | Too fragile, likely to break |
-| YouTube monitoring | YouTube Data API v3 | Free 10K units/day, official API, reliable | Scraping | Against ToS, unreliable |
-| Keyword-to-app matching | Regex-based `matchKeywordToApp()` | KISS, fast, no AI needed for classification | AI classification per mention | Unnecessary cost and latency |
-| Crosslinks count | 8 random apps per page load | Shows variety without overwhelming the bar | All apps | Too crowded on mobile |
-| Marketing metadata for games | Added to config.yml on VM | Config survives deploys (deploy.sh doesn't touch config.yml) | config.example.yml | Example is for template only |
+| Three.js site architecture | Fixed canvas z-0 + HTML overlay z-1 | Award-winning pattern (Lusion, Igloo). Canvas persists, content scrolls over | Per-section canvases | Multiple renderers, complex sync |
+| Container nodes | InstancedMesh + RoundedBoxGeometry via CDN addon | 1 draw call for 30 nodes, rounded edges = Docker container aesthetic | Individual meshes | 30 draw calls, wasteful |
+| Three.js loading | CDN importmap (`cdn.jsdelivr.net`) | No build step, matches KISS philosophy | npm + bundler | Project convention = no bundler |
+| Scroll camera | Custom parametric orbit via scroll event listener | Lightweight, no extra dependency | GSAP ScrollTrigger | 45KB for a simple orbit path |
+| Crelvo project separation | 3 arrays: `projects`, `games`, `clientWork` | Clean separation, different grids and accent colors per section | Tag-based filtering | Harder to style differently |
+| Client projects | Dedicated section labeled "Built for others" | Crystal clear ownership distinction | Badge/label in main list | Too easy to confuse |
+| AbschlussCheck fix | Full redeploy via `scripts/deploy.sh` | Existing deploy script handles tar + Docker build + restart | Manual Docker build | Script handles all edge cases (Stripe keys, env) |
+
+## Mental Model
+
+### Deployment paths — the critical gotcha map
+Each site has its own deployment target. These are NOT always obvious:
+- **dockfolio.dev** → `/home/deploy/dockfolio-landing/` (NOT `/home/deploy/dockfolio.dev/`)
+- **crelvo.dev** → `/var/www/crelvo/`
+- **abschlusscheck.de** → Docker container, deploy via `Projekte/abschlusscheck/scripts/deploy.sh`
+- **Most other static sites** → `/home/deploy/DOMAIN/`
+
+Always run `grep 'root' /home/deploy/nginx-configs/sites/SITENAME` before deploying to verify the actual path.
+
+### CSP headers
+Several sites have Content-Security-Policy headers in nginx. When adding external scripts (CDN, analytics), you MUST update the CSP. Check: `grep 'Content-Security-Policy' /home/deploy/nginx-configs/sites/SITENAME`.
+
+dockfolio.dev CSP currently allows: `cdn.jsdelivr.net`, `plausible.crelvo.dev`, `admin.crelvo.dev`, `googletagmanager.com`, `google-analytics.com`.
+
+### Crelvo site (Projekte/slebständig)
+Astro 4.16. Projects in `src/components/Projects.astro` as 3 arrays:
+- `projects` (20 entries) — apps, tools, SaaS, content sites
+- `games` (8 entries) — all on `*.crelvo.dev` subdomains
+- `clientWork` (1 entry) — AgoraHoch3
+
+Build: `npm run build` → `dist/`. Deploy: `scp -r dist/* deploy@91.99.104.132:/var/www/crelvo/`
+
+### Key app corrections this session
+- **Orb** (orb.crelvo.dev) = betting bot tool, NOT a game. Local repo: `Projekte/bot`
+- **AgoraHoch3** (agorahoch3.org) = CLIENT project, NOT Crelvo-owned
+- **urlGame** = removed from portfolio (user: "its shit")
 
 ## Known Issues & Risks
 
-- **Reddit 403 from Hetzner** — Public Reddit API blocks server IPs. MUST use OAuth. Needs `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET`.
-- **"ai headshot" keyword noise** — HN comment search matches many unrelated AI posts. Consider more specific keywords like "professional headshot ai generator".
-- **Quora Google search reliability** — Google may rate-limit or change HTML structure. Monitor for empty results.
-- **Config.yml marketing metadata** — Added to VM config directly. Survives deploys (deploy.sh doesn't sync config.yml) but would be lost if config.yml is manually replaced.
-- **Systemd nginx still enabled** — Same as session 9.
-- **`logos-web` auto-healing false alarm** — Same as session 9.
-- **Smartsteuer voucher CRELVO10** — Still doesn't exist.
+- **Plausible 404 on dockfolio.dev** — `/js/script.js` returns 404 (no Plausible proxy block in nginx). Analytics still works via direct Plausible domain. Low impact.
+- **Stale `/home/deploy/dockfolio.dev/` directory** — Contains old files, not served. Could confuse future deploys. Should symlink or remove.
+- **appManager 2 commits ahead of origin** — `bc716b3` + `401e944` not pushed
+- **slebständig 4 commits ahead of origin** — `c2cae49`, `4d3489f`, `7a19838`, `2755817` not pushed
+- **Systemd nginx still enabled** — Inherited issue. Manual nginx config used via custom path.
+- **Reddit 403 from Hetzner** — Needs OAuth credentials. Inherited from session 10.
+
+## What Worked Well
+
+- **Playwright MCP for live testing** — Caught CSP blocking Three.js immediately on the real production URL
+- **Cross-referencing VM config.yml with site listings** — Found 4+ missing apps efficiently
+- **Python one-liners via SSH** — Far more reliable than sed for editing nginx configs (avoids shell quoting hell)
+- **AbschlussCheck deploy script** — One command, handles everything: tests, tar, Docker build, restart, health check
+
+## What Didn't Work (Traps to Avoid)
+
+- **Deploying to wrong path** — `/home/deploy/dockfolio.dev/` vs `/home/deploy/dockfolio-landing/`. ALWAYS check nginx root before deploying.
+- **sed for nginx sub_filter edits** — Quoting inside single quotes inside double quotes inside SSH = nightmare. Failed multiple times, had to fix manually. Use `ssh ... "python3 -c '...'"` instead.
+- **Not checking CSP before deploying external CDN scripts** — Three.js from jsdelivr was blocked. Check CSP FIRST when adding any external script.
+- **Assuming deployment = container rebuilt** — AbschlussCheck had Three.js committed but never rebuilt. Git commit != deployed. Always verify the running container matches HEAD.
 
 ## Next Steps (Priority Order)
 
-1. **Configure social platform credentials** — Create accounts + API keys:
-   - Reddit: reddit.com/prefs/apps → "script" app → `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET`
+1. **Push both repos to origin:**
+   - `cd Projekte/appManager && git push`
+   - `cd Projekte/slebständig && git push`
+
+2. **Configure social platform credentials** (user action):
+   - Reddit: reddit.com/prefs/apps → `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET`
    - YouTube: console.cloud.google.com → YouTube Data API v3 → `YOUTUBE_API_KEY`
-   - X/Twitter: developer.twitter.com → `TWITTER_APP_KEY`, `TWITTER_APP_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_SECRET`
    - Bluesky: bsky.app → Settings > App Passwords → `BLUESKY_HANDLE` + `BLUESKY_APP_PASSWORD`
-   - Mastodon: instance/settings/applications → `MASTODON_INSTANCE` + `MASTODON_ACCESS_TOKEN`
-   - Dev.to: dev.to/settings/extensions → `DEVTO_API_KEY`
 
-2. **Draft responses for top HN mentions** — Trigger via dashboard: find the mention, click "Draft Reply", review, copy, post manually. The #1 mention (76 pts, 28 comments about "Real-time dashboard for Claude Code") is directly relevant to Dockfolio.
+3. **Draft responses for top HN mentions** — 69 mentions in DB. Use `GET /api/social/mentions?status=new`, then `POST /api/social/mentions/:id/draft` for AI drafts.
 
-3. **Inject crosslinks into game sites** — Static sites on *.crelvo.dev need script tag added to their HTML source files directly (no nginx sub_filter available).
+4. **Post Show HN** — Draft at `plans/show-hn-draft.md`. Title: "Show HN: I run 25+ apps on one $12/month server as a solo dev". User must be online 6 hours.
 
-4. **Prepare Show HN post** — "Show HN: I run 25+ apps on one $12/month server as a solo dev". Must be online 6 hours to engage.
+5. **Clean up dockfolio.dev paths** — Either `ln -sfn /home/deploy/dockfolio-landing /home/deploy/dockfolio.dev` or change nginx root to `/home/deploy/dockfolio.dev/`
 
-5. **Programmatic SEO — `/gehalt/{job}/{city}` pages** — Generate salary comparison pages on LohnCheck using Bundesagentur für Arbeit data. Template + Claude Haiku text.
+6. **Add LeadMe as client project** — User mentioned it. Not on VM. Ask for domain/details.
 
-6. **Shareable result cards** — OG image generation with `satori` + `@resvg/resvg-js` for viral sharing.
-
-7. **Backlog:** Commit Kettenreaktion WIP, German media outreach, Career Bundle page, delete stale Stripe webhook, off-site backup.
+7. **deepresearch.business crosslinks** — Needs sub_filter added to nginx config.
 
 ## Rollback Plan
 
-- **Last known good commit:** `a067942` (latest, session 10)
-- **Session 10 commits:** `a4d6ce0` (monitoring expansion), `b74a69e` (all apps + games), `a067942` (crosslinks scripts)
-- **Pre-session 10:** `527c829` (session 9 handover)
-- **To revert social monitoring expansion only:** `git revert a4d6ce0 b74a69e` — reverts to session 9 monitoring scope
-- **To undo crosslinks nginx changes:** SSH into VM, remove `crosslinks/widget.js` text from sub_filter lines in affected sites, reload nginx
+- **appManager pre-session:** `e11131a`. Revert Three.js: `git revert bc716b3`. Restore old site: `ssh deploy@91.99.104.132 "git -C /home/deploy/appmanager show e11131a:marketing/index.html > /home/deploy/dockfolio-landing/index.html"`
+- **Crelvo pre-session:** `9af2603` in `Projekte/slebständig`. Revert all: `git revert 2755817 7a19838 4d3489f c2cae49`
+- **AbschlussCheck:** Container was rebuilt. To revert Three.js: `cd Projekte/abschlusscheck && git revert a22cdca && bash scripts/deploy.sh`
+- **Nginx CSP:** Revert to `"default-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'self';"` in dockfolio.dev.conf, reload nginx
 
 ## Files Changed This Session
 
-### Modified (committed)
-- `dashboard/routes/social-autopilot.js` — Expanded from 430 → 990 lines: 5 platform adapters, 25 app contexts, 47 subreddits, Reddit OAuth, HN comments, YouTube/Quora/Twitter search
-- `dashboard/routes/marketing.js` — Crosslinks widget shows 8 apps (was 5)
-- `dashboard/public/index.html` — 5-platform mention icons, parsed keyword labels
+### appManager repo (this repo)
+- `marketing/index.html` — Complete rewrite to immersive Three.js (committed `bc716b3`)
+- `CLAUDE.md` — Rewrote app inventory: 30+ apps categorized, client projects separated, Orb corrected
+- `HANDOVER.md` — This file
 
-### New (committed)
-- `scripts/inject-crosslinks.py` — Batch-inject crosslinks into sites with sub_filter
-- `scripts/inject-crosslinks-head.py` — Add crosslinks to sites with only </head> sub_filter
+### Crelvo repo (Projekte/slebständig)
+- `src/components/Projects.astro` — 4 commits: games separated (8), apps (20), client work (1), urlGame removed, 5 apps added, Orb moved from games to tools
 
-### Modified on VM (not in git)
-- `/home/deploy/nginx-configs/sites/{16 sites}` — Crosslinks widget injected
-- `/home/deploy/appmanager/dashboard/config.yml` — Marketing metadata added to 8 games/tools (25 total apps with marketing)
-- `/home/deploy/marketing/data.db` — 69 HN mentions in social_mentions table
+### AbschlussCheck repo (Projekte/abschlusscheck)
+- No code changes — redeployed existing Three.js commit `a22cdca` that was never built
 
-### Unchanged from Prior Sessions (uncommitted)
-- `dashboard/routes/kettenreaktion.js` — WIP streak endpoint (session 4)
-- `marketing/index.html` — Prior session changes
+### VM (not in git)
+- `/home/deploy/dockfolio-landing/index.html` + `fonts/` — Three.js marketing page
+- `/home/deploy/nginx-configs/sites/dockfolio.dev.conf` — CSP updated for Three.js CDN + analytics
+- `/home/deploy/nginx-configs/sites/agorahoch3` — Added crosslinks + analytics sub_filter
+- `/home/deploy/nginx-configs/sites/dreiraum.studio` — Added crosslinks to existing sub_filter
+- `/home/deploy/nginx-configs/sites/survivorai` — Added crosslinks to existing sub_filter
+- `/home/deploy/nginx-configs/sites/patternmusic.art` — Added full sub_filter block
+- `/home/deploy/appmanager/dashboard/config.yml` — Added PatternMusic + Forgelands, marked AgoraHoch3 as client, corrected Orb
+- `/var/www/crelvo/` — Updated Crelvo site with new portfolio sections
+- AbschlussCheck Docker container rebuilt with Three.js
 
-## Research Findings (carried from session 9)
+## Open Questions
 
-### Platform Automation Rules
-- **Automatable:** X/Twitter (free: 50/day), Bluesky (generous), Mastodon (native scheduling), Dev.to (free API)
-- **Monitor only:** Reddit (OAuth for read, manual for write), YouTube (Data API for search), Quora (Google proxy)
-- **Manual only:** Reddit posting (shadowban), YouTube comments (ML spam filter), HN (no write API)
-
-### German SEO (already captured by LohnCheck)
-- 190 URLs in sitemap including brutto-netto-rechner, 76 salary pages, 19 Bundesland pages
-- Calculator uses official BMF Programmablaufplan 2026 (100% accurate)
-
-### awesome-selfhosted Submission
-- Submitted as issue awesome-selfhosted/awesome-selfhosted-data#2311
-- Category: Personal Dashboards
-- Note: The main repo restricts PRs to collaborators; submissions go via the -data repo
-
-## Awin Account Reference (carried forward)
-- **Publisher ID:** 2820526
-- **Active programs:** smartsteuer DE (advertiser ID 15043), WISO Steuer-Software
+- **LeadMe** — User mentioned as client project alongside AgoraHoch3. Not found on VM. What domain? What tech? Needs to be added.
+- **DeepResearch** — On crelvo.dev but unclear if still active. No nginx sub_filter. Investigate.
+- **Forgelands domain** — Currently bare IP port 8080. Should it get `forgelands.crelvo.dev`?
+- **KNOWLEDGEBASEhreejs.md** — 82K token Three.js reference, untracked. Commit or keep local?
+- **Dockfolio.dev dual paths** — Symlink or change nginx root?
