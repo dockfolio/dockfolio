@@ -165,6 +165,10 @@ const KB_TOPIC_KEYWORDS = {
   'metrics-and-analytics': ['metric', 'mrr', 'churn', 'retention', 'activation', 'cohort'],
   'kill-criteria-and-pivots': ['kill', 'pivot', 'dead', 'sunset', 'quit', 'churn'],
   'copywriting': ['copy', 'headline', 'cta', 'button', 'subject line', 'hero copy'],
+  'customer-discovery': ['interview', 'mom test', 'jtbd', 'job to be done', 'discovery', 'switch', 'forcing event'],
+  'b2b-outbound': ['cold email', 'outbound', 'icp', 'sequence', 'prospect', 'sdr', 'reply rate'],
+  'plg-motions': ['self-serve', 'free trial', 'freemium', 'reverse trial', 'activation', 'time to value', 'plg'],
+  'category-design': ['category', 'chasm', 'early adopter', 'pragmatist', 'narrative', 'pov', 'bowling alley'],
 };
 
 // Short stopword list used by detectKBCitation to filter topic+section
@@ -267,6 +271,20 @@ function scoreKBRelevance(kbFile, ctx) {
   if (hasPayingNoGrowth && kbFile.topic === 'content-and-seo') { score += 25; signals.push('needs compounding channel'); }
   if (mrr30 === 0 && visitors30 === 0 && kbFile.topic === 'kill-criteria-and-pivots') { score += 20; signals.push('no signal — consider kill/pivot'); }
   if (mrr30 === 0 && kbFile.topic === 'launch-playbook') { score += 15; signals.push('no revenue → launch more'); }
+
+  // New KB topics (session 19)
+  // customer-discovery: pre-traction OR stuck-with-traffic-no-paying → you
+  // don't know WHY they're not buying; talk to humans before shipping more
+  if (isPreTraction && kbFile.topic === 'customer-discovery') { score += 25; signals.push('pre-traction → talk to users'); }
+  if (hasTrafficNoPaying && kbFile.topic === 'customer-discovery') { score += 35; signals.push('traffic but no paying → interview visitors'); }
+  // b2b-outbound: pre-traction with zero users, assumed B2B motion
+  if (isPreTraction && mrr30 < 100 && kbFile.topic === 'b2b-outbound') { score += 25; signals.push('pre-traction → cold outbound'); }
+  // plg-motions: has traffic but low conversion → onboarding funnel is leaking
+  if (hasTrafficNoPaying && kbFile.topic === 'plg-motions') { score += 30; signals.push('traffic not converting → fix PLG funnel'); }
+  if (isEarlyTraction && kbFile.topic === 'plg-motions') { score += 20; signals.push('early traction → formalize PLG motion'); }
+  // category-design: stuck pre-traction with content in the queue but no
+  // traction — usually signals "positioned into an existing crowded category"
+  if (isPreTraction && visitors30 > 100 && mrr30 === 0 && kbFile.topic === 'category-design') { score += 20; signals.push('traffic without conversion → category confusion'); }
 
   // Open-action-kind signals — match KB topic to what's already in the queue
   const actionKinds = new Set((ctx.open_actions_summary_kinds || []).map(k => String(k).toLowerCase()));
