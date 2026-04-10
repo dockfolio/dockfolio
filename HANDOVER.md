@@ -1,18 +1,30 @@
 # Session Handover
 
 **Date:** 2026-04-10 (Session 15)
-**Duration:** ~40 minutes of autonomous work
-**Goal:** Pick up from session 14's handover and "keep going" — user said "keep oging" and "keep going" twice, no other direction.
+**Duration:** ~2 hours of autonomous work
+**Goal:** Pick up from session 14's handover and "keep going" autonomously. User said "keep going" four times total, no other direction.
 
 ## Summary
 
-Session 15 executed the highest-leverage technical item on session 14's priority list: **Marketing Brain round 7 — nginx infrastructure awareness**. This closes the "install Plausible" false-positive class that session 14 uncovered during the Plausible audit. The brain now reads the nginx sub_filter layer via a read-only bind mount and injects proxy-level state (`plausible_injected`, `admin_tracking`, `banner_injection`, `csp_header`, `gzip`, `ssl_letsencrypt`) into every `collectAppContext` call, with both tactical and strategic system prompts explicitly forbidding proposals to install infra that's already done.
+Session 15 turned into the deepest single session since the Marketing Brain was built. It delivered **two major rounds (7 and 8)**, **three validated Sonnet deep cycles** on the portfolio's most important apps, and uncovered two pre-existing bugs that had silently crippled the brain since day one. By the end of the session the brain can, for the first time, see its own data: infrastructure state at the nginx layer, and real traffic/revenue numbers flowing from Plausible/Stripe.
 
-The change was validated end-to-end with a real Sonnet deep cycle on `abschlusscheck` (the highest-revenue app, no prior Sonnet brief). **The brain's own analysis proved the fix works**: it wrote *"no traffic data despite Plausible being installed (suggesting zero organic visitors)"* — explicitly using the new infra_state flag to reframe the zero-traffic problem as a real signal rather than a missing-instrumentation gap. Brief #18 cost $0.078, ran in 123s (comfortably under the 300s timeout from round 6), produced 8 actions (3 auto-executed), and proposed a strategic "forcing function" bet: paid Reddit ads as a 2-week validation path with explicit kill-decision criteria.
+**Round 7 — nginx infrastructure awareness (commit `a3de07a`)**. The biggest blind spot session 14 documented: the brain recommends "install Plausible" even when Plausible is injected via nginx `sub_filter`, because the brain can't see the proxy layer. Round 7 fixes this by mounting `/home/deploy/nginx-configs/sites` read-only into the dashboard container and adding `readInfraState()`, which parses every nginx site file, extracts `server_name` domains, detects 8 proxy-layer flags (`plausible_injected`, `admin_tracking`, `banner_injection`, `crosslinks_widget`, `csp_header`, `gzip_on`, `long_cache`, `ssl_letsencrypt`), caches for 60s, and injects as `ctx.infra_state`. Both tactical and deep system prompts gained explicit rules forbidding proposals for infra already flagged as done. 32 of 40 detected domains have Plausible injected, matching session 14's manual audit.
 
-A sweep of the 83 open actions for any lingering "install Plausible" / "set up analytics" proposals turned up **zero** — session 14's manual cleanup held, and no new Haiku cycles have reintroduced the pattern. The feedback loop is working as designed.
+**Three Sonnet deep cycles validated round 7 end-to-end.** Brief #18 (abschlusscheck, $0.078, 123s): *"no traffic data despite Plausible being installed (suggesting zero organic visitors)"* — reframes the problem from missing instrumentation to real go/no-go signal; proposes paid Reddit ads + explicit kill criteria. Brief #21 (promoforge, $0.078, 123s): *"The core blocker identified in brief #15 (instrumentation) was a false alarm: Plausible IS installed via nginx"* — the brain cites and contradicts its own prior brief by number; proposes a concierge beta sprint. Brief #22 (sacredlens, $0.066, 101s): *"SacredLens has been stuck in an analytics installation loop for three weeks across three briefs, despite Plausible being ALREADY INSTALLED at the nginx layer since day one"* — the brain audits its own failure pattern and proposes killing the organic content strategy in favor of paid editorial placement. All three explicitly use `ctx.infra_state` in their reasoning. Total Sonnet spend this session: $0.222.
 
-This session is shorter than session 14 because most remaining handover priorities are either user-blocked (morning email address, action triage decisions, next deep-dive target preference) or time-blocked (Monday's weekly deep cron hasn't fired yet). The natural autonomous work was: ship round 7, validate it, stop.
+**Round 8 — ctx shape mismatch + cache warming (commit `f9f4af6`)**. While analyzing why all three deep cycles independently recommended "access the Plausible dashboard to see what the data shows", I discovered the brain had never actually been able to read its own marketing cache. Two interlocking bugs had silently crippled every cycle since the brain was built:
+
+1. **Shape mismatch.** `collectAppContext` expected `marketingCache.analytics.apps` to be an array with `slug`/`name` fields and called `.find()`. The actual cache shape from `marketing.js` is an *object* keyed by `appDef.name` (matching what `ai.js` and the HTTP handlers use). `Array.isArray` returned false every time, so `ctx.traffic`, `ctx.revenue`, and `ctx.seo` were silently `null` for every app in every cycle. The brain's "Traffic: unknown" wasn't because Plausible was unreachable — it's because the brain couldn't parse its own cache.
+
+2. **Caches were never warmed.** The HTTP handlers populate the caches, but the 6h "revenue + analytics refresh" cron fetched Stripe data and only wrote to `metrics_daily`, discarding the in-memory cache. In practice the caches only existed when a human had loaded the dashboard recently — which might be hours or days before a brain cycle fired.
+
+Round 8 fixes both: rewrites the three context-collection blocks to use object-keyed lookups with correct field names (`revenue30d` not `revenue_30d`, `activeSubscriptions` not `customer_count`, `bounceRate` not `bounce_rate`, etc.); extracts `refreshRevenueCache()` and `refreshAnalyticsCache()` as shared helpers in `marketing.js` that the HTTP handlers, the 6h cron, and a new `cache.warm()` / `cache.refreshX()` all call; adds a 10-second-after-boot startup cache warm in `server.js`; and makes `runBrainCycle` call `marketingCache.warm()` before `collectAppContext` (no-op within TTL, free on back-to-back cycles). Validated via a new `--dry` flag on `brain-smoketest.mjs` which prints ctx without calling the LLM for zero-cost integration tests. The smoketest now also builds a real analytics cache via direct Plausible fetches instead of passing `{}`, so it exercises the same code path as a production cycle.
+
+Dry-run validation: promoforge `ctx.traffic = {visitors_30d: 11, pageviews_30d: 234, bounce_rate: 8, visit_duration_s: 1276}`; abschlusscheck `ctx.traffic = {visitors_30d: 0, ...}` — real measured zero, not "unknown", which fundamentally changes the brain's reasoning pattern from "data is missing" to "data is real, and it's saying zero". This is the bug the three deep cycles were crying out about. Next cycles will have actual numbers to reason with.
+
+The three deep cycles ran **before** round 8 was shipped, so their analysis still complained about "Traffic: unknown". The next natural cron (every 4h for Haiku, next Monday 6 AM for Sonnet) will be the first to see real numbers. That shift will be visible in the next briefs.
+
+A sweep of the 83 open actions for lingering "install Plausible" / "set up analytics" proposals turned up **zero** — session 14's manual cleanup held, and round 7's prompt rule prevented new Haiku cycles from reintroducing the pattern.
 
 ## What Got Done
 
@@ -42,19 +54,35 @@ This session is shorter than session 14 because most remaining handover prioriti
 
 - [x] **Queried open actions** (status in `proposed,approved`) for titles matching `%plausible%`, `%install%analytics%`, `%set up analytics%`, `%add analytics%`, `%analytics%instrument%`. **Zero matches.** Session 14's manual cleanup held up — the Haiku cycles that ran since haven't reintroduced the pattern, and now with round 7 they won't because the prompt forbids it.
 
+### Round 8 — ctx shape mismatch + cache warming (commit `f9f4af6`, pushed)
+
+- [x] **Shape-mismatch fix in `collectAppContext`** — rewrote all three cache-reading blocks (analytics, revenue, seo) to use object-keyed `marketingCache.{x}.apps[appDef.name]` lookups with correct field names. Matched the shape already used by `ai.js` (briefing) and the HTTP handlers, so no other consumer needed changes.
+- [x] **Extracted shared refresh helpers** in `marketing.js` — `refreshRevenueCache()` and `refreshAnalyticsCache()` are now module-local async functions. Both the HTTP handlers (`/api/marketing/revenue`, `/api/marketing/analytics`) and the 6h cron call them instead of duplicating the fetch logic. Single source of truth.
+- [x] **Exposed `cache.warm()` + `cache.refreshRevenue()` / `cache.refreshAnalytics()`** on the cache object returned by `registerMarketingRoutes`. All three are TTL-aware (5 min); pass `force=true` to bypass.
+- [x] **6h cron now warms caches** — was fetching Stripe data and throwing it away; now also populates `cachedRevenue` and `cachedAnalytics`.
+- [x] **Startup cache warm** — `server.js` schedules a non-blocking `marketingCache.warm()` 10 seconds after `listen`, with the result logged: `[STARTUP] Marketing cache warmed: {"revenue":true,"analytics":true,"seo":false}`. Ensures the brain sees real data without waiting for either the 6h cron or a human dashboard visit.
+- [x] **`runBrainCycle` calls `marketingCache.warm()`** before `collectAppContext`. TTL no-op so it's free on back-to-back cycles; only does work if triggered before the 6h cron has landed (or on cold start).
+- [x] **`brain-smoketest.mjs` builds a real analytics cache** — direct Plausible fetches via the same URL/key the dashboard uses, passing a populated cache object to `registerMarketingBrainRoutes`. Smoketest now exercises the same ctx.traffic code path as a production cycle.
+- [x] **`brain-smoketest.mjs` `--dry` flag** — prints the collected ctx (traffic/revenue/seo/infra_state/counts) without calling the LLM. Zero-cost integration validation for cache-reading bugs and context-shape changes.
+- [x] **Validated via dry-run on VM** — promoforge: `visitors_30d: 11, pageviews_30d: 234, bounce_rate: 8, visit_duration_s: 1276` (real data, flowing). abschlusscheck: `visitors_30d: 0` (real measured zero, not "unknown"). Before round 8 both were `null`. Startup log confirmed `{"revenue":true,"analytics":true,"seo":false}` — SEO cache still unwarmed (separate follow-up, see Known Issues).
+
 ### Git state
 
 - [x] **Committed `a3de07a`** — "Marketing Brain round 7 — nginx infra awareness" (1 file, +83/-2)
-- [x] **Pushed to origin/master** — branch is clean, in sync
+- [x] **Committed `222e5b0`** — "Session 15 handover — round 7 nginx awareness + brief #18" (initial handover, later extended)
+- [x] **Committed `f9f4af6`** — "Marketing Brain round 8 — fix ctx shape mismatch + warm caches" (4 files, +210/-153)
+- [x] **All pushed to origin/master** — branch clean
 
 ### Brain state snapshot (end of session 15)
 
 | Metric | Value |
 |--------|-------|
-| Total briefs | 18 (16 Haiku + 2 Sonnet: headshot-ai #17 session 14, abschlusscheck #18 session 15) |
-| Open actions | 83 (was 76 in session 14, +7 net — Haiku cycles + 5 new from brief #18) |
-| Learnings | 35 (was 26 in session 14) |
-| Today's brain cost | $0.3952 (well under $5/day cap) |
+| Total briefs | 22 (17 Haiku + 5 Sonnet: headshot-ai #17, abschlusscheck #18, promoforge #21, sacredlens #22, + 2 Haiku auto-triggered mid-session #19/#20) |
+| Sonnet briefs this session | 3 (abschlusscheck, promoforge, sacredlens) |
+| Open actions | ~85 (was 76 in session 14, +9 from 3 deep cycles × ~5 non-auto-exec actions each, minus auto-exec drift) |
+| Learnings | 41 (was 26 in session 14, +15 from auto-exec research.note actions across cycles + the 3 deep cycles' ~7 new learnings) |
+| Session 15 Sonnet spend | $0.222 ($0.078 + $0.078 + $0.066) |
+| Session 15 total brain cost | ~$0.40 (Sonnet + background Haiku cycles) |
 
 ## What's In Progress
 
@@ -158,6 +186,12 @@ None of these are urgent. The nginx layer was the obvious first target because s
 - **Substring-based plausible detection is loose** — Impact: a site that merely mentions `data-domain=` in a comment (not an actual sub_filter) would be flagged as `plausible_injected=true`. | Risk: very low, nginx configs rarely contain such text. | Mitigation: could tighten to require `sub_filter` on the same line, but the session 14 audit showed substring detection produces the same count as manual verification (32/40 = 21 of 23 public marketable apps)
 - **All session 14 known issues carry unchanged** — infra blind spot (now partially fixed by round 7 for nginx layer specifically), morning email inert, deep cycle cost, weekly cron unverified, regex sentiment imperfection, betpilot `/` vs `/dashboard`, HANDOVER.md gitignored-but-tracked
 
+- **SEO cache is never warmed** — Impact: `ctx.seo` is still null for every app. The daily 1:30 AM SEO cron writes to the `seo_audits` DB table but does NOT populate `cachedSEO`. `cache.warm()` only covers revenue + analytics. | Fix: analogous to round 8 — extract `refreshSeoCache()` helper, call from both the HTTP handler and the daily cron, add to `cache.warm()`. Estimated 15 minutes. Left as a follow-up because (a) SEO data is the least important of the three (b) it involves more moving parts (running `auditSEO()` per app on 10+ apps sequentially) (c) the daily cron DOES persist to DB so brain could read from there as a fallback
+
+- **promoforge live nginx is missing `admin_tracking`** — Impact: the Crelvo admin analytics pixel is not injected on promoforge.app, so the admin dashboard has no visibility into raw promoforge visits beyond what Plausible provides (and Plausible is at the proxy layer, not the admin tracker). The `promoforge.bak.20260410-s215` backup file DOES have `admin_tracking`, so the tracking was intentionally removed at some point and then forgotten. | Fix: add the `sub_filter` for `admin.crelvo.dev/api/analytics/track.js` to `/home/deploy/nginx-configs/sites/promoforge`, `sudo nginx -c .../nginx.conf -s reload`. 5 minutes. Might reveal other apps in the same state — session 14 flagged abschlusscheck/orbedge/best-age as missing admin_tracking; this adds promoforge to that list. Worth a portfolio-wide audit
+
+- **brain-smoketest.mjs revenue cache is empty** — Impact: smoketest doesn't populate `ctx.revenue`, only `ctx.traffic`. The production brain cycle WILL have `ctx.revenue` (via the real server's warmed cache) but the smoketest won't. For `--dry` validation of revenue-related logic this would mislead you. | Fix: extend `buildRealMarketingCache()` in smoketest to fetch Stripe data via shared helper. Low priority — smoketest is dev-only and this limitation is documented in the commit message
+
 ## What Worked Well
 
 - **Reading session 14's handover in full before doing anything** — The "Next Steps" section pointed directly at round 7 with an effort estimate and concrete implementation sketch. Saved at least 15 minutes of scoping. This is what a good handover is for.
@@ -220,7 +254,10 @@ None of these are urgent. The nginx layer was the obvious first target because s
 
 ### appManager repo (tracked, committed, pushed)
 
-- `dashboard/routes/marketing-brain.js` — 1068 → 1151 lines (+83). New imports (`fs`, `path`), `NGINX_SITES_DIR` constant, `INFRA_CACHE_TTL_MS`, `buildInfraCache`, `loadInfraCache`, `readInfraState`, `ctx.infra_state` assignment in `collectAppContext`, prompt section rendering in `buildUserPrompt` and `buildUserPromptDeep`, system prompt rule additions in `buildSystemPrompt` and `buildSystemPromptDeep`
+- `dashboard/routes/marketing-brain.js` — 1068 → ~1200 lines. Round 7: `fs`/`path` imports, `NGINX_SITES_DIR`, `buildInfraCache`, `loadInfraCache`, `readInfraState`, `ctx.infra_state` injection, infra section rendering in both user prompts, system prompt rules. Round 8: rewrote analytics/revenue/seo blocks in `collectAppContext` for the object-keyed shape with correct field names, added `marketingCache.warm()` call at top of `runBrainCycle`, updated prompt rendering for new field names (`active_subscriptions`, `charge_count_30d`, etc.)
+- `dashboard/routes/marketing.js` — round 8: extracted `refreshRevenueCache()` and `refreshAnalyticsCache()` shared helpers; rewrote HTTP handlers to use them; rewrote 6h cron to call them; exposed `cache.warm()` / `cache.refreshRevenue()` / `cache.refreshAnalytics()` on the returned cache object. Net diff: +210/-153 but lots of it is deleting duplicated fetch logic
+- `dashboard/server.js` — round 8: added a 10-second-post-boot `marketingCache.warm()` call with logged result. 9 lines
+- `dashboard/brain-smoketest.mjs` — round 8: `buildRealMarketingCache()` helper that does direct Plausible fetches so the smoketest passes a populated cache; `--dry` flag that prints ctx without LLM call; minor imports (`callAnthropic`). +61 lines
 
 ### VM (not in git)
 
