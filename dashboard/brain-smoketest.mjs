@@ -7,7 +7,7 @@ import Database from 'better-sqlite3';
 import { readFileSync, existsSync } from 'fs';
 import yaml from 'js-yaml';
 import registerMarketingBrainRoutes from './routes/marketing-brain.js';
-import { parseEnvFile } from './utils.js';
+import { parseEnvFile, slugify } from './utils.js';
 
 const DB_PATH = process.env.MARKETING_DB_PATH || '/home/deploy/marketing/data.db';
 const CONFIG_PATH = process.env.CONFIG_PATH || '/app/config.yml';
@@ -21,9 +21,8 @@ if (!appSlug) {
 const db = new Database(DB_PATH);
 const config = yaml.load(readFileSync(CONFIG_PATH, 'utf8'));
 
-// Backfill slug field
+// Use slugify() to match what the brain module expects
 for (const a of config.apps) {
-  if (!a.slug) a.slug = (a.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   if (a.envFile && !existsSync(a.envFile)) a.envFile = null;
 }
 
@@ -59,16 +58,28 @@ const brain = registerMarketingBrainRoutes({
   sendTelegram: () => {},
 });
 
-console.log(`[smoketest] Running brain cycle for ${appSlug}...`);
+// Resolve human-friendly arg to canonical slug
+const canonicalSlug = (() => {
+  if (config.apps.find(a => slugify(a.name) === appSlug)) return appSlug;
+  const match = config.apps.find(a => slugify(a.name) === slugify(appSlug) ||
+    a.name?.toLowerCase() === appSlug.toLowerCase());
+  return match ? slugify(match.name) : appSlug;
+})();
+
+console.log(`[smoketest] Running brain cycle for ${canonicalSlug}...`);
 try {
-  const result = await brain.runBrainCycle(appSlug);
+  const result = await brain.runBrainCycle(canonicalSlug);
   console.log('[smoketest] SUCCESS');
   console.log(JSON.stringify(result, null, 2));
 
   // Pull actions for this brief
-  const actions = db.prepare('SELECT kind, title, priority, impact, effort FROM marketing_actions WHERE brief_id = ? ORDER BY priority DESC').all(result.briefId);
-  console.log(`\n[smoketest] ${actions.length} actions created:`);
-  for (const a of actions) console.log(`  [p${a.priority} ${a.impact}/${a.effort}] ${a.kind}: ${a.title}`);
+  const actions = db.prepare('SELECT kind, title, priority, impact, effort, status, outcome FROM marketing_actions WHERE brief_id = ? ORDER BY priority DESC').all(result.briefId);
+  console.log(`\n[smoketest] ${actions.length} actions created (${result.autoExecuted || 0} auto-executed):`);
+  for (const a of actions) {
+    const tag = a.status === 'executed' ? ' EXECUTED' : '';
+    console.log(`  [p${a.priority} ${a.impact}/${a.effort}]${tag} ${a.kind}: ${a.title}`);
+    if (a.outcome) console.log(`       outcome: ${a.outcome}`);
+  }
 } catch (e) {
   console.error('[smoketest] FAILED:', e.message);
   console.error(e.stack);

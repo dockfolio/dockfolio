@@ -2,7 +2,7 @@
 // Runs on a cron, rotates through all marketable apps, produces briefs and
 // proposes concrete actions. See plans/marketing-brain.md for design.
 
-import { asyncRoute, callAnthropic, getMarketableApps, safeJSON, parseId } from '../utils.js';
+import { asyncRoute, callAnthropic, getMarketableApps, safeJSON, parseId, slugify } from '../utils.js';
 
 // Approximate cost per 1M tokens for Claude Haiku 4.5 (input / output). Rough.
 const HAIKU_COST_IN = 1.00 / 1_000_000;
@@ -13,7 +13,9 @@ const SONNET_COST_OUT = 15.00 / 1_000_000;
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const DEEP_MODEL = 'claude-sonnet-4-5-20250929';
 
-const AUTO_EXECUTABLE_KINDS = new Set(['content.draft', 'social.draft', 'email.draft', 'research.note']);
+// Only kinds we can safely and meaningfully materialize into downstream queues.
+// email.draft stays advisory because email_queue is per-recipient-per-template, not a draft store.
+const AUTO_EXECUTABLE_KINDS = new Set(['content.draft', 'social.draft', 'research.note']);
 
 function costForUsage(model, tokensIn, tokensOut) {
   if (model.includes('sonnet')) return tokensIn * SONNET_COST_IN + tokensOut * SONNET_COST_OUT;
@@ -33,7 +35,7 @@ export default function registerMarketingBrainRoutes({
   // ---------- Context collection ----------
 
   function collectAppContext(appSlug) {
-    const appDef = config.apps.find(a => (a.slug || a.name?.toLowerCase()) === appSlug);
+    const appDef = config.apps.find(a => slugify(a.name) === appSlug);
     if (!appDef) throw new Error(`Unknown app: ${appSlug}`);
 
     const ctx = {
@@ -279,6 +281,63 @@ Rules:
     (brief_id, app_slug, kind, title, body, priority, effort, impact, auto_executable)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
+  // Prepared statements for downstream queue writes
+  const insertContentDraft = db.prepare(`INSERT INTO content_queue
+    (app_slug, content_type, title, body, status, ai_model, token_count)
+    VALUES (?, ?, ?, ?, 'draft', ?, ?)`);
+
+  const insertSocialDraft = db.prepare(`INSERT INTO social_posts
+    (platform, content, post_type, status, scheduled_at)
+    VALUES (?, ?, 'short', 'draft', NULL)`);
+
+  const insertLearning = db.prepare(`INSERT INTO marketing_learnings
+    (app_slug, learning, evidence_json, confidence) VALUES (?, ?, ?, ?)`);
+
+  // Heuristic: infer social platform from the draft body. Falls back to 'draft-multi'.
+  function inferSocialPlatform(title, body) {
+    const s = `${title} ${body}`.toLowerCase();
+    if (s.includes('linkedin')) return 'linkedin';
+    if (s.includes('bluesky')) return 'bluesky';
+    if (s.includes('mastodon')) return 'mastodon';
+    if (s.includes('dev.to') || s.includes('devto')) return 'devto';
+    if (s.includes('twitter') || s.includes('x.com') || s.includes('x thread') || /\/x\s/.test(s)) return 'twitter';
+    return 'draft-multi';
+  }
+
+  // Materialize an auto-executable action into its downstream queue. Idempotent
+  // per (app_slug, title) within the last 7 days to avoid duplicates from repeat cycles.
+  function autoExecuteAction({ appSlug, kind, title, body, model, tokenCount, confidence }) {
+    try {
+      if (kind === 'content.draft') {
+        const dupe = db.prepare(
+          `SELECT id FROM content_queue WHERE app_slug = ? AND title = ? AND created_at >= datetime('now','-7 day') LIMIT 1`
+        ).get(appSlug, title);
+        if (dupe) return { status: 'skipped-duplicate', target: 'content_queue', id: dupe.id };
+        const r = insertContentDraft.run(appSlug, 'blog-brain', title, body, model || DEFAULT_MODEL, tokenCount || 0);
+        return { status: 'inserted', target: 'content_queue', id: r.lastInsertRowid };
+      }
+      if (kind === 'social.draft') {
+        const dupe = db.prepare(
+          `SELECT id FROM social_posts WHERE content = ? AND created_at >= datetime('now','-7 day') LIMIT 1`
+        ).get(body);
+        if (dupe) return { status: 'skipped-duplicate', target: 'social_posts', id: dupe.id };
+        const platform = inferSocialPlatform(title, body);
+        const r = insertSocialDraft.run(platform, body);
+        return { status: 'inserted', target: 'social_posts', id: r.lastInsertRowid };
+      }
+      if (kind === 'research.note') {
+        const learning = `${title}: ${body}`.slice(0, 2000);
+        const evidence = JSON.stringify({ source: 'brain', app_slug: appSlug });
+        const r = insertLearning.run(appSlug, learning, evidence, confidence || 'medium');
+        return { status: 'inserted', target: 'marketing_learnings', id: r.lastInsertRowid };
+      }
+      return { status: 'skipped-kind-not-executable', target: null };
+    } catch (e) {
+      console.error(`[brain] auto-exec ${kind} failed for ${appSlug}:`, e.message);
+      return { status: 'error', error: e.message };
+    }
+  }
+
   function persistBrief(appSlug, ctx, parsed, model, usage, durationMs) {
     const analysis = parsed.analysis || '(no analysis)';
     const hypotheses = Array.isArray(parsed.hypotheses) ? parsed.hypotheses : [];
@@ -299,28 +358,53 @@ Rules:
     const briefId = result.lastInsertRowid;
 
     let inserted = 0;
+    let autoExecuted = 0;
+    const autoExecResults = [];
+    const updateActionExecuted = db.prepare(
+      `UPDATE marketing_actions SET status = 'executed', executed_at = datetime('now'), outcome = ? WHERE id = ?`
+    );
     for (const a of actions) {
       if (!a || !a.kind || !a.title || !a.body) continue;
       const kind = String(a.kind).slice(0, 32);
       const autoExec = AUTO_EXECUTABLE_KINDS.has(kind) ? 1 : 0;
+      const title = String(a.title).slice(0, 280);
+      const body = String(a.body).slice(0, 8000);
       try {
-        insertAction.run(
+        const result = insertAction.run(
           briefId,
           appSlug,
           kind,
-          String(a.title).slice(0, 280),
-          String(a.body).slice(0, 8000),
+          title,
+          body,
           Math.max(1, Math.min(10, parseInt(a.priority) || 5)),
           ['low', 'medium', 'high'].includes(a.effort) ? a.effort : 'medium',
           ['low', 'medium', 'high'].includes(a.impact) ? a.impact : 'medium',
           autoExec,
         );
         inserted++;
+
+        // If the action is auto-executable, materialize it into a downstream queue
+        // right now and mark the action as executed with the insert location in outcome.
+        if (autoExec) {
+          const execResult = autoExecuteAction({
+            appSlug, kind, title, body,
+            model, tokenCount: usage.outputTokens || 0,
+            confidence: a.confidence,
+          });
+          if (execResult.status === 'inserted' || execResult.status === 'skipped-duplicate') {
+            updateActionExecuted.run(
+              `auto-exec ${execResult.status}: ${execResult.target}#${execResult.id}`,
+              result.lastInsertRowid
+            );
+            if (execResult.status === 'inserted') autoExecuted++;
+          }
+          autoExecResults.push({ action_id: result.lastInsertRowid, ...execResult });
+        }
       } catch (e) {
         console.error('[brain] action insert failed:', e.message);
       }
     }
-    return { briefId, actionsInserted: inserted };
+    return { briefId, actionsInserted: inserted, autoExecuted, autoExecResults };
   }
 
   // ---------- Core cycle ----------
@@ -350,12 +434,14 @@ Rules:
 
     const durationMs = Date.now() - started;
     const usage = { inputTokens: resp.inputTokens, outputTokens: resp.outputTokens };
-    const { briefId, actionsInserted } = persistBrief(appSlug, ctx, parsed, model, usage, durationMs);
+    const { briefId, actionsInserted, autoExecuted, autoExecResults } = persistBrief(appSlug, ctx, parsed, model, usage, durationMs);
 
     return {
       briefId,
       appSlug,
       actionsInserted,
+      autoExecuted,
+      autoExecResults,
       analysis: parsed.analysis,
       model,
       tokens: resp.tokens,
@@ -374,7 +460,7 @@ Rules:
     ).all();
     const lastMap = new Map(rows.map(r => [r.app_slug, r.last]));
     const scored = marketable.map(a => {
-      const slug = a.slug || a.name?.toLowerCase();
+      const slug = slugify(a.name);
       const last = lastMap.get(slug);
       const ageMs = last ? Date.now() - new Date(last).getTime() : Infinity;
       return { slug, ageMs };
@@ -475,7 +561,7 @@ Rules:
     const staleRows = db.prepare(`SELECT app_slug, MAX(created_at) AS last FROM marketing_briefs GROUP BY app_slug`).all();
     const lastMap = new Map(staleRows.map(r => [r.app_slug, r.last]));
     const missingBriefs = marketable
-      .map(a => ({ slug: a.slug || a.name?.toLowerCase(), name: a.name, last: lastMap.get(a.slug || a.name?.toLowerCase()) || null }))
+      .map(a => ({ slug: slugify(a.name), name: a.name, last: lastMap.get(slugify(a.name)) || null }))
       .filter(a => !a.last || (Date.now() - new Date(a.last).getTime()) > 48 * 3600_000);
     res.json({ topActions, recentBriefs, missingBriefs });
   }));

@@ -22,6 +22,18 @@ Also committed the `orbedge-landing/` directory to this repo (no better home exi
 
 ## What Got Done
 
+### Round 4 — Marketing Brain auto-execution + slug fix
+- [x] **Auto-execution wired for 3 action kinds:**
+  - `content.draft` → inserts a row in `content_queue` with `content_type='blog-brain'`, status='draft'
+  - `social.draft` → inserts a row in `social_posts` with inferred platform (twitter/linkedin/bluesky/mastodon/devto/draft-multi), status='draft'
+  - `research.note` → inserts a row in `marketing_learnings` with confidence and evidence_json
+  - Each auto-executed action gets marked `status='executed'` with `outcome='auto-exec inserted: TABLE#ID'` so you can trace where it went
+- [x] **7-day per-(app, title) dedup** — prevents repeat brain cycles from duplicating drafts when the AI proposes similar titles across runs
+- [x] **email.draft deliberately NOT auto-executed** — the `email_queue` schema is per-recipient-per-template, not a draft store. Keeping email drafts in `marketing_actions.body` is cleaner. Future session can add a dedicated `marketing_email_drafts` table if needed
+- [x] **Fixed slug resolution** — Brain now uses `slugify(appDef.name)` everywhere, matching the rest of the codebase. Prior to this fix, apps like `Headshot AI` couldn't be looked up via their canonical slug `headshot-ai`
+- [x] **Smoke-tested end-to-end** — Ran brain cycle for `headshot-ai` (2 auto-executed: content_queue#106, marketing_learnings#1) and `betpilot` (3 auto-executed: content_queue#107, social_posts#13, marketing_learnings#2). Verified downstream rows via node-inside-container query
+- [x] **Smoketest upgraded** — Now accepts human-friendly names and resolves to canonical slug via fuzzy match
+
 ### Round 3 — Marketing Brain built, deployed, smoke-tested
 - [x] **Designed & documented the Marketing Brain** — see `plans/marketing-brain.md` (gitignored, local-only). Full vision, architecture, schema, cost analysis, phased roadmap
 - [x] **Schema migration** — Added 3 new tables to server.js initdb: `marketing_briefs`, `marketing_actions`, `marketing_learnings`. Present in the real production db at `/home/deploy/marketing/data.db` after deploy
@@ -211,15 +223,9 @@ Container is named `dockfolio-dashboard` (NOT `appmanager-dashboard`, which does
 
 ## Next Steps (Priority Order)
 
-**NEW TOP PRIORITY — Marketing Brain iteration (round 4+):**
+**NEW TOP PRIORITY — Marketing Brain iteration (round 5+):**
 
-1. **Wire auto-execution for safe action kinds** — When an action has `auto_executable=1`, immediately run it:
-   - `content.draft` → insert row in `content_queue` with status `draft` (so it shows in the existing content queue UI)
-   - `social.draft` → insert row in `social_posts` with status `draft`
-   - `email.draft` → insert row in `email_queue` with status `draft` (NOT sent — just drafted)
-   - `research.note` → insert row in `marketing_learnings` with confidence `medium`
-   - Do this inside `persistBrief()` or immediately after, within the same DB transaction
-   - Test: run a brain cycle, then verify `content_queue`, `social_posts`, etc. have new draft rows
+1. ~~Wire auto-execution for safe action kinds~~ — **DONE in round 4.** content.draft, social.draft, research.note all materialize into downstream queues automatically. email.draft stays advisory for now (schema mismatch).
 
 2. **Add a UI panel in `dashboard/public/index.html`** — read-only action queue view. Keyboard shortcut + command palette entry. For each action: show kind/title/body/priority, with Approve/Reject buttons calling `PATCH /api/brain/actions/:id`. Follow the existing glassmorphic card pattern
 
