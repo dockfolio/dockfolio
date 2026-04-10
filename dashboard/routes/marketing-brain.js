@@ -38,6 +38,52 @@ export default function registerMarketingBrainRoutes({
 
   // ---------- Context collection ----------
 
+  // Deep context pulls wider history for Sonnet cycles: 10 prior briefs vs 3,
+  // all open + recently-executed actions vs 10, 15 learnings vs 5, and 30-day
+  // brief cadence so the strategic prompt can reason about pacing.
+  function collectAppContextDeep(appSlug) {
+    const ctx = collectAppContext(appSlug);
+    try {
+      const prior = db.prepare(
+        `SELECT id, created_at, analysis, hypotheses_json FROM marketing_briefs
+         WHERE app_slug = ? ORDER BY created_at DESC LIMIT 10`
+      ).all(appSlug);
+      ctx.prior_briefs = prior.map(b => ({
+        id: b.id,
+        created_at: b.created_at,
+        analysis_summary: (b.analysis || '').slice(0, 400),
+        hypotheses: safeJSON(b.hypotheses_json, []).slice(0, 5),
+      }));
+    } catch {}
+    try {
+      ctx.open_actions = db.prepare(
+        `SELECT id, kind, title, priority, status, created_at FROM marketing_actions
+         WHERE app_slug = ? AND status IN ('proposed','approved') ORDER BY priority DESC LIMIT 25`
+      ).all(appSlug);
+    } catch {}
+    try {
+      ctx.executed_actions = db.prepare(
+        `SELECT kind, title, outcome, executed_at FROM marketing_actions
+         WHERE app_slug = ? AND status = 'executed' AND outcome IS NOT NULL
+         ORDER BY executed_at DESC LIMIT 15`
+      ).all(appSlug);
+    } catch { ctx.executed_actions = []; }
+    try {
+      ctx.learnings = db.prepare(
+        `SELECT learning, confidence, created_at FROM marketing_learnings
+         WHERE app_slug = ? ORDER BY created_at DESC LIMIT 15`
+      ).all(appSlug);
+    } catch {}
+    try {
+      const cadence = db.prepare(
+        `SELECT COUNT(*) as n, MIN(created_at) as first, MAX(created_at) as last
+         FROM marketing_briefs WHERE app_slug = ? AND created_at >= datetime('now','-30 day')`
+      ).get(appSlug);
+      ctx.cadence_30d = cadence;
+    } catch {}
+    return ctx;
+  }
+
   function collectAppContext(appSlug) {
     const appDef = config.apps.find(a => slugify(a.name) === appSlug);
     if (!appDef) throw new Error(`Unknown app: ${appSlug}`);
@@ -184,6 +230,100 @@ Rules:
 - For research.note: a crisp insight to remember for future cycles
 - Reference prior briefs and avoid proposing duplicates of open actions
 - Acknowledge learnings when relevant`;
+  }
+
+  function buildSystemPromptDeep() {
+    return `You are a senior marketing strategist doing a DEEP quarterly review for a single indie SaaS product. This is not a tactical cycle — this is strategic synthesis. You have access to the full brain memory for this product: every prior brief, every executed action with its outcome, every learning. Use it.
+
+Your job: synthesize patterns across history, identify the ONE strategic bet worth making in the next 6-12 weeks, and produce a mix of strategic actions and tactical follow-ups.
+
+You are BRUTALLY HONEST. If prior actions failed, say so by name. If the product has no traction after N cycles, name it. If the positioning is wrong, propose a repositioning. Do not repeat what has already been tried without new evidence.
+
+Respond ONLY with a raw JSON object (no markdown fences). Shape:
+{
+  "analysis": "4-8 sentences of strategic synthesis — what the data actually shows after N cycles, what has and hasn't worked, what the single biggest bet is for the next 6-12 weeks",
+  "hypotheses": [
+    { "hypothesis": "specific testable claim grounded in the history", "rationale": "evidence from prior briefs/outcomes/learnings", "confidence": "low|medium|high" }
+  ],
+  "actions": [
+    {
+      "kind": "content.draft|social.draft|email.draft|seo|outreach|landing|research.note",
+      "title": "short actionable title",
+      "body": "detailed description OR draft content (for .draft kinds, include the actual draft text)",
+      "priority": 1-10,
+      "effort": "low|medium|high",
+      "impact": "low|medium|high",
+      "rationale": "why this action now, referencing history explicitly",
+      "horizon": "this-week|this-month|this-quarter"
+    }
+  ]
+}
+
+Rules:
+- Produce 4-8 actions. Include at least one STRATEGIC action (horizon=this-quarter, impact=high) — a repositioning move, a new channel experiment, a pricing test, a partnership pitch, etc.
+- Explicitly reference prior briefs or executed actions by what they revealed (e.g. "Prior brief #124 tested X and learned Y")
+- If learnings tagged [WORKED] exist, propose how to scale them. If learnings tagged [FAILED] exist, propose a different angle or a kill decision
+- Do NOT propose duplicates of still-open actions
+- For content.draft / social.draft / email.draft: write the actual draft content, production-ready
+- For outreach: name the exact target (specific subreddit, newsletter, conference, person)`;
+  }
+
+  function buildUserPromptDeep(ctx) {
+    const lines = [];
+    lines.push(`## Product: ${ctx.name} (${ctx.domain})`);
+    lines.push(`Type: ${ctx.type} | Category: ${ctx.category}`);
+    lines.push(`Tagline: ${ctx.tagline || '(none)'}`);
+    lines.push(`Description: ${ctx.description}`);
+    lines.push(`Tech: ${ctx.tech}`);
+    lines.push('');
+    lines.push('## Current metrics');
+    if (ctx.traffic) lines.push(`Traffic (Plausible): ${JSON.stringify(ctx.traffic)}`);
+    else lines.push('Traffic: unknown');
+    if (ctx.revenue) lines.push(`Revenue (Stripe): MRR €${(ctx.revenue.mrr / 100).toFixed(2)}, 30d €${(ctx.revenue.revenue_30d / 100).toFixed(2)}, customers ${ctx.revenue.customer_count}`);
+    else lines.push('Revenue: none yet');
+    if (ctx.seo) lines.push(`SEO score: ${ctx.seo.score}/100. Top issues: ${JSON.stringify(ctx.seo.issues)}`);
+    lines.push('');
+    if (ctx.cadence_30d) {
+      lines.push(`## Brain cadence (30d)`);
+      lines.push(`${ctx.cadence_30d.n} briefs between ${ctx.cadence_30d.first || '(none)'} and ${ctx.cadence_30d.last || '(none)'}`);
+      lines.push('');
+    }
+    if (ctx.recent_mentions?.length) {
+      lines.push('## Recent mentions');
+      for (const m of ctx.recent_mentions) lines.push(`- [${m.platform}] ${m.title}`);
+      lines.push('');
+    }
+    if (ctx.prior_briefs?.length) {
+      lines.push('## Prior briefs (full history — do not repeat)');
+      for (const b of ctx.prior_briefs) {
+        lines.push(`- #${b.id} @ ${b.created_at}: ${b.analysis_summary}`);
+        if (b.hypotheses?.length) {
+          for (const h of b.hypotheses.slice(0, 2)) {
+            lines.push(`    hypothesis: ${h.hypothesis || h}`);
+          }
+        }
+      }
+      lines.push('');
+    }
+    if (ctx.executed_actions?.length) {
+      lines.push('## Previously executed actions + outcomes (ground truth signal)');
+      for (const a of ctx.executed_actions) {
+        lines.push(`- [${a.kind}] ${a.title} → ${a.outcome}`);
+      }
+      lines.push('');
+    }
+    if (ctx.open_actions?.length) {
+      lines.push('## Currently open actions (do not duplicate)');
+      for (const a of ctx.open_actions) lines.push(`- #${a.id} [${a.kind}] ${a.title} (p${a.priority}, ${a.status})`);
+      lines.push('');
+    }
+    if (ctx.learnings?.length) {
+      lines.push('## Accumulated learnings (use these, do not contradict without evidence)');
+      for (const l of ctx.learnings) lines.push(`- [${l.confidence}] ${l.learning}`);
+      lines.push('');
+    }
+    lines.push('Synthesize the history. Propose the strategic bet. Produce the JSON response now.');
+    return lines.join('\n');
   }
 
   function buildUserPrompt(ctx) {
@@ -420,7 +560,7 @@ Rules:
     return row.total || 0;
   }
 
-  async function runBrainCycle(appSlug, { model = DEFAULT_MODEL, force = false } = {}) {
+  async function runBrainCycle(appSlug, { model = DEFAULT_MODEL, force = false, deep = false } = {}) {
     const apiKey = getAnthropicKey();
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not found in any app .env');
     if (!force) {
@@ -433,16 +573,16 @@ Rules:
     }
 
     const started = Date.now();
-    const ctx = collectAppContext(appSlug);
-    const system = buildSystemPrompt();
-    const user = buildUserPrompt(ctx);
+    const ctx = deep ? collectAppContextDeep(appSlug) : collectAppContext(appSlug);
+    const system = deep ? buildSystemPromptDeep() : buildSystemPrompt();
+    const user = deep ? buildUserPromptDeep(ctx) : buildUserPrompt(ctx);
 
     const resp = await cbAnthropic.call(() => callAnthropic(apiKey, {
       model,
       system,
       messages: [{ role: 'user', content: user }],
-      maxTokens: 6000,
-      timeout: 60_000,
+      maxTokens: deep ? 10000 : 6000,
+      timeout: deep ? 120_000 : 60_000,
     }));
 
     const parsed = parseBrainOutput(resp.text);
@@ -463,6 +603,7 @@ Rules:
       autoExecResults,
       analysis: parsed.analysis,
       model,
+      deep,
       tokens: resp.tokens,
       cost_usd: costForUsage(model, usage.inputTokens || 0, usage.outputTokens || 0),
       duration_ms: durationMs,
@@ -518,7 +659,7 @@ Rules:
     const force = req.query.force === '1' || req.body?.force === true;
     const model = deep ? DEEP_MODEL : DEFAULT_MODEL;
     try {
-      const result = await runBrainCycle(req.params.appSlug, { model, force });
+      const result = await runBrainCycle(req.params.appSlug, { model, force, deep });
       res.json(result);
     } catch (e) {
       const status = e.code === 'COST_CAP' ? 429 : 500;
@@ -557,6 +698,43 @@ Rules:
     res.json(rows);
   }));
 
+  // Heuristic: classify an outcome string as positive / neutral / negative to decide
+  // whether it's worth persisting as a durable learning. Keeps the feedback loop
+  // honest — we only learn from actions that actually moved a metric.
+  function classifyOutcome(outcome) {
+    const s = String(outcome || '').toLowerCase();
+    if (!s.trim()) return { sentiment: 'none', confidence: 'low' };
+    const positive = /(worked|success|converted|signups?|signup|subscribed|purchase|sales?|revenue|\+\d|\bup\b|grew|growth|viral|trending|ranked|upvot|engagement|reply|replies|leads?|opened|clicked|ctr|traffic|visit|impress|retweet|share|follow|like|featured|published|accepted|approved|indexed)/;
+    const negative = /(failed|fail|no response|no replies|ignored|rejected|removed|banned|flagged|bounce|error|dropped|down|declined|lost|churn|unsubscri|deleted|spam|zero|nothing|flop)/;
+    if (positive.test(s) && !negative.test(s)) return { sentiment: 'positive', confidence: 'medium' };
+    if (negative.test(s) && !positive.test(s)) return { sentiment: 'negative', confidence: 'medium' };
+    if (positive.test(s) && negative.test(s)) return { sentiment: 'mixed', confidence: 'low' };
+    return { sentiment: 'neutral', confidence: 'low' };
+  }
+
+  // Extract a durable learning from an executed action. Skips neutral outcomes —
+  // those add noise without signal. Returns the inserted learning id, or null.
+  function extractLearningFromAction(action, outcome) {
+    const { sentiment, confidence } = classifyOutcome(outcome);
+    if (sentiment === 'none' || sentiment === 'neutral') return null;
+    const prefix = sentiment === 'positive' ? 'WORKED' : sentiment === 'negative' ? 'FAILED' : 'MIXED';
+    const learning = `[${prefix}] ${action.kind}: ${action.title} — ${outcome}`.slice(0, 2000);
+    const evidence = JSON.stringify({
+      source: 'feedback-loop',
+      action_id: action.id,
+      brief_id: action.brief_id,
+      kind: action.kind,
+      sentiment,
+    });
+    try {
+      const r = insertLearning.run(action.app_slug, learning, evidence, confidence);
+      return r.lastInsertRowid;
+    } catch (e) {
+      console.error('[brain] learning extract failed:', e.message);
+      return null;
+    }
+  }
+
   app.patch('/api/brain/actions/:id', asyncRoute((req, res) => {
     const id = parseId(req.params.id);
     const { status, outcome } = req.body || {};
@@ -566,7 +744,26 @@ Rules:
     db.prepare(`UPDATE marketing_actions SET status = ?, outcome = COALESCE(?, outcome), executed_at = COALESCE(?, executed_at) WHERE id = ?`)
       .run(status, outcome || null, executedAt, id);
     const updated = db.prepare(`SELECT * FROM marketing_actions WHERE id = ?`).get(id);
-    res.json(updated);
+
+    // Feedback loop: when an action is marked executed with a non-empty outcome,
+    // attempt to extract a durable learning so future brain cycles see the signal.
+    let learningId = null;
+    if (status === 'executed' && outcome) {
+      learningId = extractLearningFromAction(updated, outcome);
+    }
+    res.json({ ...updated, learning_id: learningId });
+  }));
+
+  app.get('/api/brain/learnings', asyncRoute((req, res) => {
+    const appSlug = req.query.app;
+    const limit = Math.min(200, parseInt(req.query.limit) || 50);
+    const rows = appSlug
+      ? db.prepare(`SELECT id, app_slug, learning, evidence_json, confidence, created_at
+                    FROM marketing_learnings WHERE app_slug = ? ORDER BY created_at DESC LIMIT ?`).all(appSlug, limit)
+      : db.prepare(`SELECT id, app_slug, learning, evidence_json, confidence, created_at
+                    FROM marketing_learnings ORDER BY created_at DESC LIMIT ?`).all(limit);
+    for (const r of rows) { r.evidence = safeJSON(r.evidence_json, {}); delete r.evidence_json; }
+    res.json(rows);
   }));
 
   app.get('/api/brain/morning', asyncRoute((_req, res) => {
@@ -643,29 +840,229 @@ Rules:
     }
   });
 
-  // Daily 7am: morning rollup via Telegram
+  // Picks apps that most need a deep strategic review. Preference:
+  //   1. Apps that have never received a Sonnet deep cycle
+  //   2. Apps whose last deep cycle is oldest
+  // Limited to marketable apps (same pool as regular cycles).
+  function pickNextDeepApps(count) {
+    const marketable = getMarketableApps(config.apps);
+    const rows = db.prepare(
+      `SELECT app_slug, MAX(created_at) AS last FROM marketing_briefs
+       WHERE model LIKE '%sonnet%' GROUP BY app_slug`
+    ).all();
+    const lastMap = new Map(rows.map(r => [r.app_slug, r.last]));
+    const scored = marketable.map(a => {
+      const slug = slugify(a.name);
+      const last = lastMap.get(slug);
+      const ageMs = last ? Date.now() - new Date(last).getTime() : Infinity;
+      return { slug, ageMs };
+    });
+    scored.sort((a, b) => b.ageMs - a.ageMs);
+    return scored.slice(0, count).map(s => s.slug);
+  }
+
+  // Weekly Monday 6 AM: deep strategic review of the 2 apps that most need it.
+  // Sonnet 4.5 with full-history context. ~$0.10-0.20 per cycle. Bounded by the
+  // same daily cost cap as the tactical cycles. Runs BEFORE the morning rollup
+  // so fresh strategic insights show up in today's email.
+  cron.schedule('0 6 * * 1', async () => {
+    const started = Date.now();
+    try {
+      const todayCost = getTodayCostUsd();
+      if (todayCost >= DAILY_COST_CAP_USD) {
+        console.log(`[brain-cron-deep] skipping — daily cost cap reached ($${todayCost.toFixed(2)}/$${DAILY_COST_CAP_USD.toFixed(2)})`);
+        return;
+      }
+      const slugs = pickNextDeepApps(2);
+      console.log(`[brain-cron-deep] weekly deep-dive for ${slugs.length} apps: ${slugs.join(', ')}`);
+      for (const slug of slugs) {
+        try {
+          const r = await runBrainCycle(slug, { model: DEEP_MODEL, deep: true });
+          console.log(`[brain-cron-deep] ${slug}: brief ${r.briefId}, ${r.actionsInserted} actions, $${r.cost_usd.toFixed(4)}, ${r.duration_ms}ms`);
+        } catch (e) {
+          if (e.code === 'COST_CAP') {
+            console.log(`[brain-cron-deep] cost cap hit mid-cycle, stopping`);
+            break;
+          }
+          console.error(`[brain-cron-deep] ${slug} failed:`, e.message);
+          cronFail?.('marketing-brain-deep-cycle', e);
+        }
+      }
+      console.log(`[brain-cron-deep] weekly cycle done in ${Date.now() - started}ms`);
+    } catch (e) {
+      console.error('[brain-cron-deep] cycle error:', e.message);
+      cronFail?.('marketing-brain-deep-cycle', e);
+    }
+  });
+
+  // ---------- Morning rollup (Telegram + optional email) ----------
+
+  function buildMorningRollup() {
+    const topActions = db.prepare(
+      `SELECT id, app_slug, kind, title, priority, impact, effort FROM marketing_actions
+       WHERE status = 'proposed' ORDER BY priority DESC, created_at DESC LIMIT 5`
+    ).all();
+    const queueCount = db.prepare(
+      `SELECT COUNT(*) as n FROM marketing_actions WHERE status = 'proposed'`
+    ).get().n;
+    const briefs24h = db.prepare(
+      `SELECT COUNT(*) as n, COALESCE(SUM(cost_usd), 0) as cost FROM marketing_briefs WHERE created_at >= datetime('now','-1 day')`
+    ).get();
+    const recentLearnings = db.prepare(
+      `SELECT app_slug, learning, confidence FROM marketing_learnings
+       WHERE created_at >= datetime('now','-1 day') ORDER BY created_at DESC LIMIT 5`
+    ).all();
+    return { topActions, queueCount, briefs24h, recentLearnings };
+  }
+
+  function renderRollupText({ topActions, queueCount, briefs24h, recentLearnings }) {
+    const lines = ['🧠 Marketing Brain — morning rollup'];
+    lines.push(`${briefs24h.n} briefs in last 24h ($${(briefs24h.cost || 0).toFixed(3)}) • ${queueCount} actions in queue`);
+    lines.push('');
+    lines.push('Top 5 proposed actions:');
+    for (const a of topActions) {
+      lines.push(`• [${a.app_slug}] ${a.title} (p${a.priority}, ${a.kind}, ${a.impact || '?'}/${a.effort || '?'})`);
+    }
+    if (recentLearnings.length) {
+      lines.push('');
+      lines.push('Fresh learnings (last 24h):');
+      for (const l of recentLearnings) lines.push(`• [${l.app_slug}] ${l.learning.slice(0, 140)}`);
+    }
+    lines.push('');
+    lines.push('See /api/brain/morning for the full picture.');
+    return lines.join('\n');
+  }
+
+  function escHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function renderRollupHtml({ topActions, queueCount, briefs24h, recentLearnings }) {
+    const actionItems = topActions.map(a => `
+      <tr>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-family:system-ui,sans-serif;font-size:13px;color:#6b7280;">${escHtml(a.app_slug)}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-family:system-ui,sans-serif;font-size:14px;color:#111;">${escHtml(a.title)}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-family:system-ui,sans-serif;font-size:12px;color:#6b7280;">p${a.priority} · ${escHtml(a.kind)}</td>
+        <td style="padding:8px 12px;border-bottom:1px solid #eee;font-family:system-ui,sans-serif;font-size:12px;color:#6b7280;">${escHtml(a.impact || '?')} / ${escHtml(a.effort || '?')}</td>
+      </tr>
+    `).join('');
+
+    const learningItems = recentLearnings.length
+      ? `<h3 style="margin:24px 0 8px;font-family:system-ui,sans-serif;font-size:14px;color:#374151;">Fresh learnings (last 24h)</h3>
+         <ul style="margin:0;padding-left:20px;font-family:system-ui,sans-serif;font-size:13px;color:#4b5563;">
+         ${recentLearnings.map(l => `<li style="margin-bottom:4px;"><strong>${escHtml(l.app_slug)}</strong>: ${escHtml(l.learning.slice(0, 200))}</li>`).join('')}
+         </ul>`
+      : '';
+
+    return `<!doctype html>
+<html><body style="margin:0;padding:24px;background:#f9fafb;">
+  <div style="max-width:640px;margin:0 auto;background:white;border-radius:12px;padding:32px;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+    <div style="font-family:system-ui,sans-serif;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="font-size:24px;">🧠</span>
+        <h1 style="margin:0;font-size:20px;color:#111;">Marketing Brain — morning rollup</h1>
+      </div>
+      <p style="margin:0 0 24px;color:#6b7280;font-size:13px;">
+        ${briefs24h.n} briefs in last 24h · $${(briefs24h.cost || 0).toFixed(3)} spent · ${queueCount} actions in queue
+      </p>
+      <h2 style="margin:0 0 8px;font-size:14px;color:#374151;">Top 5 proposed actions</h2>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #e5e7eb;font-family:system-ui,sans-serif;font-size:11px;text-transform:uppercase;color:#9ca3af;">App</th>
+            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #e5e7eb;font-family:system-ui,sans-serif;font-size:11px;text-transform:uppercase;color:#9ca3af;">Action</th>
+            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #e5e7eb;font-family:system-ui,sans-serif;font-size:11px;text-transform:uppercase;color:#9ca3af;">Priority</th>
+            <th style="text-align:left;padding:8px 12px;border-bottom:2px solid #e5e7eb;font-family:system-ui,sans-serif;font-size:11px;text-transform:uppercase;color:#9ca3af;">Impact/Effort</th>
+          </tr>
+        </thead>
+        <tbody>${actionItems || '<tr><td colspan="4" style="padding:16px;text-align:center;color:#9ca3af;font-family:system-ui,sans-serif;font-size:13px;">No actions in queue</td></tr>'}</tbody>
+      </table>
+      ${learningItems}
+      <p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #e5e7eb;font-family:system-ui,sans-serif;font-size:12px;color:#9ca3af;">
+        Open the dashboard at <a href="https://admin.crelvo.dev/#marketing" style="color:#6366f1;">admin.crelvo.dev</a> to review, approve, or reject actions.
+      </p>
+    </div>
+  </div>
+</body></html>`;
+  }
+
+  async function sendRollupEmail(toEmail, subject, text, html) {
+    const resendKey = getEnvKeyFromApps('RESEND_API_KEY');
+    if (!resendKey) return { skipped: 'no-resend-key' };
+    const fromDomain = process.env.EMAIL_FROM_DOMAIN || 'abschlusscheck.de';
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${resendKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: `Marketing Brain <noreply@${fromDomain}>`,
+        to: [toEmail],
+        subject,
+        html,
+        text,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `Resend error ${res.status}`);
+    }
+    return await res.json();
+  }
+
+  app.post('/api/brain/morning/send-test', asyncRoute(async (req, res) => {
+    const to = req.query.to || req.body?.to || process.env.BRAIN_MORNING_EMAIL;
+    if (!to) return res.status(400).json({ error: 'No destination (pass ?to= or set BRAIN_MORNING_EMAIL)' });
+    const rollup = buildMorningRollup();
+    const subject = `🧠 Brain rollup — ${rollup.topActions.length} actions, $${(rollup.briefs24h.cost || 0).toFixed(3)} today`;
+    const text = renderRollupText(rollup);
+    const html = renderRollupHtml(rollup);
+    try {
+      const result = await sendRollupEmail(to, subject, text, html);
+      res.json({ ok: true, to, ...result });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  }));
+
+  // Daily 7am: morning rollup via Telegram + optional email
   cron.schedule('0 7 * * *', async () => {
     try {
-      const topActions = db.prepare(
-        `SELECT app_slug, kind, title, priority FROM marketing_actions
-         WHERE status = 'proposed' ORDER BY priority DESC, created_at DESC LIMIT 5`
-      ).all();
-      if (!topActions.length) return;
-      const lines = ['🧠 Marketing Brain — top 5 actions for today:'];
-      for (const a of topActions) lines.push(`• [${a.app_slug}] ${a.title} (p${a.priority}, ${a.kind})`);
-      const stats = db.prepare(
-        `SELECT COUNT(*) as n FROM marketing_actions WHERE status = 'proposed'`
-      ).get();
-      lines.push(`\n${stats.n} actions in queue. See /api/brain/morning`);
-      sendTelegram?.(lines.join('\n'));
+      const rollup = buildMorningRollup();
+      if (!rollup.topActions.length) return;
+
+      const text = renderRollupText(rollup);
+      sendTelegram?.(text);
+
+      const to = process.env.BRAIN_MORNING_EMAIL;
+      if (to) {
+        try {
+          const subject = `🧠 Brain rollup — ${rollup.topActions.length} actions, $${(rollup.briefs24h.cost || 0).toFixed(3)} today`;
+          const html = renderRollupHtml(rollup);
+          const r = await sendRollupEmail(to, subject, text, html);
+          if (r.skipped) {
+            console.log(`[brain-cron] morning email skipped: ${r.skipped}`);
+          } else {
+            console.log(`[brain-cron] morning email sent to ${to}`);
+          }
+        } catch (e) {
+          console.error('[brain-cron] morning email failed:', e.message);
+          cronFail?.('marketing-brain-morning-email', e);
+        }
+      }
     } catch (e) {
       console.error('[brain-cron] morning rollup error:', e.message);
+      cronFail?.('marketing-brain-morning-rollup', e);
     }
   });
 
   return {
     runBrainCycle,
     collectAppContext,
+    collectAppContextDeep,
     pickNextAppsToAnalyze,
+    pickNextDeepApps,
   };
 }
