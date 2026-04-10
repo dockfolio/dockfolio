@@ -70,6 +70,139 @@ function readInfraState(appDef) {
   return map[domain] || null;
 }
 
+// ---------- Marketing Knowledge Base ----------
+// Dense, opinionated marketing reference material (positioning, launch,
+// content/SEO, pricing, conversion, growth loops, distribution, email,
+// metrics, kill criteria, copywriting) stored as markdown in marketing-kb/.
+// Loaded once at boot; each brain cycle picks 1-2 most relevant sections
+// based on keyword matching against the app's stage/context/learnings.
+
+const MARKETING_KB_DIR = process.env.MARKETING_KB_DIR ||
+  path.join(process.cwd(), 'marketing-kb');
+let marketingKB = null;
+
+function loadMarketingKB() {
+  if (marketingKB) return marketingKB;
+  const kb = [];
+  let files;
+  try { files = fs.readdirSync(MARKETING_KB_DIR); }
+  catch { marketingKB = []; return marketingKB; }
+  for (const f of files.sort()) {
+    if (!f.endsWith('.md') || f === 'README.md') continue;
+    const full = path.join(MARKETING_KB_DIR, f);
+    let content;
+    try { content = fs.readFileSync(full, 'utf8'); }
+    catch { continue; }
+    // Extract title from first H1, topic from filename (01-positioning -> positioning)
+    const h1 = content.match(/^#\s+(.+)$/m);
+    const topic = f.replace(/^\d+-/, '').replace(/\.md$/, '');
+    kb.push({
+      file: f,
+      topic,
+      title: h1 ? h1[1].trim() : topic,
+      content,
+      // Pre-compute lowercased keyword bag for fast matching
+      bag: content.toLowerCase(),
+    });
+  }
+  marketingKB = kb;
+  console.log(`[brain-kb] loaded ${kb.length} knowledge base files from ${MARKETING_KB_DIR}`);
+  return marketingKB;
+}
+
+// Score a KB file's relevance to an app context. Returns a number >= 0;
+// higher is more relevant. Uses keyword scoring against the app's stage
+// signals (revenue, traffic, open action kinds, recent learnings).
+function scoreKBRelevance(kbFile, ctx) {
+  const bag = kbFile.bag;
+  let score = 0;
+  const signals = [];
+
+  // Stage signals — pick a few files strongly based on MRR bucket
+  const mrr30 = Number(ctx.revenue?.revenue30d || 0) / 100; // cents to EUR
+  const visitors30 = Number(ctx.traffic?.visitors_30d || 0);
+  const activeSubs = Number(ctx.revenue?.activeSubscriptions || 0);
+  const isPreTraction = activeSubs < 10 && mrr30 < 500;
+  const isEarlyTraction = activeSubs >= 10 && activeSubs < 50;
+  const hasTrafficNoPaying = visitors30 > 200 && activeSubs < 3;
+  const hasPayingNoGrowth = activeSubs >= 5 && visitors30 < 100;
+
+  if (isPreTraction && kbFile.topic === 'pre-traction') { score += 50; signals.push('pre-traction stage'); }
+  if (isPreTraction && kbFile.topic === 'positioning') { score += 30; signals.push('pre-traction needs positioning'); }
+  if (isEarlyTraction && kbFile.topic === 'conversion-and-landing-pages') { score += 30; signals.push('early traction → optimize conversion'); }
+  if (isEarlyTraction && kbFile.topic === 'email-and-lifecycle') { score += 25; signals.push('early traction → lifecycle email'); }
+  if (hasTrafficNoPaying && kbFile.topic === 'conversion-and-landing-pages') { score += 40; signals.push('traffic but no conversion'); }
+  if (hasTrafficNoPaying && kbFile.topic === 'copywriting') { score += 25; signals.push('traffic but no conversion'); }
+  if (hasPayingNoGrowth && kbFile.topic === 'distribution-channels') { score += 30; signals.push('users but no growth channel'); }
+  if (hasPayingNoGrowth && kbFile.topic === 'content-and-seo') { score += 25; signals.push('needs compounding channel'); }
+  if (mrr30 === 0 && visitors30 === 0 && kbFile.topic === 'kill-criteria-and-pivots') { score += 20; signals.push('no signal — consider kill/pivot'); }
+  if (mrr30 === 0 && kbFile.topic === 'launch-playbook') { score += 15; signals.push('no revenue → launch more'); }
+
+  // Open-action-kind signals — match KB topic to what's already in the queue
+  const actionKinds = new Set((ctx.open_actions_summary_kinds || []).map(k => String(k).toLowerCase()));
+  if (actionKinds.has('content.draft') && kbFile.topic === 'content-and-seo') { score += 10; signals.push('content actions in queue'); }
+  if (actionKinds.has('social.draft') && kbFile.topic === 'distribution-channels') { score += 8; signals.push('social actions in queue'); }
+  if (actionKinds.has('email.draft') && kbFile.topic === 'email-and-lifecycle') { score += 10; signals.push('email actions in queue'); }
+  if (actionKinds.has('seo') && kbFile.topic === 'content-and-seo') { score += 10; signals.push('SEO actions in queue'); }
+  if (actionKinds.has('landing') && kbFile.topic === 'conversion-and-landing-pages') { score += 10; signals.push('landing actions in queue'); }
+  if (actionKinds.has('landing') && kbFile.topic === 'copywriting') { score += 8; signals.push('landing actions in queue'); }
+
+  // Keyword signals — scan learnings and recent analysis text for keywords
+  const keywordsFromCtx = [];
+  for (const l of (ctx.recent_learnings || [])) {
+    if (l.learning) keywordsFromCtx.push(String(l.learning).toLowerCase().slice(0, 300));
+  }
+  if (ctx.prior_briefs?.length) {
+    for (const b of ctx.prior_briefs) {
+      if (b.analysis_summary) keywordsFromCtx.push(String(b.analysis_summary).toLowerCase().slice(0, 300));
+    }
+  }
+  const ctxText = keywordsFromCtx.join(' ');
+  const topicKeywords = {
+    'positioning': ['positioning', 'messaging', 'category', 'who it', 'unique value', 'target'],
+    'pre-traction': ['zero', 'no customers', 'first customer', 'cold outreach', 'pre-traction'],
+    'launch-playbook': ['launch', 'product hunt', 'hacker news', 'show hn', 'reddit launch'],
+    'content-and-seo': ['seo', 'blog', 'content', 'keyword', 'ranking', 'google'],
+    'conversion-and-landing-pages': ['landing page', 'conversion', 'bounce', 'trial', 'signup rate'],
+    'pricing': ['pricing', 'price', 'tier', 'free trial', 'freemium', 'underpricing'],
+    'growth-loops': ['viral', 'referral', 'loop', 'network effect', 'share'],
+    'distribution-channels': ['channel', 'distribution', 'paid ads', 'partnership', 'community'],
+    'email-and-lifecycle': ['email', 'newsletter', 'welcome', 'activation email', 'drip'],
+    'metrics-and-analytics': ['metric', 'mrr', 'churn', 'retention', 'activation', 'cohort'],
+    'kill-criteria-and-pivots': ['kill', 'pivot', 'dead', 'sunset', 'quit', 'churn'],
+    'copywriting': ['copy', 'headline', 'cta', 'button', 'subject line', 'hero copy'],
+  };
+  const kw = topicKeywords[kbFile.topic] || [];
+  for (const k of kw) {
+    if (ctxText.includes(k)) { score += 4; }
+  }
+
+  return { score, signals };
+}
+
+// Given an app context, pick the 1-2 most relevant KB files and return a
+// compact snippet (title + first ~1200 chars of each) suitable for injection
+// into the prompt. Returns null if no KB is loaded or no matches.
+function pickKBSnippets(ctx, max = 2) {
+  const kb = loadMarketingKB();
+  if (!kb.length) return null;
+  const scored = kb.map(f => ({ file: f, ...scoreKBRelevance(f, ctx) }));
+  scored.sort((a, b) => b.score - a.score);
+  const picked = scored.filter(s => s.score > 0).slice(0, max);
+  if (!picked.length) {
+    // Fallback: always include positioning (the foundation) if nothing scored
+    const positioning = kb.find(f => f.topic === 'positioning');
+    if (positioning) return [{ topic: positioning.topic, title: positioning.title, excerpt: positioning.content.slice(0, 1200), signals: ['fallback: positioning is always relevant'] }];
+    return null;
+  }
+  return picked.map(p => ({
+    topic: p.file.topic,
+    title: p.file.title,
+    excerpt: p.file.content.slice(0, 1400),
+    signals: p.signals,
+  }));
+}
+
 // Approximate cost per 1M tokens for Claude Haiku 4.5 (input / output). Rough.
 const HAIKU_COST_IN = 1.00 / 1_000_000;
 const HAIKU_COST_OUT = 5.00 / 1_000_000;
@@ -264,6 +397,21 @@ export default function registerMarketingBrainRoutes({
     // Proxy-layer infra state (nginx sub_filter, CSP, etc.). Null if mount missing.
     ctx.infra_state = readInfraState(appDef);
 
+    // Summary of open action kinds for KB keyword matching
+    try {
+      const kindRows = db.prepare(
+        `SELECT DISTINCT kind FROM marketing_actions
+         WHERE app_slug = ? AND status IN ('proposed','approved')`
+      ).all(appSlug);
+      ctx.open_actions_summary_kinds = kindRows.map(r => r.kind);
+    } catch { ctx.open_actions_summary_kinds = []; }
+
+    // Marketing knowledge base snippets — picks 1-2 most-relevant sections
+    // from marketing-kb/*.md based on the app's stage, open actions, learnings.
+    // Injected into the prompt so the brain can ground proposals in proven
+    // indie-SaaS marketing principles instead of generic advice.
+    ctx.kb_snippets = pickKBSnippets(ctx, 2);
+
     return ctx;
   }
 
@@ -304,7 +452,8 @@ Rules:
 - For research.note: a crisp insight to remember for future cycles
 - Reference prior briefs and avoid proposing duplicates of open actions
 - Acknowledge learnings when relevant
-- If an infra flag in "Proxy-layer state" is already true, DO NOT propose installing it again (e.g. do not propose "install Plausible" when plausible_injected=true)`;
+- If an infra flag in "Proxy-layer state" is already true, DO NOT propose installing it again (e.g. do not propose "install Plausible" when plausible_injected=true)
+- If a "Marketing knowledge base" section is provided, GROUND your analysis and proposals in its principles. Cite the KB topic by name in your rationale when applying a principle (e.g. "per the pre-traction KB, direct outreach beats content for <$500 MRR stage"). Do NOT ignore the KB — it was selected because it matches this app's stage and situation.`;
   }
 
   function buildSystemPromptDeep() {
@@ -341,7 +490,8 @@ Rules:
 - Do NOT propose duplicates of still-open actions
 - For content.draft / social.draft / email.draft: write the actual draft content, production-ready
 - For outreach: name the exact target (specific subreddit, newsletter, conference, person)
-- Respect the "Proxy-layer state" section: infra items already flagged true are DONE at nginx layer — do not propose reinstalling them`;
+- Respect the "Proxy-layer state" section: infra items already flagged true are DONE at nginx layer — do not propose reinstalling them
+- A "Marketing knowledge base" section is provided with dense principles from world-class indie-SaaS marketers (April Dunford, Rob Walling, Reforge, Julian Shapiro, etc.). GROUND the strategic analysis in these principles — cite the KB topic by name in your rationale. The KB was selected because it matches this app's stage, so ignoring it means ignoring the best available advice.`;
   }
 
   function buildUserPromptDeep(ctx) {
@@ -364,6 +514,15 @@ Rules:
       lines.push(JSON.stringify(ctx.infra_state));
     }
     lines.push('');
+    if (ctx.kb_snippets?.length) {
+      lines.push('## Marketing knowledge base (relevant to this app — ground your analysis in these principles)');
+      for (const s of ctx.kb_snippets) {
+        lines.push(`### KB: ${s.title} [${s.topic}]`);
+        if (s.signals?.length) lines.push(`(selected because: ${s.signals.join('; ')})`);
+        lines.push(s.excerpt);
+        lines.push('');
+      }
+    }
     if (ctx.cadence_30d) {
       lines.push(`## Brain cadence (30d)`);
       lines.push(`${ctx.cadence_30d.n} briefs between ${ctx.cadence_30d.first || '(none)'} and ${ctx.cadence_30d.last || '(none)'}`);
@@ -431,6 +590,15 @@ Rules:
       lines.push(JSON.stringify(ctx.infra_state));
     }
     lines.push('');
+    if (ctx.kb_snippets?.length) {
+      lines.push('## Marketing knowledge base (relevant to this app — ground your analysis in these principles)');
+      for (const s of ctx.kb_snippets) {
+        lines.push(`### KB: ${s.title} [${s.topic}]`);
+        if (s.signals?.length) lines.push(`(selected because: ${s.signals.join('; ')})`);
+        lines.push(s.excerpt);
+        lines.push('');
+      }
+    }
     if (ctx.recent_mentions?.length) {
       lines.push('## Recent mentions');
       for (const m of ctx.recent_mentions) lines.push(`- [${m.platform}] ${m.title}`);
@@ -901,6 +1069,31 @@ Rules:
       actions_by_status: actionsByStatus,
       proposed_actions_by_kind: actionsByKind,
     });
+  }));
+
+  // Marketing knowledge base browsing: list all KB files with titles + topics,
+  // or fetch the full content of one file by topic slug. Powers the dashboard
+  // KB browser UI. Read-only; KB files are checked into git and loaded at boot.
+  app.get('/api/brain/kb', asyncRoute((_req, res) => {
+    const kb = loadMarketingKB();
+    res.json({
+      total: kb.length,
+      files: kb.map(f => ({
+        topic: f.topic,
+        title: f.title,
+        file: f.file,
+        length: f.content.length,
+        preview: f.content.split('\n').slice(2, 8).join('\n').slice(0, 400),
+      })),
+    });
+  }));
+
+  app.get('/api/brain/kb/:topic', asyncRoute((req, res) => {
+    const kb = loadMarketingKB();
+    const topic = String(req.params.topic || '').toLowerCase();
+    const file = kb.find(f => f.topic === topic);
+    if (!file) return res.status(404).json({ error: `KB topic not found: ${topic}`, available: kb.map(f => f.topic) });
+    res.json({ topic: file.topic, title: file.title, file: file.file, content: file.content });
   }));
 
   // Portfolio-wide infra_state map: for every marketable app, return the

@@ -18,6 +18,7 @@ COPY dashboard/server.js ./
 COPY dashboard/utils.js ./
 COPY dashboard/routes ./routes
 COPY dashboard/public ./public
+COPY marketing-kb ./marketing-kb
 
 # Default empty config (user mounts their own or uses Settings UI)
 RUN echo 'apps: []' > config.yml \
