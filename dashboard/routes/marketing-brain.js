@@ -167,6 +167,56 @@ const KB_TOPIC_KEYWORDS = {
   'copywriting': ['copy', 'headline', 'cta', 'button', 'subject line', 'hero copy'],
 };
 
+// Short stopword list used by detectKBCitation to filter topic+section
+// words that are too generic to count as evidence of a real citation.
+const KB_CITATION_STOPWORDS = new Set([
+  'the','this','that','with','from','what','your','you','and','for','its',
+  'not','only','some','most','more','less','than','into','onto','about',
+  'actually','really','just','even','over','under','still','back','also',
+  'been','have','has','had','does','did','doing','being','their','them',
+  'then','when','where','which','while','will','would','could','should',
+  'each','every','here','there','these','those','much','many','same',
+  'very','well','way','two','too','our','ours','are','was','were',
+]);
+
+// Does the brief's analysis text cite a given KB section? The LLM almost
+// never repeats an exact section title — it paraphrases the principle.
+// The pool of "signal words" for a section is built from: the topic slug
+// (hyphens→spaces), the section title, AND the curated KB_TOPIC_KEYWORDS
+// list for that topic. Stopwords and very short words are dropped. A
+// word is "present" in the analysis if either an exact substring match
+// or a 5-char-prefix match hits (catches simple plurals/tenses like
+// "channels" → "channel"). 2+ distinct word hits counts as a citation.
+// False-positive rate is acceptable for a telemetry view — the signal
+// we want is "did the LLM echo the principle at all," not "did it quote
+// the section verbatim."
+function detectKBCitation(topic, sectionTitle, analysisLower) {
+  if (!analysisLower) return false;
+  const topicPhrase = String(topic || '').replace(/-/g, ' ').toLowerCase();
+  if (topicPhrase && topicPhrase.length >= 5 && analysisLower.includes(topicPhrase)) return true;
+
+  // Build the signal-word pool: topic words + section-title words + curated
+  // per-topic keywords. Dedupe and filter stopwords.
+  const rawText = [
+    topicPhrase,
+    sectionTitle || '',
+    (KB_TOPIC_KEYWORDS[topic] || []).join(' '),
+  ].join(' ').toLowerCase().replace(/["'`]/g, '');
+  const pool = rawText.split(/[^a-z0-9]+/)
+    .filter(w => w.length >= 4 && !KB_CITATION_STOPWORDS.has(w));
+  if (!pool.length) return false;
+
+  const distinct = new Set(pool);
+  let hits = 0;
+  for (const w of distinct) {
+    // Exact substring OR 5-char prefix for simple plural/tense coverage
+    if (analysisLower.includes(w)) { hits++; }
+    else if (w.length >= 5 && analysisLower.includes(w.slice(0, 5))) { hits++; }
+    if (hits >= 2) return true;
+  }
+  return false;
+}
+
 // Build a single lowercased blob of app-specific text the brain has
 // accumulated — recent learnings, prior brief summaries, open action
 // titles, SEO issues. Used for keyword scoring at both file and section
@@ -1252,14 +1302,7 @@ Rules:
         const topic = s.topic || 'unknown';
         const sectionTitle = s.section_title || '(whole file)';
         const sectionKey = `${topic} › ${sectionTitle}`;
-
-        // Citation detection: does the analysis text mention the topic slug
-        // (with hyphens replaced by spaces) or any 4+ word phrase from the
-        // section title? Crude but catches most explicit KB references.
-        const topicPhrase = topic.replace(/-/g, ' ');
-        const cited = analysisLower.includes(topicPhrase) ||
-          (sectionTitle && sectionTitle.length > 8 &&
-            analysisLower.includes(sectionTitle.toLowerCase().replace(/["'`]/g, '').slice(0, 40)));
+        const cited = detectKBCitation(topic, sectionTitle, analysisLower);
 
         const t = byTopic.get(topic) || { topic, shown: 0, cited: 0, apps: new Set(), last_brief_id: null, last_at: null };
         t.shown++;
