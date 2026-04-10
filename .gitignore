@@ -29,3 +29,7 @@ CS2-Game-Mode.bat
 cs2-game-mode.ps1
 research/
 marketing-mcp/
+.playwright-mcp/
+KNOWLEDGEBASEhreejs.md
+KNOWLEDGEBASE*.md
+gsc-properties.md

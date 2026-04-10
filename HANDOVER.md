@@ -22,6 +22,13 @@ Also committed the `orbedge-landing/` directory to this repo (no better home exi
 
 ## What Got Done
 
+### Round 2 (after first commit)
+- [x] **OrbEdge analytics wired up** — Added Plausible (`data-domain="orbedge.de"`) and Crelvo admin tracking (`data-app="orbedge"`) `<script>` tags directly to `orbedge-landing/index.html` source. Deployed to VM via scp. Verified both endpoints return 200: `https://orbedge.de/js/script.js` and `https://admin.crelvo.dev/api/analytics/track.js`. Traffic to orbedge.de is now measured
+- [x] **.gitignore cleanup** — Added `.playwright-mcp/`, `KNOWLEDGEBASE*.md`, `gsc-properties.md` to stop them showing in git status every session
+- [x] **Stale GitHub remote URLs fixed** — Updated local remotes for all 4 affected repos from `KonradReyhe/*` to `konradreyhe/*` (slebständig → crelvo, abschlusscheck, headshot-ai-pro, promoforge → videoCreator). Pushes no longer trigger "repository moved" redirect warnings
+- [x] **Dockfolio dual-paths investigated (but NOT touched)** — Confirmed `/home/deploy/dockfolio-landing` (4.2MB) is the real webroot per `dockfolio.dev.conf:22`. `/home/deploy/dockfolio.dev` (2.0MB) is genuinely unreferenced stale leftover. Deliberately NOT deleted — see "What Didn't Get Done"
+
+### Round 1 (initial push + OrbEdge integration)
 - [x] **Pushed appManager** — `e11131a..82057aa` (5 commits)
 - [x] **Pushed slebständig** — `7ab7844..b41164d` (7 commits). Note: GitHub moved the repo to `konradreyhe/crelvo` (lowercase)
 - [x] **Pushed abschlusscheck** — `9fb1847..ffedac2`. Note: repo moved to `konradreyhe/abschlusscheck`
@@ -52,7 +59,7 @@ Nothing. All session-13 work is complete, committed, and pushed.
 
 - **Grimhollow root-owned data dir** — `/home/deploy/grimhollow/data/` still has root-owned leftover files. Carried. Harmless.
 
-- **Dockfolio.dev dual paths** — `/home/deploy/dockfolio-landing/` (real) vs stale `/home/deploy/dockfolio.dev/`. Carried from session 11 → 12 → 13.
+- **Dockfolio.dev dual paths DELETION** — **DELIBERATELY SKIPPED** this session. Investigated and confirmed `/home/deploy/dockfolio.dev/` (2.0MB) is unreferenced stale leftover while `/home/deploy/dockfolio-landing/` (4.2MB) is the real webroot per `dockfolio.dev.conf:22`. Safe to delete on paper, but: (a) it's 2MB so storage cost is irrelevant, (b) deleting 2MB of someone else's files without explicit user confirmation is not a job for an autonomous agent, (c) three sessions have now seen it and chosen to leave it. **Recommendation for future sessions: ask user before deleting. Or continue to leave it — harmless.** Command when ready: `ssh deploy@91.99.104.132 "rm -rf /home/deploy/dockfolio.dev"` (deploy-owned, no sudo needed)
 
 ## Architecture & Design Decisions
 
@@ -184,7 +191,7 @@ Container is named `dockfolio-dashboard` (NOT `appmanager-dashboard`, which does
 
 - **Should orb.crelvo.dev (betting bot) stay live, or be retired?** Currently live but off the portfolio. Half-state.
 - **Should BannerForge stay in the stack?** Broken build + no usage = delete candidate.
-- **Does OrbEdge landing page have Plausible analytics actually injected in HTML?** Nginx proxies the script but I didn't verify the HTML has the `<script data-domain="orbedge.de">` tag. Check next session.
+- ~~**Does OrbEdge landing page have Plausible analytics actually injected in HTML?**~~ **RESOLVED session 13 round 2.** Was missing. Added both Plausible and Crelvo admin tracking scripts directly to `orbedge-landing/index.html`. Verified live on orbedge.de. Both endpoints return 200
 - **Is the MT5 Trading internal container (Wine + MT5 + KasmVNC) running the actual OrbEdge ORB EA?** Likely yes given the naming, but not verified in this session.
 - **Should `KNOWLEDGEBASEhreejs.md` be added to .gitignore explicitly?** It's been untracked noise for 2+ sessions.
 - **`gsc-properties.md`** — delete or keep? Looks like leftover debug output.
