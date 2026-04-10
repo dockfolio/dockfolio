@@ -22,6 +22,16 @@ Also committed the `orbedge-landing/` directory to this repo (no better home exi
 
 ## What Got Done
 
+### Round 3 — Marketing Brain built, deployed, smoke-tested
+- [x] **Designed & documented the Marketing Brain** — see `plans/marketing-brain.md` (gitignored, local-only). Full vision, architecture, schema, cost analysis, phased roadmap
+- [x] **Schema migration** — Added 3 new tables to server.js initdb: `marketing_briefs`, `marketing_actions`, `marketing_learnings`. Present in the real production db at `/home/deploy/marketing/data.db` after deploy
+- [x] **Built `dashboard/routes/marketing-brain.js`** (~490 lines) — new route module with: context collection (traffic, revenue, SEO, mentions, prior briefs, open actions, learnings), prompt crafting (system + user), robust JSON parser with truncation recovery, cost tracking, persistence, rotation selector (stalest-first), 8 HTTP endpoints, 2 cron jobs
+- [x] **Registered in server.js** — Imported + wired alongside existing modules, passing `marketingCache` for reading cached SEO/revenue/analytics without re-fetching
+- [x] **Deployed to VM** — `bash deploy.sh` rebuild. Container restarted cleanly, health check 200
+- [x] **End-to-end smoke tested** — Ran brain cycle for 3 apps (abschlusscheck, lohncheck, sacredlens). Generated 3 briefs + 18 actions (perfect 6-per-app balance, one per action kind). Total cost: $0.042. Output quality: genuinely specific and actionable per product, not generic boilerplate
+- [x] **Cron wired** — Every 4 hours at minute 15, runs 3 stalest apps. Daily 7 AM sends morning rollup via Telegram. Will self-sustain from now on
+- [x] **Data persisted through rebuild** — Data lives on the `/home/deploy/marketing/` bind mount, survives container recreates
+
 ### Round 2 (after first commit)
 - [x] **OrbEdge analytics wired up** — Added Plausible (`data-domain="orbedge.de"`) and Crelvo admin tracking (`data-app="orbedge"`) `<script>` tags directly to `orbedge-landing/index.html` source. Deployed to VM via scp. Verified both endpoints return 200: `https://orbedge.de/js/script.js` and `https://admin.crelvo.dev/api/analytics/track.js`. Traffic to orbedge.de is now measured
 - [x] **.gitignore cleanup** — Added `.playwright-mcp/`, `KNOWLEDGEBASE*.md`, `gsc-properties.md` to stop them showing in git status every session
@@ -73,6 +83,66 @@ Nothing. All session-13 work is complete, committed, and pushed.
 | Fix CLAUDE.md even though gitignored | Edit anyway | User's local Claude Code sessions read this file — the edit has value on this machine even if not pushed | Only update HANDOVER.md | CLAUDE.md is the authoritative context for future local sessions. Worth the write |
 
 ## Mental Model
+
+### The Marketing Brain (NEW — the autonomous marketing manager)
+
+**What it is:** A continuously-running AI marketing analyst that cycles through all 24 marketable apps, analyzes their state, and proposes concrete, specific, per-product marketing actions.
+
+**Why it exists:** User has 24 live products with no customers. Marketing is the hardest part. Existing infra (Resend, Anthropic, Stripe, Plausible, social autopilot) was ~60% real but NOT actually running on a schedule — CLAUDE.md claimed "Daily 8 AM AI social content generation" but no such cron actually existed in `server.js`. The brain is the scheduled loop that ties everything together and produces actionable output every 4 hours, unattended.
+
+**Files:**
+- `dashboard/routes/marketing-brain.js` — the core module (~490 lines). Start here to understand/modify it
+- `dashboard/server.js` — schema (search `marketing_briefs`), import + registration (search `registerMarketingBrainRoutes`)
+- `dashboard/brain-smoketest.mjs` — standalone debug script to run a brain cycle against one app from inside the container. NOT deployed via deploy.sh (only `routes/*.js`, `server.js`, `utils.js`, etc. are synced). Copy manually with `scp` + `docker cp` when debugging
+- `plans/marketing-brain.md` — design doc (gitignored, local only — see Round 3 notes for why)
+
+**How it runs:**
+- **Cron 1:** `15 */4 * * *` — every 4 hours at :15, picks the 3 stalest apps (longest time since last brief) and runs a Haiku cycle for each. ~30s per cycle, ~$0.015 per cycle, ~$1/day max
+- **Cron 2:** `0 7 * * *` — daily 7 AM, sends a Telegram rollup with the top 5 proposed actions across all apps
+- **Manual trigger:** `POST /api/brain/run/:appSlug` (requires dashboard auth) or `POST /api/brain/run-batch` with JSON `{count: N}`
+
+**Per-app cycle:**
+1. `collectAppContext(slug)` — pulls config metadata, Plausible traffic, Stripe revenue, SEO audits, recent mentions (social_mentions table), last 3 briefs (memory), 10 open actions (de-duplication), and recent learnings. All non-blocking — if any data source is missing, cycle still runs
+2. `buildSystemPrompt()` + `buildUserPrompt(ctx)` — constructs a brutally-specific prompt demanding JSON output with analysis + hypotheses + 3-6 actions
+3. Claude call via `cbAnthropic.call(callAnthropic(...))` — uses Haiku 4.5 by default (`claude-haiku-4-5-20251001`), Sonnet 4.5 for deep dives (not yet wired). 6000 max output tokens. 60s timeout
+4. `parseBrainOutput(text)` — robust parser that handles raw JSON, markdown fences (with or without close), and truncated responses (counts unclosed braces/brackets and auto-closes)
+5. `persistBrief()` — writes brief + all actions in one batch. Each action gets a priority (1-10), effort (low/medium/high), impact (low/medium/high), and auto_executable flag (currently just tagged — auto-exec not wired in round 3)
+
+**Action kinds generated:**
+- `content.draft` — blog post draft with actual outline text (not "write a post")
+- `social.draft` — actual tweet/thread text ready to post
+- `email.draft` — actual subject + body
+- `seo` — named specific fix ("missing meta description on /pricing")
+- `outreach` — named specific channel + approach ("pitch to German personal finance newsletters via Substack contact")
+- `landing` — specific landing-page change
+- `research.note` — a crisp insight to remember for future cycles (feeds into `marketing_learnings`)
+
+**Database tables (all in `/home/deploy/marketing/data.db`):**
+- `marketing_briefs` — one row per brain cycle. Stores `context_json`, `analysis`, `hypotheses_json`, model name, tokens_in/out, cost_usd, duration_ms
+- `marketing_actions` — proposed actions. Status flow: `proposed → approved → executed` (or `rejected`, `superseded`). Currently everything is `proposed` until human approval. `auto_executable=1` marks safe actions that a future auto-executor can run without review
+- `marketing_learnings` — per-app lessons accumulated over time. Currently written only when a brief proposes a `research.note` action — future sessions should also extract learnings from executed-action outcomes
+
+**HTTP endpoints (all under `/api/brain/*`, require dashboard auth):**
+- `GET /api/brain/briefs?app=SLUG&limit=25` — recent briefs
+- `GET /api/brain/briefs/:id` — one brief with its actions
+- `POST /api/brain/run/:appSlug` — manual trigger (query `?deep=1` for Sonnet, not yet wired into a useful deep prompt)
+- `POST /api/brain/run-batch` — body `{count: N}` runs N stalest apps
+- `GET /api/brain/actions?status=proposed&app=SLUG&kind=seo&limit=50` — filter actions
+- `PATCH /api/brain/actions/:id` — update status (approve/reject/execute), set outcome
+- `GET /api/brain/morning` — daily rollup: top 10 proposed actions, recent 8 briefs, apps missing recent briefs (>48h stale)
+- `GET /api/brain/stats` — counts + cost today/week/total
+
+**Cost economics:**
+- Per Haiku cycle: ~$0.015 (628 in + 2867 out tokens typical, based on smoke test data)
+- 3 cycles every 4h = 18/day = ~$0.27/day = ~$8/month
+- Cap potential: add circuit breaker on cost_usd (not yet wired)
+
+**What's NOT in round 3 (future sessions):**
+- Auto-execution of safe actions (draft content → `content_queue`, draft social → `social_posts` status=draft, draft emails → `email_queue` status=draft). Currently actions are only proposed. Round 4 should wire this
+- Sonnet deep-dive cycles with web search context (needs MCP or Anthropic tool use)
+- Learning feedback loop: after an action is marked executed with a positive outcome, extract a learning and persist to `marketing_learnings`
+- UI panel in `public/index.html` to view/approve actions (currently API-only)
+- Morning rollup via email instead of just Telegram
 
 ### The Orb / OrbEdge split (CRITICAL — read this before touching either)
 
@@ -141,7 +211,29 @@ Container is named `dockfolio-dashboard` (NOT `appmanager-dashboard`, which does
 
 ## Next Steps (Priority Order)
 
-1. **Fix stale GitHub remote URLs** — Low priority, cosmetic. For each of slebständig, abschlusscheck, headshot-ai-pro, promoforge: `git remote set-url origin <lowercase-url>`. Not urgent since redirects work.
+**NEW TOP PRIORITY — Marketing Brain iteration (round 4+):**
+
+1. **Wire auto-execution for safe action kinds** — When an action has `auto_executable=1`, immediately run it:
+   - `content.draft` → insert row in `content_queue` with status `draft` (so it shows in the existing content queue UI)
+   - `social.draft` → insert row in `social_posts` with status `draft`
+   - `email.draft` → insert row in `email_queue` with status `draft` (NOT sent — just drafted)
+   - `research.note` → insert row in `marketing_learnings` with confidence `medium`
+   - Do this inside `persistBrief()` or immediately after, within the same DB transaction
+   - Test: run a brain cycle, then verify `content_queue`, `social_posts`, etc. have new draft rows
+
+2. **Add a UI panel in `dashboard/public/index.html`** — read-only action queue view. Keyboard shortcut + command palette entry. For each action: show kind/title/body/priority, with Approve/Reject buttons calling `PATCH /api/brain/actions/:id`. Follow the existing glassmorphic card pattern
+
+3. **Sonnet deep-dive cycles** — weekly per app at most. Uses a beefier prompt with: web search of competitors (via MCP or direct fetch), recent industry news, historical brief patterns, 30-day metric trends. Route through the existing `/api/brain/run/:appSlug?deep=1` query param (currently just swaps model — doesn't change the prompt)
+
+4. **Cost circuit breaker** — add a daily budget cap (e.g., $2/day) stored in settings. If exceeded, cron skips cycles and logs a warning. Should be trivial — just query `SUM(cost_usd)` for today and compare
+
+5. **Feedback loop for learnings** — when an action is marked `executed` with a positive `outcome`, extract a durable learning. E.g., if "LinkedIn thread about thesis anxiety" executed and got 500 impressions, persist a learning "LinkedIn responds to emotion-hook thesis content"
+
+6. **Morning rollup via email** — the Telegram rollup is fine but an email is useful when on the road
+
+**Carried from prior rounds:**
+
+7. ~~Fix stale GitHub remote URLs~~ — **DONE in round 2.** All 4 repos now point at correct lowercase `konradreyhe/*` URLs.
 
 2. **Social platform credentials** (user action needed) — Still blocked on Reddit/YouTube/Bluesky API keys. Carried since session 10.
 

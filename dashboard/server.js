@@ -43,6 +43,7 @@ import registerSnapshotRoutes from './routes/snapshots.js';
 import registerPortfolioRoutes from './routes/portfolio.js';
 import registerMiscRoutes from './routes/misc.js';
 import registerSocialAutopilotRoutes from './routes/social-autopilot.js';
+import registerMarketingBrainRoutes from './routes/marketing-brain.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1536,6 +1537,51 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_playbooks_app ON marketing_playbooks(app_slug);
 
+  -- Marketing Brain: autonomous per-app analysis + action generation loop
+  CREATE TABLE IF NOT EXISTS marketing_briefs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    context_json TEXT NOT NULL,
+    analysis TEXT NOT NULL,
+    hypotheses_json TEXT NOT NULL,
+    model TEXT NOT NULL,
+    tokens_in INTEGER DEFAULT 0,
+    tokens_out INTEGER DEFAULT 0,
+    cost_usd REAL DEFAULT 0,
+    duration_ms INTEGER DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_mb_app_created ON marketing_briefs(app_slug, created_at);
+
+  CREATE TABLE IF NOT EXISTS marketing_actions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    brief_id INTEGER,
+    app_slug TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 5,
+    effort TEXT NOT NULL DEFAULT 'medium',
+    impact TEXT NOT NULL DEFAULT 'medium',
+    status TEXT NOT NULL DEFAULT 'proposed',
+    auto_executable INTEGER NOT NULL DEFAULT 0,
+    executed_at TEXT,
+    outcome TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_ma_app_status ON marketing_actions(app_slug, status);
+  CREATE INDEX IF NOT EXISTS idx_ma_priority ON marketing_actions(status, priority DESC);
+
+  CREATE TABLE IF NOT EXISTS marketing_learnings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    app_slug TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    learning TEXT NOT NULL,
+    evidence_json TEXT,
+    confidence TEXT NOT NULL DEFAULT 'medium'
+  );
+  CREATE INDEX IF NOT EXISTS idx_ml_app ON marketing_learnings(app_slug);
+
   CREATE TABLE IF NOT EXISTS security_scans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp TEXT NOT NULL DEFAULT (datetime('now')),
@@ -2825,6 +2871,14 @@ registerSocialAutopilotRoutes({
   cbAnthropic,
   cronFail, sendTelegram,
   TIMEOUT_STANDARD, TIMEOUT_AI,
+});
+
+registerMarketingBrainRoutes({
+  app, db, config, cron,
+  marketingCache,
+  getEnvKeyFromApps,
+  cbAnthropic,
+  cronFail, sendTelegram,
 });
 
 // Health check endpoint
