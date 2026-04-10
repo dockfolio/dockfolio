@@ -1274,10 +1274,15 @@ Rules:
     const days = Math.min(90, Math.max(1, parseInt(req.query.days) || 30));
     const limit = Math.min(500, Math.max(10, parseInt(req.query.limit) || 200));
     const rows = db.prepare(
-      `SELECT id, app_slug, created_at, context_json, analysis FROM marketing_briefs
+      `SELECT id, app_slug, created_at, context_json, analysis, hypotheses_json FROM marketing_briefs
        WHERE created_at >= datetime('now','-${days} day')
        ORDER BY created_at DESC LIMIT ?`
     ).all(limit);
+    // Actions per brief — titles/bodies often contain the strongest KB paraphrase
+    // (brief 23's top cite was in an action title, missed by analysis-only scanning)
+    const actionsForBrief = db.prepare(
+      `SELECT title, body FROM marketing_actions WHERE brief_id = ?`
+    );
 
     // Per-topic aggregates: how many times shown, distinct apps it was shown
     // to, how many times cited in analysis, most-recent brief id
@@ -1295,7 +1300,26 @@ Rules:
       const snippets = Array.isArray(ctx.kb_snippets) ? ctx.kb_snippets : [];
       if (!snippets.length) continue;
       briefsWithKB++;
-      const analysisLower = String(row.analysis || '').toLowerCase();
+      // Build combined citation-scan text: analysis + hypotheses + action titles/bodies.
+      // The LLM often grounds KB principles in action copy more than top-level analysis.
+      const parts = [String(row.analysis || '')];
+      const hyps = safeJSON(row.hypotheses_json, []);
+      if (Array.isArray(hyps)) {
+        for (const h of hyps) {
+          if (h && typeof h === 'object') {
+            if (h.hypothesis) parts.push(String(h.hypothesis));
+            if (h.rationale) parts.push(String(h.rationale));
+          }
+        }
+      }
+      try {
+        const acts = actionsForBrief.all(row.id);
+        for (const a of acts) {
+          if (a.title) parts.push(String(a.title));
+          if (a.body) parts.push(String(a.body));
+        }
+      } catch (_) { /* ignore per-brief action lookup failures */ }
+      const analysisLower = parts.join('\n').toLowerCase();
       let briefCited = false;
 
       for (const s of snippets) {
