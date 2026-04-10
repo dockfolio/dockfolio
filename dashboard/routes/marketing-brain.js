@@ -581,8 +581,10 @@ Rules:
       model,
       system,
       messages: [{ role: 'user', content: user }],
-      maxTokens: deep ? 10000 : 6000,
-      timeout: deep ? 120_000 : 60_000,
+      // Sonnet generates ~40-70 tok/s; 8000 tokens needs 120-200s of headroom.
+      // Haiku is 3-4x faster so 6000 fits comfortably in 60s.
+      maxTokens: deep ? 8000 : 6000,
+      timeout: deep ? 300_000 : 60_000,
     }));
 
     const parsed = parseBrainOutput(resp.text);
