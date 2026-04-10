@@ -1214,6 +1214,110 @@ Rules:
     });
   }));
 
+  // KB usage telemetry: scan recent briefs' persisted context_json to surface
+  // which KB topics/sections the brain has been seeing, and whether the
+  // resulting analysis text actually cites those topics. This is the
+  // observability layer on top of the silent KB injection: without this
+  // endpoint there's no way to know if the KB is reaching the LLM's output
+  // or just getting ignored. Window defaults to 30 days; cap 200 briefs.
+  app.get('/api/brain/kb/usage', asyncRoute((req, res) => {
+    const days = Math.min(90, Math.max(1, parseInt(req.query.days) || 30));
+    const limit = Math.min(500, Math.max(10, parseInt(req.query.limit) || 200));
+    const rows = db.prepare(
+      `SELECT id, app_slug, created_at, context_json, analysis FROM marketing_briefs
+       WHERE created_at >= datetime('now','-${days} day')
+       ORDER BY created_at DESC LIMIT ?`
+    ).all(limit);
+
+    // Per-topic aggregates: how many times shown, distinct apps it was shown
+    // to, how many times cited in analysis, most-recent brief id
+    const byTopic = new Map();
+    // Per-section (file/section_title) counts — shows which sections are
+    // winning the scoring most often
+    const bySection = new Map();
+    // Per-app summary
+    const byApp = new Map();
+    let briefsWithKB = 0;
+    let briefsWithCitation = 0;
+
+    for (const row of rows) {
+      const ctx = safeJSON(row.context_json, {});
+      const snippets = Array.isArray(ctx.kb_snippets) ? ctx.kb_snippets : [];
+      if (!snippets.length) continue;
+      briefsWithKB++;
+      const analysisLower = String(row.analysis || '').toLowerCase();
+      let briefCited = false;
+
+      for (const s of snippets) {
+        const topic = s.topic || 'unknown';
+        const sectionTitle = s.section_title || '(whole file)';
+        const sectionKey = `${topic} › ${sectionTitle}`;
+
+        // Citation detection: does the analysis text mention the topic slug
+        // (with hyphens replaced by spaces) or any 4+ word phrase from the
+        // section title? Crude but catches most explicit KB references.
+        const topicPhrase = topic.replace(/-/g, ' ');
+        const cited = analysisLower.includes(topicPhrase) ||
+          (sectionTitle && sectionTitle.length > 8 &&
+            analysisLower.includes(sectionTitle.toLowerCase().replace(/["'`]/g, '').slice(0, 40)));
+
+        const t = byTopic.get(topic) || { topic, shown: 0, cited: 0, apps: new Set(), last_brief_id: null, last_at: null };
+        t.shown++;
+        if (cited) t.cited++;
+        t.apps.add(row.app_slug);
+        if (!t.last_at || row.created_at > t.last_at) {
+          t.last_at = row.created_at;
+          t.last_brief_id = row.id;
+        }
+        byTopic.set(topic, t);
+
+        const sec = bySection.get(sectionKey) || { topic, section_title: sectionTitle, shown: 0, cited: 0 };
+        sec.shown++;
+        if (cited) sec.cited++;
+        bySection.set(sectionKey, sec);
+
+        if (cited) briefCited = true;
+      }
+      if (briefCited) briefsWithCitation++;
+
+      const a = byApp.get(row.app_slug) || { app_slug: row.app_slug, briefs_with_kb: 0, briefs_cited: 0 };
+      a.briefs_with_kb++;
+      if (briefCited) a.briefs_cited++;
+      byApp.set(row.app_slug, a);
+    }
+
+    const topics = [...byTopic.values()]
+      .map(t => ({
+        topic: t.topic,
+        shown: t.shown,
+        cited: t.cited,
+        cite_rate: t.shown ? Math.round((t.cited / t.shown) * 100) : 0,
+        distinct_apps: t.apps.size,
+        last_brief_id: t.last_brief_id,
+        last_at: t.last_at,
+      }))
+      .sort((a, b) => b.shown - a.shown);
+
+    const sections = [...bySection.values()]
+      .sort((a, b) => b.shown - a.shown)
+      .slice(0, 30);
+
+    const apps = [...byApp.values()].sort((a, b) => b.briefs_with_kb - a.briefs_with_kb);
+
+    res.json({
+      window_days: days,
+      briefs_scanned: rows.length,
+      briefs_with_kb: briefsWithKB,
+      briefs_with_citation: briefsWithCitation,
+      overall_cite_rate: briefsWithKB ? Math.round((briefsWithCitation / briefsWithKB) * 100) : 0,
+      topics,
+      top_sections: sections,
+      apps,
+    });
+  }));
+
+  // Single-file KB fetch — MUST come after /api/brain/kb/usage so Express
+  // doesn't match 'usage' as a :topic param.
   app.get('/api/brain/kb/:topic', asyncRoute((req, res) => {
     const kb = loadMarketingKB();
     const topic = String(req.params.topic || '').toLowerCase();
