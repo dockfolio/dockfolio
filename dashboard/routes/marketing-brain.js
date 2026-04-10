@@ -903,6 +903,35 @@ Rules:
     });
   }));
 
+  // Portfolio-wide infra_state map: for every marketable app, return the
+  // 8 proxy-layer flags that readInfraState detected from nginx configs,
+  // plus a summary count of how many apps have each flag set. Used by the
+  // dashboard UI to surface which apps are missing admin_tracking, which
+  // are missing banner injection, etc. Reads the same 60s-cached infra map
+  // that brain cycles use, so this is essentially free.
+  app.get('/api/brain/infra-state', asyncRoute((_req, res) => {
+    const marketable = getMarketableApps(config.apps);
+    const FLAGS = [
+      'plausible_injected', 'admin_tracking', 'banner_injection',
+      'crosslinks_widget', 'csp_header', 'gzip_on', 'long_cache', 'ssl_letsencrypt',
+    ];
+    const apps = marketable.map(a => {
+      const state = readInfraState(a);
+      return {
+        slug: slugify(a.name),
+        name: a.name,
+        domain: a.domain || null,
+        nginx_file: state?.nginx_file || null,
+        flags: FLAGS.reduce((acc, f) => { acc[f] = state ? !!state[f] : null; return acc; }, {}),
+      };
+    });
+    const summary = FLAGS.reduce((acc, f) => {
+      acc[f] = apps.filter(a => a.flags[f] === true).length;
+      return acc;
+    }, {});
+    res.json({ total: apps.length, summary, flags: FLAGS, apps });
+  }));
+
   // ---------- Cron ----------
 
   // Every 4 hours, rotate through 3 stalest apps

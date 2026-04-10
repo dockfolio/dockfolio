@@ -1671,6 +1671,8 @@
           <div id="brainStaleList"><div style="color:var(--text-muted);font-size:12px">—</div></div>
           <div style="font-size:12px;font-weight:600;color:var(--text-dim);margin:20px 0 10px;text-transform:uppercase;letter-spacing:0.05em">Recent learnings</div>
           <div id="brainLearningsList"><div style="color:var(--text-muted);font-size:12px">—</div></div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-dim);margin:20px 0 10px;text-transform:uppercase;letter-spacing:0.05em" title="Proxy-layer state detected from nginx configs. Shows which apps already have Plausible, admin tracking, banner injection, etc. wired up at the nginx sub_filter layer — the brain uses this to avoid proposing infra that's already done.">Infra state (nginx)</div>
+          <div id="brainInfraState"><div style="color:var(--text-muted);font-size:12px">—</div></div>
         </div>
       </div>
 
@@ -5976,7 +5978,7 @@
     }
 
     // --- Marketing Brain ---
-    let brainState = { stats: null, actions: [], briefs: [], missing: [], learnings: [], loading: false };
+    let brainState = { stats: null, actions: [], briefs: [], missing: [], learnings: [], infra: null, loading: false };
 
     function brainEscape(s) {
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -6006,12 +6008,13 @@
       try {
         const statusEl = document.getElementById('brainFilterStatus');
         const status = statusEl?.value || 'proposed';
-        const [statsRes, actionsRes, briefsRes, morningRes, learningsRes] = await Promise.allSettled([
+        const [statsRes, actionsRes, briefsRes, morningRes, learningsRes, infraRes] = await Promise.allSettled([
           apiFetch('/api/brain/stats'),
           apiFetch(`/api/brain/actions?status=${encodeURIComponent(status)}&limit=100`),
           apiFetch('/api/brain/briefs?limit=8'),
           apiFetch('/api/brain/morning'),
           apiFetch('/api/brain/learnings?limit=10'),
+          apiFetch('/api/brain/infra-state'),
         ]);
         if (statsRes.status === 'fulfilled' && statsRes.value.ok) brainState.stats = await statsRes.value.json();
         if (actionsRes.status === 'fulfilled' && actionsRes.value.ok) brainState.actions = await actionsRes.value.json();
@@ -6021,12 +6024,14 @@
           brainState.missing = m.missingBriefs || [];
         }
         if (learningsRes.status === 'fulfilled' && learningsRes.value.ok) brainState.learnings = await learningsRes.value.json();
+        if (infraRes.status === 'fulfilled' && infraRes.value.ok) brainState.infra = await infraRes.value.json();
         brainRenderStats();
         brainPopulateAppFilter();
         brainRenderActions();
         brainRenderBriefs();
         brainRenderStale();
         brainRenderLearnings();
+        brainRenderInfraState();
       } catch (e) {
         console.error('brain load error', e);
       }
@@ -6163,6 +6168,50 @@
           <div style="color:var(--text-dim);line-height:1.4">${brainEscape(text.slice(0, 180))}</div>
         </div>`;
       }).join('');
+    }
+
+    function brainRenderInfraState() {
+      const container = document.getElementById('brainInfraState');
+      if (!container) return;
+      const data = brainState.infra;
+      if (!data || !data.apps || !data.apps.length) {
+        container.innerHTML = `<div style="color:var(--text-muted);font-size:11px">Infra state unavailable (nginx mount missing?)</div>`;
+        return;
+      }
+      const FLAG_META = {
+        plausible_injected: { label: 'PL', title: 'Plausible script injected' },
+        admin_tracking:     { label: 'AT', title: 'admin.crelvo.dev analytics pixel' },
+        banner_injection:   { label: 'BN', title: 'banner embed.js injected' },
+        crosslinks_widget:  { label: 'CL', title: 'crosslinks widget (legacy)' },
+        csp_header:         { label: 'CSP', title: 'Content-Security-Policy header' },
+        gzip_on:            { label: 'GZ', title: 'gzip compression enabled' },
+        long_cache:         { label: 'CA', title: 'long-lived asset cache' },
+        ssl_letsencrypt:    { label: 'SSL', title: 'Let\'s Encrypt cert' },
+      };
+      const summaryHtml = data.flags.map(f => {
+        const meta = FLAG_META[f] || { label: f, title: f };
+        return `<span title="${meta.title}: ${data.summary[f]}/${data.total} apps" style="display:inline-block;padding:2px 6px;margin:0 4px 4px 0;border-radius:4px;background:var(--surface2);border:1px solid var(--border);font-size:9px;color:var(--text-dim)">${meta.label} ${data.summary[f]}/${data.total}</span>`;
+      }).join('');
+      const appsHtml = data.apps.map(a => {
+        const flagsHtml = data.flags.map(f => {
+          const meta = FLAG_META[f] || { label: f, title: f };
+          const v = a.flags[f];
+          const color = v === true ? '#22c55e' : (v === false ? '#374151' : '#64748b');
+          const bg = v === true ? 'rgba(34,197,94,0.12)' : 'transparent';
+          return `<span title="${meta.title}: ${v === null ? 'unknown' : v}" style="display:inline-block;padding:1px 4px;margin-right:2px;border-radius:3px;background:${bg};border:1px solid ${color};font-size:8px;color:${color};font-weight:600">${meta.label}</span>`;
+        }).join('');
+        return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;margin-bottom:4px;font-size:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="font-weight:600;color:var(--text)">${brainEscape(a.name)}</span>
+            <span style="color:var(--text-muted);font-size:9px">${brainEscape(a.domain || '')}</span>
+          </div>
+          <div>${flagsHtml}</div>
+        </div>`;
+      }).join('');
+      container.innerHTML = `
+        <div style="margin-bottom:8px;font-size:10px;color:var(--text-muted)">${summaryHtml}</div>
+        ${appsHtml}
+      `;
     }
 
     async function brainRunDeep() {
