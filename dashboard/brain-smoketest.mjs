@@ -83,11 +83,35 @@ async function buildRealMarketingCache() {
     } catch (e) { analyticsApps[appDef.name] = { domain: appDef.domain, visitors: 0, pageviews: 0, error: e.message }; }
   }));
   // Revenue — smoketest doesn't need it for this validation run; leave empty
+  // SEO — hydrate from the seo_audits table (populated by the daily 1:30 AM
+  // cron) rather than running a fresh audit. Matches production cache shape
+  // { apps: { "AppName": { score, grade, issues } } } so ctx.seo populates.
+  const seoApps = {};
+  try {
+    const latestByApp = db.prepare(
+      `SELECT app_slug, score, grade, checks
+         FROM seo_audits
+        WHERE date = (SELECT MAX(date) FROM seo_audits sa2 WHERE sa2.app_slug = seo_audits.app_slug)`
+    ).all();
+    const slugToName = new Map(config.apps.map(a => [slugify(a.name), a.name]));
+    for (const row of latestByApp) {
+      const name = slugToName.get(row.app_slug);
+      if (!name) continue;
+      let issues = [];
+      try {
+        const checks = JSON.parse(row.checks || '[]');
+        if (Array.isArray(checks)) {
+          issues = checks.filter(c => c && c.status && c.status !== 'pass').map(c => c.message || c.name).filter(Boolean).slice(0, 5);
+        }
+      } catch {}
+      seoApps[name] = { score: row.score, grade: row.grade, issues };
+    }
+  } catch (e) { console.log('[smoketest] SEO hydrate failed:', e.message); }
   return {
     analytics: { apps: analyticsApps, totals: {}, timestamp: new Date().toISOString() },
     revenue: null,
-    seo: null,
-    async warm() { return { revenue: false, analytics: true, seo: false }; },
+    seo: Object.keys(seoApps).length ? { apps: seoApps, timestamp: new Date().toISOString() } : null,
+    async warm() { return { revenue: false, analytics: true, seo: !!Object.keys(seoApps).length }; },
   };
 }
 
