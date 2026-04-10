@@ -1,293 +1,251 @@
 # Session Handover
 
-**Date:** 2026-04-10 (Session 18)
-**Duration:** ~2 hours, driven by "keep going u decide" after reading session 17's handover
-**Goal:** Pick up from session 17's Marketing KB rollout and advance the next-highest-leverage work. Session picked three targets in sequence: (1) section-level KB retrieval, (2) persistence observability, (3) citation detection that actually works against paraphrased LLM output.
+**Date:** 2026-04-10 (Session 19)
+**Duration:** ~3 hours, driven by "u decide, keep going" throughout
+**Goal:** Pick up session 18's Marketing KB foundation and advance whatever was next. Actual trajectory: executed session 18's top-priority code items (citation detection for actions, UI panel, SEO investigation, Sonnet deep cycle), then pivoted mid-session when the user asked "is the KB the best in the world? if not make it" — and delivered a substantial KB expansion from 12 to 16 files grounded in named marketing books.
 
 ## Summary
 
-Session 18 took session 17's foundation — a 12-file Marketing Knowledge Base wired into the brain via stage-aware file selection — and turned it from "injected silently and hoped for the best" into **"injected with the right section, observable, and empirically validated.**" By the end of the session, we had quantitative evidence that the LLM is grounding its output in the KB: a real Haiku cycle on promoforge produced an analysis that literally said "pick ONE channel" (echoing the `pre-traction › "one channel at a time" rule` section that was injected), and the new `/api/brain/kb/usage` endpoint flagged the citation.
+Session 19 completed all remaining code-level next steps from session 18's handover (#2 citation detection → actions+hypotheses, #3 KB usage UI panel, #4 SEO investigation, #5 Sonnet deep cycle validation) and then took a user-requested detour that became the biggest win of the session: a KB content expansion with four new files grounded in real books (Rob Fitzpatrick's Mom Test, Aaron Ross's Predictable Revenue, Wes Bush's Product-Led Growth, Play Bigger / Crossing the Chasm). The KB went from 12 files/175 sections to 16 files/216 sections.
 
-The session had three concrete outputs and one surprise detour. **Output 1:** section-level retrieval — the brain now parses each KB file into H2-bounded sections (175 sections across 12 files), scores each section independently (file stage score + per-section keyword hits), and picks the best-scoring section per file. Two different pre-traction apps now get **different** section snippets instead of identical first-1400-chars dumps — promoforge gets `"one channel at a time"` while abschlusscheck (with zero revenue AND zero traffic) hits `kill-criteria-and-pivots › "three options: kill, pivot, persist"`. **Output 2:** `/api/brain/kb/usage` endpoint — scans recent briefs' persisted `context_json` and `analysis`, returns per-topic shown/cited counts, per-section hit frequency, per-app cite rate. No schema migration needed because `JSON.stringify(ctx)` was already persisting kb_snippets inside context_json from session 17. **Output 3:** smarter citation detection — the first naive version (exact substring match on section title) always returned false; iterated twice to a word-pool approach (topic slug + section title + curated KB_TOPIC_KEYWORDS) with 5-char prefix matching for simple plural/tense coverage. Validated against brief 23: correctly flags pre-traction as cited, correctly does NOT flag positioning as cited.
+Four commits shipped and pushed, plus one non-committed local-only fix: `9b15377` (citation detection now scans actions + hypotheses combined text), `7594b8d` (brain tab KB usage panel consuming `/api/brain/kb/usage`), `6d9df28` (smoketest hydrates SEO from `seo_audits` table — closes the handover's promoforge has_seo false alarm), and `a2d4fd9` (KB expansion to 16 files with new topic keywords and stage-scoring rules). Plus a local-only edit to `deploy.sh` to scp `brain-smoketest.mjs` into the VM build context, which had been a silent gap — every rebuild was removing the smoketest binary.
 
-**The detour:** early in the session I misdiagnosed a data-quality issue — I noticed that persisted briefs in the DB had no `traffic`/`revenue`/`seo`/`kb_snippets` keys, spent time investigating, and concluded this was a "marketingCache gap bug" worth flagging for next session. Then I found commit `f9f4af6` — round 8 had FIXED exactly this issue at 16:37 UTC today, and every brief in the DB was created BEFORE that fix shipped. No bug. Brief 23 (the real Haiku cycle I ran to validate) has `has_traffic: true` and correctly-populated kb_snippets. The whole stack works end-to-end. The lesson: **always check commit timestamps against brief timestamps before concluding there's a bug in persistence — a lot of today's "broken" state was just "pre-fix data still in the DB."**
+Real money was spent validating: a $0.0765 Sonnet 4.5 deep cycle on promoforge (brief 24) produced analysis text that LITERALLY contained the string "The KB is clear:" — the strongest possible empirical evidence that the KB is reaching the LLM output. Brief 24 also flipped both KB snippets to CITED under the new combined-text detector, and had `has_seo: true` for the first time (confirming the smoketest fix). Session 18's citation detector change (commit 9b15377) was also validated against brief 23 via a local comparison script: the `positioning` snippet flipped from false→true because the LLM grounded positioning concepts in action bodies that the old analysis-only detector didn't see.
+
+Mid-session the user asked about "bots with MCP Playwright creating accounts and subtly advertising our stuff" and I pushed back hard — sockpuppeting is ToS-violating on every platform, would get the entire portfolio banned, and the brain's own output (brief 23 + 24) is already saying the problem isn't more distribution, it's that 15 actions are sitting in "proposed" status unexecuted. No bots were built. Instead, the user redirected to the KB question and we went there.
 
 ## What Got Done
 
-### Section-level KB retrieval (commit `ae98477`)
+- [x] **Citation detection scans actions + hypotheses** (`9b15377`) — `/api/brain/kb/usage` endpoint's `detectKBCitation` now builds a combined text = analysis + hypothesis/rationale + action titles/bodies, not just the analysis column. Verified empirically against brief 23: combined text jumped from 587 to 9329 chars, and the `positioning` snippet flipped from false→true because the LLM discussed positioning in action bodies. 26 lines, no schema change, reused a prepared statement for per-brief action lookup.
 
-- [x] **`parseKBSections(content)` helper** — splits markdown by `^##\s+` H2 boundaries, captures pre-H2 content as `(intro)` section, drops sections with < 200 chars body as noise. Each section stores `title`, `body`, pre-lowercased `bag` for fast keyword matching.
-- [x] **`loadMarketingKB()` extended** — parses each file into sections at load time, logs `[brain-kb] loaded 12 knowledge base files (175 sections) from /app/marketing-kb`. Verified: 14 sections in pre-traction file alone, each 400-1100 chars.
-- [x] **`KB_TOPIC_KEYWORDS` hoisted to module scope** — was inline in `scoreKBRelevance`, now shared across scoring functions.
-- [x] **`extractKBCtxText(ctx)` helper** — builds a single ≤5000-char lowercased blob from recent_learnings + learnings + prior_briefs analysis_summary + open_actions titles + seo issues. This is the text the section scorer matches against.
-- [x] **`scoreKBRelevance(kbFile, ctx)` simplified** — now only computes file-level stage + action-kind score. File-level keyword scoring moved to section level.
-- [x] **`scoreKBSection(section, topic, ctxText)` new** — counts per-topic keyword hits in section.body; title hits weighted 2x. Returns `{score, hits}`.
-- [x] **`pickKBSnippets(ctx, max=2)` rewritten** — for each file: compute fileScore, iterate sections, keep the single best-scoring section per file (fileScore + sectionKw*3). Sort candidates by total across files. Dedupe by file (1 section max per file). Take top N. Fallback: positioning intro section if nothing scored.
-- [x] **Prompt rendering updated** — both `buildUserPrompt` and `buildUserPromptDeep` emit `### KB: <title> [<topic>] › <section_title>` so the LLM sees which part of the file it's grounding in.
-- [x] **`brain-smoketest.mjs` extended** — `--dry` output includes `section_title` alongside topic/title/signals/excerpt_length.
+- [x] **Brain tab KB usage UI panel** (`7594b8d`) — Added `brainRenderKBUsage()` rendering a compact panel beneath the existing Marketing KB list: summary card (briefs-with-KB / scanned · overall cite rate color-coded green/orange/muted) + top 6 topics with mini cite-rate bars. Wired into the existing `brainLoad()` Promise.allSettled fetch cluster. Used `var(--green)` and `var(--orange)` after discovering `var(--good)` and `var(--warn)` are referenced elsewhere but NOT defined in the CSS (silent fallback to browser default).
 
-### `/api/brain/kb/usage` telemetry endpoint (commit `3b7fdba`)
+- [x] **Brain smoketest SEO hydration** (`6d9df28`) — `brain-smoketest.mjs:buildRealMarketingCache()` was explicitly setting `seo: null`, which made every smoketest-produced brief have `has_seo: false` regardless of whether the production DB had SEO data. Fixed by reading the latest row per app from the `seo_audits` table, matching slugified app_slug back to config.apps[].name, and building a cache of the same shape the production `refreshSeoCache()` produces. Brief 24 (Sonnet deep) confirmed `has_seo: true` with score 100, grade A.
 
-- [x] **Scans last 30 days of briefs** (configurable 1-90 days, default 30, capped at 200 rows).
-- [x] **Extracts `kb_snippets` from `context_json`** (already persisted by session 17 via `JSON.stringify(ctx)` in `persistBrief`).
-- [x] **Citation detection** — per snippet, calls `detectKBCitation(topic, section_title, analysisLower)` against the brief's analysis text.
-- [x] **Aggregates:** per-topic `{shown, cited, cite_rate, distinct_apps, last_brief_id, last_at}`; top 30 sections by `shown`; per-app `{briefs_with_kb, briefs_cited}`.
-- [x] **Returns:** `{window_days, briefs_scanned, briefs_with_kb, briefs_with_citation, overall_cite_rate, topics, top_sections, apps}`.
-- [x] **Route ordering fix** — `/api/brain/kb/usage` MUST come before `/api/brain/kb/:topic` in Express, otherwise the parameterized route matches `:topic='usage'` and returns 404. Comment in code documents this.
+- [x] **Investigated promoforge `has_seo: false`** — Session 18's handover flagged this as a potential bug worth investigating. Traced the full SEO path: `seo_audits` DB has daily promoforge rows (score 100/A), `refreshSeoCache` populates `cachedSEO.apps["PromoForge"]` via the 1:30 AM cron + on-boot warm, brain reads `marketingCache?.seo?.apps?.[appDef.name]`. Production path is correct. The "bug" was purely that `brain-smoketest.mjs:89` hard-coded `seo: null`, so every smoketest-produced brief appeared broken. NOT a production bug. Fixed the smoketest instead.
 
-### Smarter KB citation detection (commit `d9c38c4`)
+- [x] **Ran Sonnet deep cycle on promoforge** (brief 24, $0.0765, 113s, 8883 tokens) — Validates section-level KB works in the deep prompt path (`buildUserPromptDeep` + `buildSystemPromptDeep`), not just Haiku. The analysis text literally said "The KB is clear: at $0 MRR you need 10 paying customers, not a marketing plan" — direct citation. 8 actions, 3 auto-executed. Both KB snippets detected as CITED under the combined-text detector. `has_traffic: true`, `has_seo: true`, `kb_snippets: 2`. End-to-end validation.
 
-- [x] **`KB_CITATION_STOPWORDS` constant** — 60+ generic English words (the, this, with, been, would, etc.) filtered out of signal pools.
-- [x] **`detectKBCitation(topic, sectionTitle, analysisLower)` final version** — builds a signal-word pool from topic slug (hyphens→spaces) + section title + curated `KB_TOPIC_KEYWORDS[topic]`. Filters stopwords + words < 4 chars. Dedupes. For each distinct word: exact substring match OR 5-char-prefix match (catches `channels` → `channel` plurals). Returns `true` if 2+ distinct words hit. Also short-circuits true if the full topic phrase (e.g. "pre traction") appears verbatim.
-- [x] **Validated against brief 23** — `pre-traction / "one channel at a time" rule` → **CITED** (analysis contains "channel", "zero", "outreach"); `positioning / "What positioning actually is"` → **not cited** (analysis doesn't mention positioning — correct true negative).
+- [x] **KB expansion: 12 → 16 files with named frameworks** (`a2d4fd9`) — Four new files, each grounded in real books and H2-sectioned to match the existing retrieval path:
+  - `13-customer-discovery.md` (121 lines) — Rob Fitzpatrick's *The Mom Test* rules, Clayton Christensen's JTBD, Teresa Torres. The switch-interview technique, bad vs good questions, anti-data, 5-interview rule.
+  - `14-b2b-outbound.md` (129 lines) — Aaron Ross's *Predictable Revenue*. ICP definition, 10/5/1 list rule, 6-element cold email anatomy, 3-7 touch sequence, reply rate benchmarks, "referral not interest" qualifier, CRM discipline.
+  - `15-plg-motions.md` (146 lines) — Wes Bush's *Product-Led Growth*. Three motions (free trial / freemium / reverse trial), Triple-A framework (Acquisition / Activation / Adoption), activation cheat sheet, value-metric pricing, PLG failure modes.
+  - `16-category-design.md` (117 lines) — *Play Bigger* + Geoffrey Moore's *Crossing the Chasm* + Andy Raskin's strategic narrative. Deliberately includes a hard "don't do this as an indie" warning since 90% of bootstrappers shouldn't attempt category creation.
+- [x] **KB_TOPIC_KEYWORDS + scoreKBRelevance updated** — Added 4 new topic entries to `KB_TOPIC_KEYWORDS` (customer-discovery, b2b-outbound, plg-motions, category-design) so the citation detector recognizes them. Added 5 new stage-scoring rules to `scoreKBRelevance` so the new files land at the right app contexts (pre-traction gets customer-discovery + b2b-outbound, traffic-without-paying gets plg-motions + customer-discovery, etc.).
 
-### Session 17 handover commit (commit `09aa37d`)
+- [x] **Verified 16 files / 216 sections load** via dry smoketest. Tested on 4 apps (promoforge, lohncheck, headshot-ai, bannerforge, sacredlens). BannerForge now picks `customer-discovery` as its #2 snippet instead of defaulting to pre-traction + positioning — proving the new files ARE being scored and retrieved, not just loaded.
 
-- [x] Committed the session 17 HANDOVER.md that was uncommitted in the working tree when session 18 started.
-
-### Validation: real Haiku cycle on promoforge
-
-- [x] **Brief 23 created** — `docker exec dockfolio-dashboard node brain-smoketest.mjs promoforge` (smoketest builds its own real marketingCache via `buildRealMarketingCache()`).
-- [x] **Cost: $0.0223** for 6600 tokens, 44 seconds.
-- [x] **175 sections loaded** from 12 KB files on boot — confirmed via `[brain-kb] loaded 12 knowledge base files (175 sections)` log line.
-- [x] **Persisted context verified** — `has_traffic: true`, `has_revenue: false` (promoforge has no Stripe), `has_seo: false` (no SEO cache entry for promoforge), `kb_snippets` contains both sections with titles + signals.
-- [x] **LLM analysis literally echoed the KB**: *"You need to pick ONE channel (direct outreach to German shop owners), execute it for 4 weeks, and get to first-customers or prove the hypothesis wrong."* — direct paraphrase of the `pre-traction › "one channel at a time"` section content.
-- [x] **Generated 6 actions**, 2 auto-executed as learnings. Actions include:
-  - p10: "Kill the 8 open actions; reset to ONE channel: direct email outreach" (references current open-action backlog + KB one-channel principle)
-  - p10: "Curate 50 German Shopify shop owners from 3 sources; build cold email + free video list" (direct outreach, the pre-traction KB's top tactic)
-  - p6: "4-week kill criteria: Measure THIS to decide pivot or double-down" (the `kill-criteria-and-pivots` file wasn't even in the injected snippets but the concept bled through from general training)
-
-### Git state
-
-- [x] **4 commits pushed to origin/master:** `09aa37d`, `ae98477`, `3b7fdba`, `d9c38c4`
-- [x] **Working tree clean** aside from this handover file
-- [x] **119/119 unit tests pass** after every commit
+- [x] **Local-only fix: `deploy.sh` scp's brain-smoketest.mjs** — Discovered mid-session that `brain-smoketest.mjs` wasn't in the container at all (commit tracked in git, but the local Windows deploy.sh uses explicit scp and didn't list it). Every rebuild was silently wiping it. Added to the scp list. NOT committed because `deploy.sh` is gitignored per CLAUDE.md — this edit persists only on the local workstation and will need to be re-applied if this repo is cloned fresh.
 
 ## What's In Progress
 
-Nothing. All work shipped, deployed, and pushed. Working tree clean.
+Nothing. All work shipped, deployed, pushed. Working tree clean.
 
 ## What Didn't Get Done (and Why)
 
-- **Running a Sonnet deep cycle with section-level KB** — Deferred. Session 15 spent $0.22 validating deep cycles; session 18 already burned $0.022 on the Haiku validation which is enough proof for this session. Monday 6 AM weekly cron is the next natural deep cycle and will cost $0.08-0.15 depending on app. Worth watching the output for KB citations in a Sonnet context.
+- **Watching the 20:15 cron cycle with the new 16-file KB** — Deferred. The cron fires every 4h at :15 and we deployed at ~21:00 UTC, so the next cron window is tomorrow. First production validation brief of the 16-file KB will land at 00:15 or 04:15 UTC. Worth checking next session: new briefs should have `kb=2` and topics that might include customer-discovery / b2b-outbound / plg-motions.
 
-- **UI panel consuming `/api/brain/kb/usage`** — Deliberately skipped. The endpoint is the foundation; a Brain tab panel showing topic citation rates would take ~30 minutes and add visible value, but I prioritized pushing the existing commits over adding more layers. Worth doing next session — the data is ready.
+- **Integration test for `/api/brain/kb/usage` route ordering** — Session 18's Known Issues flagged this as worth adding: the `/api/brain/kb/usage` route MUST come before `/api/brain/kb/:topic` in Express, and no test catches it if someone reorders. I started on this and switched to the KB expansion when the user asked. ~30 lines in `dashboard/server.test.js` to spin up an ephemeral app and hit both endpoints. Still worth doing next session.
 
-- **Citation detection for action bodies + hypotheses** — Currently only scans the `analysis` column. But the LLM often cites principles in action rationales and hypotheses more than in the top-level analysis summary. Looking at brief 23, the strongest KB citation was actually in an ACTION title ("Kill the 8 open actions; reset to ONE channel") — which my detector currently misses because it only scans `analysis`. Worth extending.
+- **Tuning section-scoring to prefer primary content over caveat sections** — Bannerforge's dry smoketest picked `customer-discovery › "When customer discovery is NOT useful"` as its #2 snippet. The scorer chose the caveat section because its title contains "customer", "discovery", and "useful" — all keywords. The main content sections ("The three Mom Test rules", "Bad questions vs good questions") don't contain the high-keyword-density phrases, so they scored lower. This is ironic but not broken. Fix would be to down-weight caveat/negation sections, or to add section-level manual stage hints. Not shipped — wait for more production data before tuning.
 
-- **KB section-level retrieval improvements** — My bigram-free per-word scoring works but could be sharper. Ideas: (a) weight section title matches 3x not 2x, (b) score section bodies by TF-IDF not raw keyword count, (c) use section H3 subdivisions for very long sections. Premature optimization — wait for real usage data before tuning.
+- **Actual brain-smoketest.mjs path to validate the 16-file KB against a real Haiku cycle** — I didn't run a real (non-dry) cycle with the new files loaded because the last LLM validation ($0.077 Sonnet) was on the 12-file KB. A $0.022 Haiku cycle on bannerforge with the new files would validate that (a) the new files make it into the prompt, (b) the LLM cites them by name, and (c) the citation detector recognizes the new topics. Didn't do it because I was worried about burning more money in the same session without user direction. Would take 2 minutes and ~$0.02 next session.
 
-- **Citation rate tracking over time** — The endpoint gives a snapshot but no historical trend. Would be useful to see "KB cite rate was 40% last week, 60% this week" to detect drift. Needs a tiny time-series or repeated snapshot table. Low priority.
+- **Expanding KB coverage further** — "Best in the world" is still aspirational. What we shipped is a respectable professional starter kit grounded in named books, which is much better than the previous 12 files of generic advice, but NOT best-in-class. The closing note in the session listed 5 things that would make it truly world-class (real case studies with names/numbers, domain-specific branches, primary-source quotes, failure anthology, quarterly updates). 20-40+ hours of work. Scoped out as a multi-session roadmap.
 
-- **Expanding KB coverage** — Session 17's "optional more files" (portfolio-strategy, community-building, b2b-outbound, PLG). Still optional. No evidence yet that the current 12 files are insufficient.
+- **Bot / sockpuppet automation for "subtle advertising"** — User asked for this; I refused and explained why (ToS violations, brand damage, not the actual bottleneck). Instead offered to turbocharge the legit social autopilot that already exists. User redirected to the KB question before I acted on that counter-offer. Still available as a next-session task if the user wants: wire `content_queue` / `social_posts` more aggressively into the brain's auto-execution path, add more platforms, build a higher-volume legitimate content loop.
 
-- **Triaging the ~85 open brain actions** — UNCHANGED from every prior handover. Human task. Now with KB-grounded cycles starting to produce measurably different output (brief 23 proposed a DIFFERENT kind of action — "kill the existing backlog" — than any session 17 or earlier brief), draining the backlog is more valuable.
-
-- **Activating `BRAIN_MORNING_EMAIL`** — UNCHANGED. 5 min user action.
-
-- **Fixing SEO cache not populated for promoforge** — Brief 23 showed `has_seo: false`. Not sure if this is expected (some apps don't get SEO audits) or a cache gap. Noticed but not investigated.
-
-- **Session 13/14/15/16/17 carry-overs** — all unchanged, all still deferred.
+- **All session 13-18 carry-overs** — Unchanged: triage ~85 open brain actions (human task), activate `BRAIN_MORNING_EMAIL` (5 min), historical cite rate trending (optional), per-app KB overrides (optional), multiple sections per file (optional).
 
 ## Architecture & Design Decisions
 
 | Decision | Chosen Approach | Why | Alternatives Considered | Why Rejected |
 |----------|----------------|-----|------------------------|--------------|
-| KB section parsing | Split on `^##\s+` at line start; include pre-H2 content as `(intro)`; drop sections < 200 chars | Markdown H2 is a natural semantic boundary. Each section in the existing KB files is 400-1500 chars — perfect for injection. Dropping short sections removes empty headers and trivial transitions | H3-level; sentence-level with overlap windows; LLM-generated section summaries | H3 over-fragments (too many tiny chunks). Sliding windows lose semantic coherence. LLM summaries cost money per cycle and can't be cached as easily |
-| Section scoring | Best section per file via `fileScore + sectionKw*3`; dedupe by file (max 1 per file) | Prevents all top picks from coming from the same file (which would bias the output toward a single KB area). Different apps get differentiated snippets — the whole point | Top-N sections globally without file dedup; top-1 section across all files; weighted ensemble of all files | Without dedup, a heavily-weighted file dominates. Top-1 loses diversity. Ensemble bloats prompt |
-| Where to persist kb_snippets | **Nowhere new** — already inside `context_json` via `JSON.stringify(ctx)` in `persistBrief` | Session 17's existing persistence is lossless. Adding a separate `kb_citations` column would require a migration AND duplicate data. JSON blobs are free | New `kb_snippets_json` column; separate `brain_kb_usage` table; logged to console only | Migration cost. Duplication. Console-only isn't queryable |
-| Citation detection strategy | Word-pool with 5-char prefix matching, 2+ hit threshold | Exact substring match never worked (LLM paraphrases). Word-pool catches paraphrase. 5-char prefix handles simple plurals (channels→channel). 2+ hits reduces false positives to acceptable rate for telemetry | Exact substring; regex patterns; embedding similarity; LLM-based citation scoring | Exact misses everything. Regex is brittle. Embeddings add infra. LLM-as-judge costs $0.01 per brief |
-| Citation pool composition | topic slug words + section title words + `KB_TOPIC_KEYWORDS[topic]` | Each source adds different signal: topic is the categorical label, section title is the specific principle, keywords are the curated vocabulary. Union catches paraphrase across all three levels | Just section title; just topic keywords; TF-IDF over section body | Section title alone misses topic-level citations. Topic keywords alone miss section-specific paraphrase. TF-IDF is heavyweight for small strings |
-| Route ordering for `/api/brain/kb/usage` | Place BEFORE `/api/brain/kb/:topic` | Express matches first-match-wins on parameterized routes; if `:topic` is before, Express treats `usage` as a topic value and returns 404 | Regex constraints on the `:topic` param; a separate `/api/brain/kb-usage` (no slash) | Regex constraints make route definition opaque. Separate path forks the URL space awkwardly |
-| Stopword list size | ~60 common English words, no POS tagging | Catches the common noise (the, this, would, been) while staying simple. A longer list risks filtering meaningful terms | Empty list; 200+ word list; external stopword package | Empty lets too many false positives. 200+ filters things like "rule" and "time" which are MEANINGFUL in section titles. External package is overkill for 60 words |
-| Prefix match length | 5 chars | Captures common plurals (channels→channel), past tense (launched→launch), -ing forms (selling→sell). Shorter prefixes over-match (4 chars "chan" matches "chance"). Longer (6+) misses short-stem words | 3-char prefix; 6-char prefix; Porter stemmer | 3 over-matches. 6 misses "trail→train" edge cases but loses useful short stems. Porter adds a dependency |
-| Validation approach | Real Haiku cycle ($0.022) over dry-mode iteration | Dry mode proves context assembly, but only a real LLM call proves the system prompt rule ("cite KB topic by name") actually changes behavior. $0.022 is cheap insurance | Dry mode only; Sonnet deep cycle ($0.08); mocked LLM response | Dry misses the empirical validation. Sonnet is 4x the cost for similar signal. Mocked responses are worthless for testing prompt behavior |
+| Where to extend citation detection | Build combined text in the endpoint loop, not in `detectKBCitation` itself | Keeps the detector's signature stable (one text arg) and the telemetry endpoint is the only caller that needs combined context — no need to propagate changes further | Change `detectKBCitation` to accept multiple text fields; fetch actions eagerly into a join | Signature change would ripple; join would duplicate rows |
+| Which action fields to include in combined text | `title` + `body` (schema has no `rationale` column) | Action `body` often contains the actual draft content for `.draft` kinds and the rationale for outreach/research kinds. Title + body captures everything that's actually persisted | Include `kind`; include `outcome`; include `impact`+`effort` labels | Kind/outcome/impact are categorical, not content — they'd add noise to keyword matching |
+| Smoketest SEO hydration source | Read `seo_audits` DB rows directly, don't run a fresh audit | The daily 1:30 AM cron populates `seo_audits` via `upsertSEOAudit.run(slug, date, score, grade, checks_json)`. Reading the latest row per app is a ~5ms query; running a fresh audit would take 30+ seconds and hit live sites | Run fresh `auditSEO()` in smoketest; import the marketing route's `refreshSeoCache` | Fresh audit slows smoketest badly; import creates circular dep — marketing.js imports brain-smoketest? no |
+| Smoketest SEO issues field | Derive from `checks` JSON, filter status !== 'pass', take first 5 | Production shape has `issues: [...]` but DB only persists `checks`. Deriving means smoketest output matches production consumer expectations | Leave issues empty; persist a separate `issues_json` column | Empty issues would make ctx.seo incomplete; new column needs a migration |
+| KB expansion scope — 4 files vs. 10 vs. 2 | Four new files | Enough to move the needle (33% more files, 23% more sections) without spending 3+ hours on one topic each. Each file is 120-150 lines — substantial but not encyclopedia-length. Two wouldn't meaningfully expand coverage; ten is beyond one-session scope | 2 new + 2 upgraded; 10 new files | Upgrading existing was moot — 01-positioning already has Dunford's framework, 08-distribution already has Bullseye. 10 files = 1500+ lines of writing, won't finish in the session |
+| KB file selection | customer-discovery, b2b-outbound, plg-motions, category-design | These four cover the biggest structural gaps: there was ZERO content on user interviews, ZERO on cold email frameworks, ZERO on self-serve funnels, ZERO on category positioning. Every other topic had at least some existing coverage | Community building; portfolio strategy; onboarding UX | Community building is a subset of distribution-channels (already covered); portfolio strategy is niche to Dockfolio's situation; onboarding UX overlaps plg-motions and conversion-and-landing-pages |
+| KB topic keyword lists for new files | Include both generic terms and author-specific jargon | "mom test", "jtbd", "predictable revenue", "reverse trial", "bowling alley" — these are citation fingerprints. When the LLM paraphrases, it often retains these specific terms even when rewriting the surrounding prose | Only generic terms; only jargon; stemmed versions | Generic terms over-match; jargon alone misses natural paraphrase; stemming adds a dependency |
+| Stage-scoring rules for new topics | Map each new topic to 1-2 specific app states, not every state | Prevents the new files from dominating every brief. customer-discovery triggers on pre-traction + traffic-no-paying; b2b-outbound triggers on pre-traction + low mrr; plg-motions triggers on traffic-no-paying + early-traction; category-design triggers only on pre-traction + high traffic + zero revenue | Add to all stages; add no stage hints (let section kw do the work) | All stages dilutes stage differentiation; no hints means the new files never outscore the existing stage-anchored ones |
+| Whether to edit existing `01-positioning.md` to add Dunford's framework | Didn't — checked and it already has Dunford's 10-step exercise in detail | I'd pitched "upgrade positioning with Dunford" as part of the proposal, then read the file and found lines 18-26 already contain "The April Dunford framework (distilled)" with the full 6-step breakdown. My proposal was wrong; the existing file was already good | Rewrite anyway; add sections; leave alone | Rewriting good content wastes effort; adding sections to an already-thorough file bloats it; leaving alone is correct |
+| How to handle user's bot/sockpuppet request | Hard refuse with specific reasoning + offer legitimate alternatives | ToS violations on every platform (Reddit, X, LinkedIn, HN, Product Hunt) would get the entire portfolio banned. Brand damage is asymmetric — small upside, catastrophic downside. Brain briefs 23+24 already say the problem isn't distribution, it's that 15 actions sit unexecuted | Build it anyway; build a "stealth mode" version; suggest a less risky variant | Building would violate my own guardrails and actively harm the user. "Stealth" is just sockpuppeting with a euphemism. Less risky variant already exists — the legit social autopilot is underused |
+| Whether to commit deploy.sh change | No — it's in .gitignore per CLAUDE.md | The change (adding brain-smoketest.mjs to the scp list) only affects the local workstation. Committing would fail cleanly due to gitignore; bypassing gitignore would violate the CLAUDE.md guidance | Commit it; document in HANDOVER.md | Committing gitignored files is explicitly against CLAUDE.md; HANDOVER docs is what I did |
 
 ## Mental Model
 
-### The KB has become self-validating
+### The KB is now a content problem, not an infrastructure problem
 
-Before session 18, the KB was a bet: **"if we inject curated marketing principles into the prompt, the LLM will produce better output."** Session 17 shipped the bet without validating it. Session 18 took the bet and proved it with numbers: brief 23's analysis literally echoes the injected KB section, the citation detector flags it, and the proposed actions reflect principles from the KB ("pick ONE channel", "kill the backlog").
+Through session 18 the KB story was about infrastructure: load files, parse sections, score relevance, inject into prompts, detect citations, expose telemetry. Session 19 finished the code-level loose ends (citation-detection-for-actions, UI panel, smoketest fidelity fix) and then pivoted to content. That pivot is the important mental shift: **the plumbing is done; the remaining work is writing better KB content**.
 
-This matters because **unvalidated infrastructure is indistinguishable from broken infrastructure** — session 17 could have shipped a subtly-broken KB integration (empty snippets, wrong file selection, silent cache miss, section title typos in the prompt) and the only way to notice would be "brain output doesn't feel different." Session 18 installed the feedback loop: deploy → observe → measure → adjust. The deploy→observe step used to mean "wait for cron, skim the dashboard, hope." Now it means "check `/api/brain/kb/usage`, see the cite rate trend, spot-check specific briefs."
+Every future KB improvement is now a content decision, not an engineering decision. Adding a new file means: write the markdown, add to `KB_TOPIC_KEYWORDS`, add 1-2 stage-scoring rules, deploy. That's it. No schema migrations, no scoring framework changes, no prompt engineering. The content is the product, the infrastructure is finished.
 
-### Section-level retrieval is a quality multiplier for small KBs
+This matters because it changes who can contribute. Writing a marketing KB file requires marketing expertise, not engineering expertise. The next session could hand a stack of Lenny's newsletter articles and Reforge reports to the user and ask "which of these should become KB files?" — and the mechanical answer is "any of them, as long as they're H2-sectioned." The creative answer is much harder.
 
-The upgrade from file-level to section-level retrieval is conceptually simple but has a disproportionate impact at the current KB size. 12 files × ~13 sections each = 156-175 selectable chunks. At file level, 2 different apps in the same stage bucket got identical picks (session 17's `pre-traction` + `positioning` for both promoforge and abschlusscheck). At section level, they get different picks because the per-section keyword scoring adds a second differentiator beyond the stage bucket.
+### Why the existing stage-scoring rules weren't extended to all apps
 
-The win is most visible when apps are in the same stage but have different specific problems. Consider two pre-traction apps:
-- **promoforge**: has open actions in 5 different kinds, needs focus → gets `pre-traction › "one channel at a time" rule`
-- **abschlusscheck**: has ZERO revenue AND ZERO traffic → hits the kill-criteria stage signal, gets `pre-traction › "mindset shift"` + `kill-criteria › "three options: kill, pivot, persist"`
+I deliberately did NOT add stage-scoring rules to every possible app state for the new topics. The reason: the original session 18 insight was that **section-level retrieval + file-level stage scoring gives you different snippets for different apps in the same stage**. Adding too many triggers for the new files would make every pre-traction app get the same 4 topics (pre-traction, positioning, customer-discovery, b2b-outbound) and we'd be back to the uniformity problem.
 
-Same stage bucket, different advice, same KB. That's the upgrade.
+Instead, the new files have ONE or TWO specific triggers each:
+- `customer-discovery` = pre-traction (25) OR traffic-without-paying (35)
+- `b2b-outbound` = pre-traction-with-zero-revenue (25)
+- `plg-motions` = traffic-without-paying (30) OR early-traction (20)
+- `category-design` = pre-traction-with-high-traffic-zero-revenue (20)
 
-### Why citation detection matters more than it seems
+This preserves the file-selection diversity that was session 17/18's win. BannerForge (22 visitors_30d, pre-traction) gets pre-traction + customer-discovery because its ctx text happens to have high customer-discovery keyword density. Promoforge (11 visitors_30d, pre-traction) stays on pre-traction + positioning because the new files don't outscore positioning for its specific ctx. Different apps, different picks — exactly what section-level retrieval is for.
 
-A measurable cite rate is not the same as "the KB is working" — it's also not worth chasing citation rate as a KPI. But it IS the single best proxy we have for "did the LLM ground its output in the injected reference material." If the cite rate is 0%, something is wrong (prompt rule too soft, section excerpts too short, topic keywords too generic, LLM ignoring reference material entirely). If the cite rate is 90%+, the LLM might be over-citing in a rote way and producing formulaic output. The sweet spot is probably 30-60% — enough that the reference material is influencing output, not enough that every brief reads like a KB book report.
+### The "has_seo false" ghost hunt, part 2
 
-Brief 23's citation (1/2 sections cited) is promising: 50% rate on a single brief, with the cited section being the stage-matched one (pre-traction) and the non-cited section being the secondary pick (positioning, which genuinely wasn't the topic of the analysis). Exactly the pattern you want: the brain cites principles when they're relevant, ignores them when they aren't. Watch for drift.
+Session 18's handover said "fix SEO for promoforge" as a next-step investigation. Session 19 found it was ANOTHER ghost — every brief in the DB with `has_seo: false` either predated round 8's 16:37 fix (the session 18 ghost) OR was produced by the smoketest, which explicitly set `seo: null` (the session 19 ghost). Production has been correct the whole time.
 
-### The persistence shortcut
+The lesson generalizes: **when investigating a "broken" field in persisted data, check EVERY write path that could have produced that data, not just the one you think is running**. Session 18 learned this lesson with commit timestamps vs brief timestamps. Session 19 learned it again with smoketest vs cron. The smoketest is a second write path into the `marketing_briefs` table, and its ctx assembly differs from the production cron path. Any brief row could have come from either.
 
-The biggest time-saver in session 18 was realizing that `context_json` already persisted the entire ctx object via `JSON.stringify(ctx)` from session 17. This meant the telemetry endpoint didn't need a schema migration, a new column, or any backfill work — it just needed to parse what was already there. **Lesson: before adding persistence, check if something else is already serializing the data you need.** JSON blobs get a bad rap for being unqueryable, but for telemetry that runs once per HTTP request, they're perfectly adequate.
+Mitigation: the smoketest now mirrors the cron path more faithfully (SEO hydration from DB, already had traffic via analytics fetch). Fidelity gap is smaller. Not zero — the smoketest still doesn't hit Stripe for revenue — but good enough that ghost hunts should be less frequent.
 
-### The false alarm was instructive
+### Why the bot/sockpuppet refusal matters beyond "it's against the rules"
 
-Early in the session I spent 20 minutes investigating a "marketingCache gap bug" that turned out to be a ghost: every brief in the DB predated round 8's fix, so they all looked broken when actually the current code was fine. The specific confusion was:
-1. I inspected the latest brief (id 22, created 16:25 UTC)
-2. Saw `traffic/revenue/seo/kb_snippets` missing from context_json
-3. Concluded "the running brain isn't persisting these fields"
-4. Didn't check the commit-time vs brief-time correlation
-5. Found round 8's fix committed at 16:37 UTC — 12 minutes AFTER brief 22 was created
-6. Realized the DB had no post-fix briefs at all
-7. Ran a real cycle to produce brief 23 → `has_traffic: true`, all fields present
+The user's ask was economically rational from their perspective: "my apps need to be seen, can't we automate this subtly?" The problem is that "subtly" is doing a lot of work in that sentence. ToS detection on modern platforms is not subtle-resistant. Reddit bans domains, not just accounts. Once `promoforge.app` is on Reddit's spam list, it never comes off, and every legitimate mention of PromoForge gets auto-removed — including genuine user recommendations.
 
-The lesson generalizes: **when investigating "why is this broken in production," always correlate the "broken" data's timestamp against the relevant commit's timestamp. Pre-fix data in a post-fix container is a common gotcha.** Round 8 landing the same day as session 17 and session 18 made this collision unusually likely.
+More importantly: **brief 23 and brief 24 both said the same thing independently**. Both briefs, grounded in the KB, said the bottleneck is not distribution — it's execution. 15 proposed actions sitting in the queue, zero executed. The brain's own output was pointing at the exact problem that bot distribution wouldn't fix. Building the bot would have been building a faster way to avoid the real work.
+
+This is a pattern to watch for in future sessions: **when the user asks for a force-multiplier on something the brain is already saying isn't the bottleneck, push back with the brain's own evidence**. The brain's output is, at this point, a second voice in the room that the user might not be fully hearing.
+
+### The KB is not "the best in the world" and that's fine
+
+My final note to the user was honest: the 16-file KB is "a respectable professional starter kit," not best-in-class. What would make it best-in-class is 20-40+ hours of content work — real case studies with names and numbers, domain-specific branches, primary-source quotes, a failure anthology, and quarterly updates. That's a project, not a task.
+
+The value of naming the gap explicitly: the next session (or the user) can attack it incrementally without pretending the current state is finished. Each 2-hour content session can add 1-2 case studies, fix 1-2 files with weaker content, or add 1 new domain-specific file. A slow-compounding improvement beats a one-shot "make it perfect" attempt.
 
 ## Known Issues & Risks
 
-- **Citation detector false-positive rate untested at scale** — Brief 23 gave one clean positive + one clean negative, but that's n=2. With more briefs, the detector might flag citations that aren't really there (e.g. the word "channel" appears in many marketing analyses regardless of whether the channel-section was injected). Mitigation: watch `/api/brain/kb/usage` cite rate trend; if it's implausibly high, tighten the threshold from 2→3 hits.
+- **BannerForge KB selection picks the caveat section** — BannerForge's dry smoketest currently picks `customer-discovery › "When customer discovery is NOT useful"` as its #2 snippet because the section title happens to contain the high-density keywords. This is ironic but not broken — the caveat section IS valid content — and the fix (down-weighting negation sections, stronger title weighting, etc.) is scoring tuning that should wait for real cron data. Watch production cron briefs: if multiple apps end up grounded in caveat sections instead of primary content, tighten the scoring.
 
-- **`has_seo: false` for promoforge** — Brief 23's context had no SEO entry. Not sure if this is expected (some apps don't get SEO audited) or a cache gap. Session 16 round 2 fixed "SEO cache never warmed" so this SHOULD be populated. Worth a quick investigation next session: `curl https://admin.crelvo.dev/api/marketing/seo?url=promoforge.app` to see if the audit runs on-demand, then check if the cron warm is populating.
+- **Smoketest → brain-smoketest.mjs fragility** — The local-only `deploy.sh` edit is the only thing ensuring `brain-smoketest.mjs` ends up in the container. A fresh clone of this repo on a different machine will silently lack this edit (deploy.sh is gitignored), and smoketest runs inside the container will fail with `Cannot find module '/app/brain-smoketest.mjs'`. Mitigation: either (a) commit the deploy.sh change via a documented override, (b) add `brain-smoketest.mjs` to the `dashboard/Dockerfile` `COPY` list (tracked), or (c) move the smoketest to a path that's already covered by existing copies. Option (b) is the cleanest — one-line change to `dashboard/Dockerfile` would permanently fix this.
 
-- **Citation detection only scans `analysis`** — The strongest KB-grounded content in brief 23 was actually in the action title "Kill the 8 open actions; reset to ONE channel" which my detector doesn't look at. This means `/api/brain/kb/usage` under-counts citations. Fix: parse `hypotheses_json` + join action titles/bodies into the text scanned. Medium priority.
+- **New KB files haven't been validated against a real Haiku cycle** — Dry smoketest proves the files load and the scorer picks them up, but no LLM has yet generated a brief using the 16-file KB. The next cron cycle (20:15 / 00:15 / 04:15 UTC) will be the real validation. If the LLM's output doesn't cite any of the new topics by name over 10+ briefs, something is subtly wrong in how the new file content reaches the prompt. Command to check: `curl https://admin.crelvo.dev/api/brain/kb/usage?days=3` after cron has run a few cycles; look for non-zero `shown` counts on customer-discovery, b2b-outbound, plg-motions, category-design.
 
-- **Session 17's fallback excerpt handling** — When no section scores above 0, `pickKBSnippets` falls back to the positioning file's intro section. That's fine for initial bootstrapping but means every app with bizarre context signals gets positioning advice regardless of actual need. Watch for apps that keep getting the fallback when they should be getting something else.
+- **Route ordering fragility for `/api/brain/kb/usage`** — Still unchanged from session 18's Known Issues. No test catches a reorder. Should add a test in `dashboard/server.test.js` that hits `/api/brain/kb/usage` and asserts a 200 JSON shape (not a 404 from the `:topic` handler). ~20 lines.
 
-- **Route ordering fragility** — The comment in the code documents that `/api/brain/kb/usage` must come before `/api/brain/kb/:topic`, but a future session reorganizing routes could break this silently. No test catches it. Mitigation: add an integration test that hits `/api/brain/kb/usage` and asserts a 200 with a JSON shape (not a 404 from the :topic handler).
+- **Citation detector false-positive rate at scale still untested** — Session 18's concern. Session 19 added one more data point (brief 24: both topics CITED, and they genuinely were — "the KB is clear" is unambiguous grounding). Still n=4 validated citations total. If `/api/brain/kb/usage` starts reporting implausibly high cite rates (> 70% sustained), tighten the 2-hit threshold to 3.
 
-- **Section matching is case-sensitive in code but case-insensitive in signal** — I lowercased the bag and ctx text so matching is effectively case-insensitive, but a future editor of the KB files could break things by using atypical casing. Low risk.
+- **The `deploy.sh` vs committed Dockerfile asymmetry is a landmine** — Local `deploy.sh` scp's files to `/home/deploy/appmanager/dashboard/`, then docker builds from there using `dashboard/Dockerfile`. The Dockerfile has `COPY . .` which copies everything in the context — so any file that landed via scp ends up in the image. But deploy.sh only scp's a hardcoded list. The mismatch is invisible: you THINK the Dockerfile is in control, but actually deploy.sh's scp list determines the build context. Anyone editing Dockerfile to COPY a new file won't get it on the VM unless they ALSO edit deploy.sh. Fix: either add a wildcard scp (`scp -q "$LOCAL_DIR/"*.{js,mjs,json} ...`) or commit brain-smoketest.mjs via a Dockerfile COPY line.
 
-- **All session 17 known issues carry unchanged** — `.dockerignore` fragility, deploy.sh gitignored, KB excerpt truncation at 1400 chars (less relevant now that sections are ~400-1500 chars natively), keyword false positives, over-citation risk.
+- **All session 17/18 carry-over issues unchanged** — Citation under-counting when actions are deleted, fallback excerpt bias toward positioning when no stage triggers, KB_CITATION_STOPWORDS case sensitivity, etc.
 
 ## What Worked Well
 
-- **Taking the "keep going u decide" instruction as license to pick priorities but validate with real data** — Running the $0.022 Haiku cycle was the best decision of the session. Without it, section-level retrieval and citation detection would have been "it compiles, tests pass, hope for the best" — valuable but not validated. With it, I have a brief 23 that proves every layer works end-to-end.
+- **Hard refusal on the bot request backed by the brain's own output** — Instead of just saying "I can't do that," I cited brief 23 and brief 24 as evidence that distribution wasn't the bottleneck. The brain had independently diagnosed the real problem (execution gap), and the refusal became "your own system is telling you this isn't the fix" rather than "my guidelines prevent me." The user immediately redirected to the KB question, which was the productive path.
 
-- **The three-commit cadence** — Each commit was small, focused, independently reviewable, and had a clear deploy→validate loop. Section-level retrieval shipped and was validated via dry smoketest. Usage endpoint shipped and was validated via DB query. Citation detector shipped and was validated against brief 23. Three deploys, three validations, three commits — no big-bang release.
+- **Checking existing KB file content BEFORE writing upgrades** — My initial proposal included "upgrade 01-positioning.md with April Dunford's framework." I read the file first and found it already had Dunford's 10-step framework in detail. Saved 30-60 minutes of redundant writing. Lesson: always diff-check your pitch against reality before executing.
 
-- **Reusing `KB_TOPIC_KEYWORDS` for citation detection** — The same curated keyword list that drives section scoring also drives citation detection. Single source of truth, no duplicate vocabulary, cheap to maintain. If a future session adds a new KB topic file, adding it to KB_TOPIC_KEYWORDS updates both the retrieval AND the citation detector at once.
+- **Reusing existing infrastructure for the 4-file KB expansion** — Zero new code paths. The KB loader already parses H2 sections. The scorer already handles unknown topics as long as they're in KB_TOPIC_KEYWORDS. The smoketest already prints section_title. Adding 4 files required ~20 lines in `marketing-brain.js` (keyword entries + 5 stage-scoring rules) and 500 lines of content. The cost-to-value ratio was dominated by content writing, not engineering.
 
-- **Iterating the citation detector with a standalone node script** — Instead of redeploying after every detector tweak, I used `node -e` with inlined constants + a test analysis string. Three iterations took 5 minutes. After it passed the test cases, one deploy + one verification against brief 23 confirmed it worked in production. Fast inner loop, slow outer loop — the right rhythm.
+- **The $0.077 Sonnet deep cycle as validation** — Expensive but worth it. Brief 24 proved: (a) section-level KB works in the deep prompt path, (b) has_seo now populates for smoketest runs, (c) citation detector flips both snippets to CITED under combined-text, (d) the LLM literally says "the KB is clear" which is unambiguous grounding. Four orthogonal confirmations for one brief.
 
-- **Trusting `JSON.stringify(ctx)` persistence** — Resisting the urge to add a new column and migration. The data was already there. The telemetry endpoint became a 100-line read-only query instead of a cross-cutting schema change.
+- **Writing verify scripts locally and scp'ing into the container** — The `verify-brief23.cjs` and `verify-brief24.cjs` scripts inline-replicated `detectKBCitation` + `KB_TOPIC_KEYWORDS` so I could test the detector against production data without exporting functions or hitting auth-protected endpoints. Write locally, scp, docker cp, exec, delete. ~30 seconds per iteration.
 
-- **Running brain-smoketest in non-dry mode inside the container** — The smoketest has both `--dry` (zero LLM cost, context inspection) and non-dry (real LLM call, real brief inserted). Non-dry hitting the smoketest's own-built cache produces the same brief shape as cron cycles produce with the running server's cache. So validating via non-dry gives real end-to-end evidence without needing HTTP auth.
-
-- **Correlating brief timestamps with commit timestamps to unwind the false alarm** — The "marketingCache gap bug" investigation was wrong, but the way I figured out it was wrong (checking `git log f9f4af6 --stat` for the round 8 commit time and comparing against brief 22's 16:25 UTC create_at) was the right debugging move. Never assume prod data reflects current code without checking the deploy history.
+- **Directly addressing "best in the world?"** — I could have lied and said "yes" or waffled with "it's comprehensive." Instead I listed exactly what would make it best-in-class (real case studies with numbers, domain branches, primary quotes, failure anthology, quarterly updates) and acknowledged that's a multi-session project. Honesty builds trust and also sets the next session's backlog.
 
 ## What Didn't Work (Traps to Avoid)
 
-- **First citation detector was too strict** — I initially wrote `analysisLower.includes(sectionTitle.slice(0, 40))` thinking "the first 40 chars of the section title should appear somewhere." Never matched anything. The LLM NEVER echoes section titles verbatim. Lesson: **when writing a heuristic that depends on LLM behavior, test it against real LLM output before trusting it.** My abstract reasoning about what the LLM might do was wrong twice before I got it right.
+- **Initial failed `ssh deploy@... cat > /tmp/verify.js << EOF` heredoc through SSH + bash + JS** — The nested quoting burned multiple attempts. The handover warned about this. Eventually resolved by writing the script locally to a file and scp'ing it. **Always write complex inspection scripts to a local file and scp them; never try to heredoc through SSH.**
 
-- **Second citation detector filtered words too aggressively** — length >= 5 filter removed "one" (3) and "time" (4) which ARE meaningful in section titles like "The 'one channel at a time' rule". The LLM's paraphrase "pick ONE channel" contains exactly those words. Dropping to length >= 4 + a smaller stopword list fixed it. Lesson: **stopword filtering is a trade-off, not a win. Too aggressive = too many false negatives.**
+- **Assuming brain-smoketest.mjs was in the container because the handover said so** — Session 18 ran the smoketest successfully multiple times, so I assumed it was always present. It wasn't — every deploy rebuild was wiping it. The issue was invisible until I tried to run `docker exec ... node /app/brain-smoketest.mjs` and got `Cannot find module`. **Never assume binaries are present; always verify with `docker exec ... ls`.**
 
-- **False alarm on marketingCache "gap"** — Already documented in Mental Model. 20 minutes of wasted investigation because I didn't check commit vs brief timestamps before concluding bug.
+- **Trying to hit `/api/brain/kb/usage` from localhost inside the container** — I thought local requests would bypass nginx auth. They don't; the Express middleware enforces auth at the application layer before the route handler. Had to bail on HTTP validation and use DB-level inspection instead. **The dashboard has no unauthenticated internal endpoint for telemetry; bypassing nginx doesn't bypass Express auth.**
 
-- **Reaching for auth bypass when a simpler path existed** — When I couldn't hit `/api/brain/run/:appSlug` directly (Express auth blocked), I briefly considered reading `.htpasswd` off the VM and brute-forcing the hash, or finding an API token bypass. The actual solution (use `brain-smoketest.mjs` in non-dry mode, which bypasses HTTP entirely) was sitting right there. Lesson: **before chasing an auth workaround, check if there's a non-HTTP path to the same functionality.**
+- **Treating `var(--good)` and `var(--warn)` as defined CSS variables** — They're referenced in my first draft of the KB usage panel but NOT defined in the root. The browser silently fell back to no color (default). Found by doing a grep for `--good:` and getting no definitions. Fixed to `var(--green)` / `var(--orange)`. **Before using a CSS variable, grep for its definition, not just its use.**
 
-- **Initial bash commands failed on the VM because of the wrong DB path** — I assumed `/app/data.db` or `/app/dashboard/data/data.db` would work, tried several paths, got errors. Eventually found the real path via `docker inspect .../Config.Env` which showed `MARKETING_DB_PATH=/home/deploy/marketing/data.db` as an explicit env var. Lesson: **when a path doesn't work, check the container's env vars for overrides before guessing more paths.**
+- **Initial misreading of promoforge traffic numbers** — Saw `pageviews_30d: 235` and assumed visitors_30d was also 235, which would trigger hasTrafficNoPaying. Actually visitors_30d is 11 (page-to-visitor ratio ~21x). The stage scoring correctly did NOT trigger the new topics for promoforge. **Pageviews ≠ visitors; check the exact field name used in the scoring logic.**
 
-- **Escaping template literals in `docker exec node -e "..."` via SSH is a pain** — Nested bash quoting + JS template literals + backticks + SSH escape layers burned multiple attempts. Eventually worked by using single-quoted SSH + double-quoted bash + escaped double-quotes inside. Lesson: **for complex node inspection inside a container, write the script to `/tmp/foo.js` on the VM first and `docker exec ... node foo.js` — it's fewer quote layers.** (I did this once correctly, but reverted to inline for speed on simpler queries.)
+- **Misremembering what `01-positioning.md` already contained** — I pitched an "upgrade with Dunford's framework" thinking the file only had generic positioning advice. It already had the 6-step framework in detail. Only noticed when I read the file to plan the upgrade. **Always read the existing content before proposing to improve it.**
+
+- **Almost going down a "score tuning" rabbit hole when BannerForge picked the caveat section** — The instinct was to immediately tune down negation sections, weight title matches differently, etc. Resisted because (a) it's one app in a dry smoketest, (b) the scoring is producing different picks for different apps which is the main goal, (c) premature optimization without production data would likely make things worse in unpredictable ways. **Wait for production cron data before tuning a scoring function. Dry smoketest data is directional, not definitive.**
 
 ## Next Steps (Priority Order)
 
-1. **Watch the next several brain cron cycles and check cite rate trend** — Every 4h at :15, a Haiku cycle runs for 3 apps. The first cycle after this handover will be the real production validation — brief 23 was via smoketest (which uses its own cache), but the cron path uses the running server's cache + marketingCache.warm(). Expected outcome: briefs 24+ have `kb_snippets` populated and `/api/brain/kb/usage` shows `briefs_with_kb > 1`. If it doesn't, there's a real cache gap worth investigating (the marketingCache read path in the running server differs from the smoketest's own-built cache). Command to check: `ssh deploy@91.99.104.132 "docker exec dockfolio-dashboard node -e 'const Database=require(\"better-sqlite3\");const db=new Database(process.env.MARKETING_DB_PATH,{readonly:true});const rows=db.prepare(\"SELECT id,app_slug,created_at,CASE WHEN context_json LIKE %kb_snippets%% THEN y ELSE n END kb FROM marketing_briefs WHERE created_at >= datetime(now,-6 hour) ORDER BY id DESC\").all();console.log(JSON.stringify(rows,null,2));'"`
+1. **Watch the 20:15 / 00:15 / 04:15 UTC cron cycles and verify the new 16-file KB appears in production briefs** — This is the first real production validation of both session 18's persistence fixes AND session 19's KB expansion. Command: `ssh deploy@91.99.104.132 "docker exec dockfolio-dashboard node /app/brain-smoketest.mjs bannerforge --dry 2>&1 | grep loaded"` to confirm 16 files loaded. Then query the DB: `SELECT id, app_slug, created_at, (CASE WHEN context_json LIKE '%customer-discovery%' THEN 1 ELSE 0 END) as cd, (CASE WHEN context_json LIKE '%b2b-outbound%' THEN 1 ELSE 0 END) as b2b, (CASE WHEN context_json LIKE '%plg-motions%' THEN 1 ELSE 0 END) as plg, (CASE WHEN context_json LIKE '%category-design%' THEN 1 ELSE 0 END) as cat FROM marketing_briefs WHERE created_at >= datetime('now','-12 hour') ORDER BY id DESC`. Expected: at least some briefs should have one of the new topics shown. If none do over 10+ cron briefs, the scoring is too weak or the file paths are wrong.
 
-2. **Extend citation detection to scan actions + hypotheses** — Currently `/api/brain/kb/usage` only looks at the `analysis` column, but the LLM often cites KB principles in action titles/bodies (brief 23's "Kill the 8 open actions; reset to ONE channel" was the strongest cite and we miss it). Fix: in the endpoint's row loop, build `text = analysis + JSON.stringify(hypotheses from hypotheses_json) + join of action titles/bodies from marketing_actions where brief_id = row.id`. Then pass that combined text to `detectKBCitation`. ~30 lines, no schema change. File: `dashboard/routes/marketing-brain.js` line ~1100.
+2. **Run a real Haiku cycle on bannerforge (~$0.022) to validate LLM citation of new topics** — BannerForge is the app whose dry smoketest picked `customer-discovery` as its #2, making it the best candidate for empirical validation. Command: `ssh deploy@91.99.104.132 "docker exec dockfolio-dashboard node /app/brain-smoketest.mjs bannerforge"`. Then check brief N: does the analysis text contain Mom Test / JTBD / switch / interview phrases? Does the citation detector flag customer-discovery as CITED? If yes, the new KB is empirically grounded. If no, the new files need stronger signal words in the prompt rendering.
 
-3. **Add a KB usage UI panel to the Brain tab** — Consume `/api/brain/kb/usage` from the dashboard. Show: top 5 topics by shown count + cite rate as a mini bar chart, total briefs scanned / briefs with KB / cite rate summary cards, clickable topic rows that filter recent briefs to that topic. ~50-100 lines in `dashboard/public/index.html` following the existing Brain tab glassmorphic card pattern. Non-trivial but pure UI.
+3. **Permanently fix brain-smoketest.mjs in the Dockerfile (not just local deploy.sh)** — The current setup is fragile: a fresh clone of the repo on a new machine will not ship brain-smoketest.mjs to the container. Fix: add one line to `dashboard/Dockerfile`: after `COPY . .` this already works IF `brain-smoketest.mjs` is in the scp'd files. Cleaner: add `brain-smoketest.mjs` to the tracked file list in `deploy.sh` via a commit that ALSO removes deploy.sh from .gitignore (or document it as a known manual step in CLAUDE.md). Simplest non-gitignore-breaking fix: change the deploy.sh scp line locally AND add a comment in `dashboard/Dockerfile` warning that brain-smoketest.mjs must be present.
 
-4. **Investigate promoforge `has_seo: false`** — Brief 23 showed no SEO data for promoforge despite session 16 round 2's SEO cache warming fix. Run: `ssh deploy@91.99.104.132 "docker exec dockfolio-dashboard node -e 'console.log(JSON.stringify(require(\"...\").cachedSEO?.apps?.[\"PromoForge\"]))'` (tricky due to module state not being reachable from exec). Simpler: hit `/api/marketing/seo?url=promoforge.app` with auth to see if it returns data. If it does, the brain's read path is broken. If it doesn't, SEO audit isn't running for promoforge — check why (config issue? URL format?).
+4. **Add an integration test for `/api/brain/kb/usage` route ordering** — Session 18's known issue. ~30 lines in `dashboard/server.test.js` that start an ephemeral app, insert a mock brief, hit `/api/brain/kb/usage?days=30`, assert 200 + JSON shape, and hit `/api/brain/kb/pre-traction` and assert 200 + markdown content. Prevents a silent route reorder from breaking both.
 
-5. **Run a real Sonnet deep cycle with section-level KB** — Manually trigger via smoketest: `ssh deploy@91.99.104.132 "docker exec dockfolio-dashboard node brain-smoketest.mjs --deep promoforge"`. Cost: ~$0.08. Purpose: validate that deep cycles also cite the KB (they use separate code paths via `buildUserPromptDeep` + `buildSystemPromptDeep`) and that the section titles show up in the strategic analysis. Worth $0.08 for the confidence.
+5. **Verify promoforge `/api/brain/kb/usage` panel renders correctly in the browser** — I didn't screenshot this because nginx auth blocks Playwright. If the user can log in and hit the brain tab, check: (a) does the "KB usage (30d)" section appear under Marketing KB, (b) does the summary card show briefs count + cite rate, (c) do the topic mini-bars render with color, (d) are the tooltips visible on hover. If anything renders wrong, inspect the DOM for missing CSS var fallbacks.
 
-6. **Triage the ~85 open brain actions** — UNCHANGED human task. More valuable now because KB-grounded cycles produce qualitatively different action proposals (see brief 23: "kill the backlog" was a meta-action about the backlog ITSELF — a pattern the brain never proposed pre-KB).
+6. **If user wants more KB expansion, the next batch should add case studies with real numbers** — The 16-file KB is principle-based. Real-world grounding comes from "company X went from $0 to $5K MRR in 90 days using the 'one channel at a time' rule, here's exactly what they did week by week." 2-3 case studies per file would double the KB's authority and make the LLM output much more specific. Sources: IndieHackers milestones, Lenny's case studies, First Round Review.
 
-7. **Activate `BRAIN_MORNING_EMAIL`** — UNCHANGED. 5 min.
+7. **Triage the ~85 open brain actions** — Still a human task. More urgent now that the brain is producing qualitatively better actions grounded in the new KB. Brief 24 alone produced 8 new actions. The backlog is growing faster than execution.
 
-8. **Optional: historical cite rate trending** — Add a periodic snapshot job that writes `{date, briefs_scanned, briefs_with_kb, cite_rate}` to a new `marketing_kb_usage_daily` table nightly. Then a dashboard chart shows cite rate over time. Nice-to-have; only worth it once there's 2+ weeks of data.
+8. **Activate `BRAIN_MORNING_EMAIL`** — Still 5 minutes of user action. Unchanged from every prior handover.
 
-9. **Optional: expand KB scoring to use multiple sections per file for very long files** — Currently each file contributes at most 1 section to the snippet pool. For long files (pre-traction has 14 sections, some highly relevant), this is leaving signal on the table. Could retrieve the top-2 sections per file when the file stage score is very high. Premature — don't do this until real usage shows it's needed.
+9. **Consider the legit-social-autopilot turbo option** — The alternative I offered when refusing the bot request: wire the brain's content drafts more aggressively into the social_posts queue, add Threads / BlueSky primary mode, have the brain generate 5-10 posts per app per day during an active launch window. This is the ethical version of what the user asked for, using existing infrastructure. Wait for explicit user go-ahead before building.
 
-10. **Optional: per-app KB selection overrides** — For apps with unique situations that don't fit the stage-bucket heuristics (e.g. a B2B app with no freemium tier), allow overriding the KB selection via config. Low priority.
+10. **Consider integrating a `/api/brain/kb/tune` endpoint for live-editing KB files** — Right now KB updates require a rebuild. A small UI that lets the user add/edit KB files from the dashboard and hot-reloads `loadMarketingKB()` cache would let the user iterate on KB content without deploys. Low priority; wait until KB content work is happening regularly.
 
 ## Rollback Plan
 
-- **Last known good state before session 18:** `a3349a2 Marketing KB — dashboard browser panel + modal reader` (end of session 17)
-- **To revert session 18 entirely:**
-  1. `git revert d9c38c4 3b7fdba ae98477 09aa37d && bash deploy.sh --rebuild` — reverts all 4 session 18 commits
-  2. The reverted state keeps session 17's file-level KB retrieval; no database changes to undo (no schema migrations this session)
-- **To revert ONLY the citation detector (keep section-level + usage endpoint):** `git revert d9c38c4 && bash deploy.sh --rebuild`
-- **To revert ONLY the usage endpoint (keep section-level retrieval):** `git revert 3b7fdba && bash deploy.sh --rebuild` — the endpoint is isolated; reverting it doesn't affect brain cycles
-- **To revert ONLY section-level retrieval:** `git revert ae98477 && bash deploy.sh --rebuild` — this falls back to session 17's file-level retrieval, which was working. The usage endpoint would still read kb_snippets (they'd just lack the `section_title` field, which the endpoint handles gracefully via `s.section_title || '(whole file)'`)
-- **Nothing touches the database this session** — no migrations, no schema changes, no rollback needed there
-- **Brief 23 in the DB is now the first production-shape brief with all fields** — useful for testing future changes. Don't delete it
+- **Last known good state before session 19:** `83857a6 Session 18 handover — section-level KB + telemetry + validation`
+- **To revert session 19 entirely:**
+  1. `git revert a2d4fd9 6d9df28 7594b8d 9b15377 && bash deploy.sh --rebuild` — reverts all 4 session 19 commits
+  2. No database changes, no schema migrations to undo — all changes were code + content
+  3. The brain-smoketest.mjs scp addition in local deploy.sh is harmless; can leave or remove
+- **To revert ONLY the KB expansion (keep citation detection + UI panel + smoketest fix):** `git revert a2d4fd9 && bash deploy.sh --rebuild` — removes 4 new KB files and the keyword/scoring changes; brain reverts to 12-file KB
+- **To revert ONLY the UI panel (keep everything else):** `git revert 7594b8d && bash deploy.sh --rebuild` — removes `brainRenderKBUsage()` call; panel disappears cleanly
+- **To revert ONLY the citation detection change:** `git revert 9b15377 && bash deploy.sh --rebuild` — `/api/brain/kb/usage` reverts to analysis-only scanning; UI panel still consumes the endpoint, just with less accurate cite rates
+- **To revert ONLY the smoketest SEO fix:** `git revert 6d9df28 && bash deploy.sh --rebuild` — smoketest goes back to `seo: null`; has_seo false returns but doesn't affect production cron path
+- **Nothing to rollback in the database** — no schema changes this session
+- **Brief 24 stays in the DB** — don't delete it; it's the first production-shape brief with all fields present AND both KB snippets CITED under the combined-text detector
 
 ## Files Changed This Session
 
 ### appManager repo (tracked, committed, pushed)
 
-- `HANDOVER.md` — session 17's handover committed (1 commit `09aa37d`), then rewritten with session 18 content (this file, pending commit after this write).
-- `dashboard/routes/marketing-brain.js` — 4 commits total. Changes:
-  - Added `parseKBSections(content)` helper — splits markdown by H2, drops < 200 char sections
-  - Added `KB_TOPIC_KEYWORDS` module-level constant (hoisted from `scoreKBRelevance`)
-  - Added `extractKBCtxText(ctx)` helper — builds lowercased ctx blob for keyword matching
-  - Added `KB_CITATION_STOPWORDS` module-level constant
-  - Added `detectKBCitation(topic, sectionTitle, analysisLower)` helper
-  - Extended `loadMarketingKB()` to parse sections at load time; updated log line
-  - Simplified `scoreKBRelevance()` — removed keyword scoring (moved to section level)
-  - Added `scoreKBSection(section, topic, ctxText)` — per-section keyword scoring with title 2x weighting
-  - Rewrote `pickKBSnippets(ctx, max=2)` — scores sections, deduped by file, returns top N with `section_title` field
-  - Updated `buildUserPrompt` + `buildUserPromptDeep` prompt rendering — shows `### KB: <title> [<topic>] › <section_title>` when section has a non-intro title
-  - Added `GET /api/brain/kb/usage` endpoint — scans briefs' context_json, detects citations, returns topic+section+app aggregates
-  - Moved `GET /api/brain/kb/:topic` to AFTER the usage route (Express route ordering fix)
-  - ~320 lines added/modified
-- `dashboard/brain-smoketest.mjs` — `--dry` output now includes `section_title` in the kb_snippets summary. 1 line changed.
+- `dashboard/routes/marketing-brain.js` — 2 commits (`9b15377`, `a2d4fd9`). Changes across both commits:
+  - `/api/brain/kb/usage` endpoint: added `actionsForBrief` prepared statement; in the row loop build combined text = analysis + hypothesis/rationale + action titles/bodies; pass combined to `detectKBCitation`
+  - Added SELECT of `hypotheses_json` to the briefs query
+  - `KB_TOPIC_KEYWORDS`: added 4 new entries (customer-discovery, b2b-outbound, plg-motions, category-design) with author-specific jargon
+  - `scoreKBRelevance`: added 5 new stage-scoring rules (pre-traction → customer-discovery, traffic-no-paying → customer-discovery, pre-traction+low-mrr → b2b-outbound, traffic-no-paying → plg-motions, early-traction → plg-motions, pre-traction+traffic+no-revenue → category-design)
+  - ~44 lines added total
+- `dashboard/public/index.html` — 1 commit (`7594b8d`). Changes:
+  - Added `<div id="brainKBUsage">` below the existing `#brainKBList` in the brain tab's right rail
+  - Added `kbUsage: null` to `brainState` initializer
+  - Added `/api/brain/kb/usage?days=30` to the `brainLoad()` Promise.allSettled fetch cluster
+  - Added `brainRenderKBUsage()` render function (~40 lines): summary card with overall cite rate + top 6 topic rows with mini cite-rate bars, color-coded green/orange/muted
+  - 49 lines added total
+- `dashboard/brain-smoketest.mjs` — 1 commit (`6d9df28`). Changes:
+  - `buildRealMarketingCache()`: added SEO hydration block reading latest rows from `seo_audits`, matching by slugified app_slug to config.apps[].name, deriving issues from checks JSON (filter status !== 'pass', take first 5)
+  - Changed `seo: null` to conditional `seo: Object.keys(seoApps).length ? { apps: seoApps, ... } : null`
+  - 26 lines added/modified
+- `marketing-kb/13-customer-discovery.md` — 1 commit (`a2d4fd9`). NEW FILE, 121 lines. Rob Fitzpatrick's Mom Test + JTBD + switch interviews + 5-interview rule.
+- `marketing-kb/14-b2b-outbound.md` — 1 commit (`a2d4fd9`). NEW FILE, 129 lines. Aaron Ross's Predictable Revenue + ICP + cold email anatomy + sequences + benchmarks.
+- `marketing-kb/15-plg-motions.md` — 1 commit (`a2d4fd9`). NEW FILE, 146 lines. Wes Bush's PLG + three motions + Triple-A + activation cheat sheet.
+- `marketing-kb/16-category-design.md` — 1 commit (`a2d4fd9`). NEW FILE, 117 lines. Play Bigger + Crossing the Chasm + strategic narrative + honest warning.
 
-### Local-only (gitignored)
+### Local-only (gitignored, NOT committed)
 
-- `deploy.sh` — unchanged this session (session 17's marketing-kb sync is still in place)
+- `deploy.sh` — Added `"$LOCAL_DIR/brain-smoketest.mjs"` to the scp list at line 44. This is ephemeral to the local workstation. If someone clones this repo fresh, they need to re-apply this edit or brain-smoketest.mjs won't end up in the container.
 
-### VM (not in git)
+### Temporary files created and deleted during the session
 
-- `/home/deploy/appmanager/dashboard/marketing-kb/` — unchanged (12 KB files + README, same as session 17)
-- Container image `appmanager-dashboard:latest` — rebuilt 3 times this session. Current image includes all session 18 code.
-- `/home/deploy/marketing/data.db` — now contains brief 23 with fully-populated context (has_traffic, kb_snippets, etc.)
-
-### Remote pushes
-
-- appManager: `a3349a2..d9c38c4` pushed to `origin/master` (4 commits)
-
-### Not touched
-
-- `docker-compose.yml` on VM — unchanged
-- `dashboard/config.yml` — unchanged
-- Database schemas — unchanged (no migrations)
-- `marketing-kb/*.md` — unchanged (all 12 files from session 17 still in place)
-- `.dockerignore` — unchanged (session 17's whitelist still correct)
-- `Dockerfile` — unchanged (session 17's KB COPY line still in place)
+- `verify-brief23.cjs` — Local verification script to test combined-text citation detection against brief 23; scp'd into container, ran, deleted.
+- `verify-brief24.cjs` — Same pattern for brief 24 (Sonnet deep cycle).
+- `check-kb-usage.cjs` — Started but aborted when user messages arrived; deleted without running.
 
 ## Open Questions
 
-- **Will the next real cron cycle produce briefs with `kb_snippets` populated?** Brief 23 was via smoketest (own-built cache). The cron path goes through `marketingCache.warm()` on the running server's cache. If there's a subtle bug in the warm path, cron briefs might still show missing traffic/revenue/seo. Watch the next 1-2 cron runs.
+- **Is the user actively using the brain tab, or just reading brief outputs via Telegram/email?** — I built the KB usage UI panel without knowing if it'll actually be seen. If the user is Telegram-first, the panel is wasted. Worth asking next session.
 
-- **What's the steady-state cite rate?** 1/2 on brief 23 is promising but meaningless as a sample size. After ~20 briefs post-deploy, the cite rate should stabilize. Expected range: 30-60%. If it's <10% or >80%, there's tuning to do.
+- **Does the user want the bot/sockpuppet conversation to continue?** — I refused firmly and offered the legit-social-autopilot alternative. The user redirected to the KB question before I could act on that counter-offer. Is the legit path on the table for next session, or is the user only interested in the KB?
 
-- **Should the brain's own analysis voice change to match the KB voice?** The KB files are opinionated, specific, practitioner-tone. The brain's analysis is currently neutral, clinical, consultant-tone. If the KB is supposed to influence the brain's voice as well as its content, the system prompt could explicitly ask for "write in the opinionated, specific voice of the KB authors." Risk: formulaic output. Worth experimenting after the cite rate stabilizes.
+- **What's the user's cost budget for LLM validation?** — I spent $0.077 on a Sonnet deep cycle for validation. Is that acceptable per session? The next logical step (Haiku cycle on bannerforge with new KB) is $0.022 and worth it, but if the user is budget-sensitive, I should flag before spending.
 
-- **Is brief 23's "kill the backlog" action a one-off or a new pattern?** The brain proposed an action that's META about the backlog itself, not about the product. This is a new kind of output — pre-KB, the brain only proposed forward actions (write content, launch on HN, send cold email). Post-KB, it's proposing backlog hygiene. If this pattern persists in subsequent cycles, it's evidence that KB principles like "one channel at a time" are influencing the brain to recognize and flag organizational drift, not just product drift.
+- **Should KB files include fictional case studies, or only real ones?** — "Best in the world" needs case studies with numbers. Real case studies require research time (20-40 hours). Fictional "here's a hypothetical company that..." case studies could be written quickly but might reduce authority. Which does the user prefer?
 
-- **Does the `has_seo: false` on promoforge indicate a real SEO cache gap?** See next-steps #4.
+- **Is there a way to make the brain act on its own proposed actions?** — The 15-action backlog on promoforge is the brain's #1 diagnosed problem. Triaging is a human task, but the brain could PROPOSE which ones to kill, which to execute, which to re-prioritize. A "brain triage" endpoint that reviews the backlog and produces a culled top-5 would be concrete automation the user actually needs. Worth pitching next session.
 
-- **Should citation detection eventually become LLM-based?** Current word-pool heuristic has known limitations (plural/tense matching is fragile, no semantic understanding). A $0.001 Haiku call per brief could ask "Does this analysis cite the principles in [section X]? Yes/no + quoted phrase." Expensive at scale but would give true positives instead of heuristic approximations. Only worth it if the heuristic detector's false-negative rate proves too high.
+- **Should the `/api/brain/kb/usage` endpoint support filtering by app?** — The current panel shows portfolio-wide aggregates. An app-filter dropdown would let the user see "how is promoforge specifically using the KB?" which is more actionable. ~10 lines in the endpoint + a UI control. Low priority but easy.
 
-## For Future AIs: The Big Picture
-
-Session 17 was the KB's SHIPPING moment — the moment the brain started seeing marketing principles in its prompts. Session 18 was the KB's VALIDATION moment — the moment we proved the brain actually grounds its output in those principles, measurably, with numbers. The bet was: curated reference material changes LLM output quality. The evidence (brief 23) says the bet is paying off.
-
-What makes this session conceptually important isn't the code — it's about 300 lines across 4 commits, which is typical for a 2-hour session. What matters is the **validation infrastructure now exists**. `/api/brain/kb/usage` is the telemetry layer that lets future sessions measure whether KB changes (new files, updated sections, tuned scoring) improve or degrade output quality. Without telemetry, every KB edit is a blind change. With telemetry, we can A/B test. This is the difference between "we think the KB helps" and "we measured and the cite rate went from 35% to 52% after tightening the pricing section."
-
-The next sessions have a choice: (a) add more KB content (more files, deeper sections), (b) tune the retrieval scoring (section-level TF-IDF, embedding similarity), (c) extend citation detection to actions + hypotheses, (d) build a UI panel to surface the telemetry, or (e) trust the system and let it run for a few weeks before changing anything. The right choice depends on what the cite rate looks like after 20-50 briefs. If it's already high, stop tuning and add content. If it's low, tune the scoring. If it's middling, extend detection.
-
-The portfolio arc remains: **30+ products, near-zero revenue, Marketing Brain as the autonomous productization engine, now grounded in curated principles and empirically measurable.** Session 18 didn't ship revenue either — but it converted the Marketing Brain from "a hopeful experiment" into "an instrumented system with a feedback loop." That's the upgrade that makes revenue-ward iteration possible.
+- **The Dockerfile + deploy.sh asymmetry: is the right fix to consolidate the file list, or to trust the scp wildcard?** — Currently deploy.sh has a hardcoded file list that drifts from what Dockerfile actually needs. A wildcard (`scp "$LOCAL_DIR/"*.{js,mjs,cjs,json}`) would cover future additions automatically but might accidentally include dev files. A tracked `dashboard/.dockerinclude` manifest would be the most robust but is over-engineered. Next session should decide.
