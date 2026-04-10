@@ -1,0 +1,1689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dockfolio | Self-Hosted Docker Dashboard with Autonomous Marketing Brain</title>
+  <meta name="description" content="Run your Docker portfolio from one screen. Now with an autonomous AI Marketing Brain that continuously analyzes every app and drafts blog posts, social threads, and research notes. Self-hosted, open source, privacy-first.">
+  <meta property="og:title" content="Dockfolio | Self-Hosted Docker Dashboard + Autonomous Marketing Brain">
+  <meta property="og:description" content="Your infrastructure + revenue + marketing, unified. The AI Marketing Brain produces 20+ drafted actions a day across your entire portfolio — content, social, outreach, SEO, landing. Wake up to a full queue, not a blank page.">
+  <meta property="og:url" content="https://dockfolio.dev">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%230a0a0f'/><circle cx='30' cy='35' r='8' fill='%2322c55e'/><circle cx='70' cy='35' r='8' fill='%2322c55e'/><circle cx='50' cy='65' r='8' fill='%233b82f6'/><line x1='30' y1='43' x2='50' y2='57' stroke='%232a2a3a' stroke-width='3'/><line x1='70' y1='43' x2='50' y2='57' stroke='%232a2a3a' stroke-width='3'/></svg>">
+  <style>
+    @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/inter-400.ttf') format('truetype'); }
+    @font-face { font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/inter-500.ttf') format('truetype'); }
+    @font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/inter-600.ttf') format('truetype'); }
+    @font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/inter-700.ttf') format('truetype'); }
+    @font-face { font-family: 'Inter'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/inter-800.ttf') format('truetype'); }
+    @font-face { font-family: 'Inter'; font-style: normal; font-weight: 900; font-display: swap; src: url('/fonts/inter-900.ttf') format('truetype'); }
+  </style>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #09090b;
+      --surface: rgba(15,15,20,0.75);
+      --surface-solid: #0f0f14;
+      --surface2: rgba(22,22,30,0.8);
+      --surface3: #1e1e28;
+      --border: rgba(39,39,42,0.6);
+      --border-hover: #3f3f46;
+      --text: #fafafa;
+      --text-dim: #a1a1aa;
+      --text-muted: #52525b;
+      --cyan: #06b6d4;
+      --blue: #3b82f6;
+      --green: #22c55e;
+      --purple: #8b5cf6;
+      --yellow: #eab308;
+      --red: #ef4444;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ---- Three.js Canvas ---- */
+    #scene-canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* ---- Scroll Container ---- */
+    #scroll-container {
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ---- Glass Sections ---- */
+    .glass-section {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 24px;
+    }
+    .glass-panel {
+      background: rgba(9,9,11,0.65);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 48px;
+      max-width: 900px;
+      width: 100%;
+      opacity: 0;
+      transform: translateY(40px);
+      transition: opacity 0.8s cubic-bezier(0.16,1,0.3,1), transform 0.8s cubic-bezier(0.16,1,0.3,1);
+    }
+    .glass-panel.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .glass-panel-wide {
+      max-width: 1100px;
+    }
+
+    /* ---- Nav ---- */
+    nav {
+      position: fixed; top: 0; width: 100%; z-index: 100;
+      background: rgba(9,9,11,0.7);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+      height: 56px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-brand { font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: -0.025em; }
+    .nav-links { display: flex; gap: 28px; align-items: center; }
+    .nav-links a { color: var(--text-dim); font-size: 13px; font-weight: 500; }
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* ---- Buttons ---- */
+    .btn-primary {
+      background: var(--cyan);
+      color: var(--bg);
+      padding: 7px 18px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      transition: opacity 0.15s, transform 0.15s;
+      display: inline-block;
+    }
+    .btn-primary:hover { opacity: 0.85; text-decoration: none; transform: translateY(-1px); }
+    .btn-primary.btn-lg { padding: 12px 28px; font-size: 15px; }
+    .btn-outline {
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      transition: border-color 0.15s, background 0.15s;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .btn-outline:hover { border-color: var(--text-muted); background: rgba(255,255,255,0.04); text-decoration: none; }
+    .btn-outline.btn-lg { padding: 12px 28px; font-size: 15px; }
+
+    /* ---- Floating CTA ---- */
+    .floating-cta {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 99;
+      background: rgba(9,9,11,0.92);
+      backdrop-filter: blur(16px);
+      border-top: 1px solid var(--border);
+      padding: 12px 32px;
+      display: flex; align-items: center; justify-content: center; gap: 16px;
+      transform: translateY(100%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .floating-cta.show { transform: translateY(0); }
+    .floating-cta span { font-size: 13px; color: var(--text-dim); font-weight: 500; }
+
+    /* ---- Hero ---- */
+    .hero-section {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 80px 24px;
+      position: relative;
+    }
+    .hero-content {
+      max-width: 860px;
+      position: relative;
+      z-index: 1;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(22,22,30,0.8);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 5px 16px;
+      font-size: 12px;
+      color: var(--cyan);
+      margin-bottom: 28px;
+      letter-spacing: 0.04em;
+      font-weight: 500;
+    }
+    .hero-content h1 {
+      font-size: clamp(40px, 6vw, 64px);
+      font-weight: 800;
+      line-height: 1.05;
+      margin-bottom: 20px;
+      letter-spacing: -0.04em;
+      background: linear-gradient(135deg, var(--text) 20%, var(--cyan) 80%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-content p {
+      font-size: 17px;
+      color: var(--text-dim);
+      max-width: 580px;
+      margin: 0 auto 36px;
+      line-height: 1.65;
+    }
+    .hero-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .hero-stats {
+      display: flex; gap: 40px; justify-content: center; margin-top: 48px;
+    }
+    .hero-stat { text-align: center; }
+    .hero-stat .num { font-size: 24px; font-weight: 700; letter-spacing: -0.025em; color: var(--text); }
+    .hero-stat .label { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .install-block {
+      max-width: 560px;
+      margin: 48px auto 0;
+      background: rgba(15,15,20,0.8);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 20px;
+      font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 13px;
+      color: var(--green);
+      text-align: left;
+      overflow-x: auto;
+    }
+    .install-block .prompt { color: var(--text-muted); user-select: none; }
+
+    /* ---- Scroll Indicator ---- */
+    .scroll-indicator {
+      position: absolute;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      animation: scrollBounce 2s ease-in-out infinite;
+    }
+    .scroll-indicator .arrow {
+      width: 20px; height: 20px;
+      border-right: 2px solid var(--text-muted);
+      border-bottom: 2px solid var(--text-muted);
+      transform: rotate(45deg);
+    }
+    @keyframes scrollBounce {
+      0%, 100% { opacity: 0.4; transform: translateX(-50%) translateY(0); }
+      50% { opacity: 1; transform: translateX(-50%) translateY(6px); }
+    }
+
+    /* ---- Section Typography ---- */
+    .section-label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--cyan);
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .glass-panel h2 {
+      font-size: 36px;
+      font-weight: 700;
+      margin-bottom: 14px;
+      letter-spacing: -0.025em;
+    }
+    .glass-panel .subtitle {
+      font-size: 16px;
+      color: var(--text-dim);
+      margin-bottom: 40px;
+      max-width: 560px;
+      line-height: 1.6;
+    }
+
+    /* ---- Social Proof ---- */
+    .social-proof {
+      display: flex;
+      gap: 32px;
+      justify-content: center;
+      flex-wrap: wrap;
+      padding: 20px 0;
+    }
+    .proof-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-dim);
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .proof-icon {
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      background: rgba(15,15,20,0.6);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+
+    /* ---- Problem ---- */
+    .problem-grid {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 32px;
+    }
+    .problem-tab {
+      background: rgba(15,15,20,0.6);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 18px;
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+    .problem-tab .tab-label { font-weight: 600; color: var(--text); }
+    .problem-plus { color: var(--text-muted); font-size: 20px; font-weight: 300; }
+    .problem-arrow { font-size: 28px; color: var(--cyan); margin: 0 8px; }
+    .problem-solution {
+      background: rgba(6,182,212,0.04);
+      border: 1px solid rgba(6,182,212,0.15);
+      border-radius: 14px;
+      padding: 20px 28px;
+      text-align: center;
+    }
+    .problem-solution strong { color: var(--cyan); font-size: 18px; }
+
+    /* ---- Feature Grid ---- */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    .feature-card {
+      background: rgba(15,15,20,0.5);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .feature-card:hover { border-color: var(--border-hover); transform: translateY(-2px); }
+    .feature-card.featured {
+      border-color: rgba(6,182,212,0.2);
+      background: linear-gradient(135deg, rgba(15,15,20,0.5) 0%, rgba(6,182,212,0.05) 100%);
+    }
+    .feature-icon {
+      width: 38px; height: 38px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px;
+      margin-bottom: 12px;
+      font-weight: 700;
+    }
+    .feature-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 5px; letter-spacing: -0.01em; }
+    .feature-card p { font-size: 12.5px; color: var(--text-dim); line-height: 1.55; }
+    .feature-badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .badge-unique { background: rgba(6,182,212,0.15); color: var(--cyan); }
+    .badge-new { background: rgba(139,92,246,0.15); color: var(--purple); }
+
+    /* ---- Claude/AI Section ---- */
+    .ai-features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px;
+      margin-top: 28px;
+    }
+    .ai-feature {
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.04);
+      border-radius: 10px;
+      padding: 16px;
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+    .ai-feature strong { display: block; margin-bottom: 4px; color: var(--text); font-size: 14px; }
+    .ai-feature code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      background: rgba(255,255,255,0.06);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    /* ---- ADHD Section ---- */
+    .adhd-features {
+      display: flex;
+      gap: 14px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 24px;
+    }
+    .adhd-feature {
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.04);
+      border-radius: 10px;
+      padding: 14px 18px;
+      font-size: 13px;
+      text-align: left;
+      max-width: 220px;
+    }
+    .adhd-feature strong { display: block; margin-bottom: 4px; color: var(--text); }
+
+    /* ---- Screenshots ---- */
+    .screenshot-container {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .screenshot-container img { width: 100%; display: block; }
+
+    /* ---- Pricing ---- */
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+    }
+    .pricing-card {
+      background: rgba(15,15,20,0.6);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px 24px;
+      text-align: center;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .pricing-card:hover { transform: translateY(-2px); }
+    .pricing-card.popular {
+      border-color: var(--cyan);
+      background: linear-gradient(180deg, rgba(6,182,212,0.08) 0%, rgba(15,15,20,0.6) 40%);
+      position: relative;
+    }
+    .pricing-card.popular::before {
+      content: 'Most Popular';
+      position: absolute;
+      top: -10px; left: 50%; transform: translateX(-50%);
+      background: var(--cyan);
+      color: var(--bg);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 14px;
+      border-radius: 10px;
+    }
+    .pricing-name { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+    .pricing-price { font-size: 36px; font-weight: 800; letter-spacing: -0.03em; margin: 10px 0 4px; }
+    .pricing-price span { font-size: 14px; font-weight: 500; color: var(--text-dim); }
+    .pricing-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+    .pricing-features { list-style: none; text-align: left; margin-bottom: 24px; }
+    .pricing-features li {
+      font-size: 13px;
+      color: var(--text-dim);
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      display: flex; align-items: center; gap: 8px;
+    }
+    .pricing-features li::before { content: '\2713'; color: var(--green); font-weight: 700; font-size: 12px; }
+    .pricing-btn {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      text-align: center;
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+      transition: opacity 0.15s;
+    }
+    .pricing-btn:hover { opacity: 0.85; text-decoration: none; }
+    .pricing-btn-primary { background: var(--cyan); color: var(--bg); }
+    .pricing-btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+
+    /* ---- Comparison ---- */
+    .comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .comparison-table th, .comparison-table td {
+      padding: 10px 14px;
+      text-align: center;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .comparison-table th {
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .comparison-table th:first-child, .comparison-table td:first-child { text-align: left; }
+    .comparison-table td:first-child { font-weight: 500; }
+    .check { color: var(--green); }
+    .cross { color: var(--text-muted); }
+    .highlight-col { background: rgba(6,182,212,0.04); }
+    .comparison-wrapper { overflow-x: auto; }
+
+    /* ---- Savings ---- */
+    .savings-banner {
+      background: rgba(34,197,94,0.04);
+      border: 1px solid rgba(34,197,94,0.15);
+      border-radius: 12px;
+      padding: 24px 32px;
+      text-align: center;
+      margin: 40px auto 0;
+      max-width: 700px;
+    }
+    .savings-banner .amount { font-size: 36px; font-weight: 800; color: var(--green); letter-spacing: -0.025em; }
+    .savings-banner p { color: var(--text-dim); font-size: 14px; margin-top: 4px; }
+
+    /* ---- Stats ---- */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 12px;
+    }
+    .stat-card {
+      background: rgba(15,15,20,0.5);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 14px;
+      text-align: center;
+    }
+    .stat-card .num { font-size: 28px; font-weight: 700; letter-spacing: -0.025em; }
+    .stat-card .label { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+    /* ---- Guide ---- */
+    .guide-card {
+      display: grid;
+      grid-template-columns: 1fr 1.4fr;
+      gap: 40px;
+      align-items: center;
+    }
+    .guide-cover {
+      background: rgba(22,22,30,0.6);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 32px 24px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .guide-cover::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--cyan), var(--purple));
+    }
+    .guide-cover-icon { font-size: 48px; margin-bottom: 16px; display: block; }
+    .guide-cover-title { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
+    .guide-cover-sub { font-size: 13px; color: var(--text-dim); }
+    .guide-cover-pages {
+      margin-top: 16px;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .guide-info h2 { font-size: 28px; }
+    .guide-info > p { color: var(--text-dim); font-size: 15px; line-height: 1.65; margin-bottom: 20px; }
+    .guide-features { list-style: none; margin-bottom: 24px; }
+    .guide-features li {
+      font-size: 13px;
+      color: var(--text-dim);
+      padding: 6px 0;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .guide-features li::before { content: '\2713'; color: var(--green); font-weight: 700; font-size: 13px; }
+    .guide-price { display: flex; align-items: baseline; gap: 10px; margin-bottom: 16px; }
+    .guide-price .amount { font-size: 36px; font-weight: 800; letter-spacing: -0.025em; }
+    .guide-price .format { font-size: 14px; color: var(--text-muted); }
+    .guide-cta { display: flex; gap: 12px; flex-wrap: wrap; }
+    .guide-guarantee { margin-top: 14px; font-size: 12px; color: var(--text-muted); }
+
+    /* ---- CTA ---- */
+    .cta-section {
+      text-align: center;
+      min-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 24px;
+      position: relative;
+    }
+    .cta-section h2 {
+      font-size: 40px;
+      font-weight: 800;
+      margin-bottom: 14px;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, var(--text) 30%, var(--cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .cta-section p { color: var(--text-dim); margin-bottom: 32px; font-size: 16px; }
+
+    /* ---- Footer ---- */
+    footer {
+      text-align: center;
+      padding: 40px 24px;
+      color: var(--text-muted);
+      font-size: 12px;
+      border-top: 1px solid var(--border);
+      position: relative;
+      z-index: 1;
+      background: rgba(9,9,11,0.8);
+      backdrop-filter: blur(12px);
+    }
+    footer a { color: var(--text-dim); }
+    .footer-links { margin-top: 8px; }
+    .footer-links a { margin: 0 12px; }
+
+    /* ---- Legal Pages ---- */
+    .legal-page { display: none; max-width: 720px; margin: 80px auto 40px; padding: 32px 24px; color: var(--text-dim); line-height: 1.8; position: relative; z-index: 10; background: var(--bg); }
+    .legal-page.active { display: block; }
+    .legal-page h1 { color: var(--text); font-size: 28px; margin-bottom: 24px; }
+    .legal-page h2 { color: var(--text); font-size: 18px; margin: 28px 0 12px; }
+    .legal-page h3 { color: var(--text); font-size: 15px; margin: 20px 0 8px; }
+    .legal-page p, .legal-page li { font-size: 14px; margin-bottom: 8px; }
+    .legal-page ul { padding-left: 20px; }
+    .legal-page a { color: var(--cyan); }
+    .legal-page .back-link { display: inline-block; margin-bottom: 24px; font-size: 13px; color: var(--text-dim); }
+
+    /* ---- Progress Bar ---- */
+    .scroll-progress {
+      position: fixed;
+      top: 56px; left: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--cyan), var(--purple));
+      z-index: 101;
+      width: 0%;
+      transition: none;
+    }
+
+    /* ---- Mobile ---- */
+    @media (max-width: 768px) {
+      nav { padding: 0 16px; }
+      .nav-links { gap: 16px; }
+      .nav-links a:not(.btn-primary) { display: none; }
+      .hero-content h1 { font-size: 32px; }
+      .hero-stats { gap: 20px; flex-wrap: wrap; }
+      .glass-panel { padding: 28px 20px; }
+      .glass-panel h2 { font-size: 26px; }
+      .feature-grid { grid-template-columns: 1fr; }
+      .pricing-grid { grid-template-columns: 1fr; max-width: 340px; margin: 0 auto; }
+      .guide-card { grid-template-columns: 1fr; gap: 24px; }
+      .adhd-features { flex-direction: column; align-items: center; }
+      .ai-features { grid-template-columns: 1fr; }
+      .floating-cta span { display: none; }
+      .problem-grid { flex-direction: column; }
+      .glass-section { padding: 60px 16px; }
+    }
+  </style>
+  <script defer data-domain="dockfolio.dev" src="https://plausible.crelvo.dev/js/script.js"></script>
+</head>
+<body>
+  <canvas id="scene-canvas"></canvas>
+  <div class="scroll-progress" id="scrollProgress"></div>
+
+  <nav>
+    <span class="nav-brand">Dockfolio</span>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#marketing-brain" style="color:#a78bfa">Brain ✨</a>
+      <a href="#guide">Playbook</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#compare">Compare</a>
+      <a href="https://github.com/dockfolio/dockfolio">GitHub</a>
+      <a href="https://github.com/dockfolio/dockfolio" class="btn-primary">Get Started</a>
+    </div>
+  </nav>
+
+  <div class="floating-cta" id="floatingCta">
+    <span>Free and open source. Self-hosted. One command to install.</span>
+    <a href="https://github.com/dockfolio/dockfolio" class="btn-primary">Get Started</a>
+  </div>
+
+  <div id="scroll-container">
+
+    <!-- ===== HERO ===== -->
+    <section class="hero-section" id="hero">
+      <div class="hero-content">
+        <div class="hero-badge">Open Source &middot; AGPL-3.0 &middot; Now with Autonomous Marketing Brain</div>
+        <h1>Run your Docker portfolio. Let the AI run your marketing.</h1>
+        <p>The self-hosted dashboard that combines container management, revenue tracking, and — new — an autonomous AI Marketing Brain that continuously analyzes every app in your portfolio and drafts real blog posts, social threads, and outreach moves so you wake up to 20+ proposals a day. Not suggestions. Drafts.</p>
+        <div class="hero-actions">
+          <a href="https://github.com/dockfolio/dockfolio" class="btn-primary btn-lg">Get Started Free</a>
+          <a href="#install" class="btn-outline btn-lg">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 8h6M8 5v6"/></svg>
+            Install in 60 seconds
+          </a>
+        </div>
+        <div class="hero-stats">
+          <div class="hero-stat"><div class="num">144</div><div class="label">API endpoints</div></div>
+          <div class="hero-stat"><div class="num">33</div><div class="label">SQLite tables</div></div>
+          <div class="hero-stat"><div class="num">21</div><div class="label">Keyboard shortcuts</div></div>
+          <div class="hero-stat"><div class="num">0</div><div class="label">External deps</div></div>
+        </div>
+        <div class="install-block" id="install">
+          <span class="prompt">$ </span>curl -fsSL https://raw.githubusercontent.com/dockfolio/dockfolio/master/install.sh | bash
+        </div>
+      </div>
+      <div class="scroll-indicator">
+        <span>Scroll</span>
+        <div class="arrow"></div>
+      </div>
+    </section>
+
+    <!-- ===== SOCIAL PROOF ===== -->
+    <section class="glass-section" style="min-height:auto;padding:20px 24px 40px">
+      <div class="social-proof glass-panel visible" style="opacity:1;transform:none;padding:24px;display:flex;gap:32px;justify-content:center;flex-wrap:wrap">
+        <div class="proof-item"><div class="proof-icon">&#9733;</div><div>Open source on GitHub</div></div>
+        <div class="proof-item"><div class="proof-icon">&#x1F433;</div><div>Single Docker container</div></div>
+        <div class="proof-item"><div class="proof-icon">&#x1F512;</div><div>Your server, your data</div></div>
+        <div class="proof-item"><div class="proof-icon">&#x26A1;</div><div>~370KB frontend</div></div>
+      </div>
+    </section>
+
+    <!-- ===== SCREENSHOTS ===== -->
+    <section class="glass-section" id="screenshots">
+      <div class="glass-panel glass-panel-wide" style="text-align:center">
+        <div class="section-label">See it in action</div>
+        <h2>One dashboard, full visibility</h2>
+        <p class="subtitle" style="margin-left:auto;margin-right:auto">Dark theme, keyboard-driven, designed for developers who ship.</p>
+        <div style="display:flex;flex-direction:column;gap:24px;margin-top:24px">
+          <div class="screenshot-container">
+            <img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/01-dashboard-overview.png" alt="Dashboard Overview" loading="lazy">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div>
+              <div class="screenshot-container"><img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/02-marketing-revenue.png" alt="Revenue Tracking" loading="lazy"></div>
+              <p style="font-size:12px;color:var(--text-muted);margin-top:8px">Stripe revenue per app</p>
+            </div>
+            <div>
+              <div class="screenshot-container"><img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/03-command-palette.png" alt="Command Palette" loading="lazy"></div>
+              <p style="font-size:12px;color:var(--text-muted);margin-top:8px">Ctrl+K command palette</p>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div>
+              <div class="screenshot-container"><img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/04-morning-briefing.png" alt="Morning Briefing" loading="lazy"></div>
+              <p style="font-size:12px;color:var(--text-muted);margin-top:8px">AI morning briefing</p>
+            </div>
+            <div>
+              <div class="screenshot-container"><img src="https://raw.githubusercontent.com/dockfolio/dockfolio/master/screenshots/05-ops-panel.png" alt="Ops Panel" loading="lazy"></div>
+              <p style="font-size:12px;color:var(--text-muted);margin-top:8px">Ops panel with worry score</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PROBLEM ===== -->
+    <section class="glass-section">
+      <div class="glass-panel" style="text-align:center">
+        <div class="section-label">The Problem</div>
+        <h2>You check 5 tabs every morning</h2>
+        <p class="subtitle" style="margin:12px auto 32px">Portainer. Stripe. Plausible. Sentry. Search Console. That's 15 minutes before you write a single line of code.</p>
+        <div class="problem-grid">
+          <div class="problem-tab"><span class="tab-label">Portainer</span><br>Is it running?</div>
+          <span class="problem-plus">+</span>
+          <div class="problem-tab"><span class="tab-label">Stripe</span><br>Is it earning?</div>
+          <span class="problem-plus">+</span>
+          <div class="problem-tab"><span class="tab-label">Plausible</span><br>Is anyone visiting?</div>
+          <span class="problem-plus">+</span>
+          <div class="problem-tab"><span class="tab-label">Sentry</span><br>Is it crashing?</div>
+        </div>
+        <div style="margin-bottom:16px">
+          <span class="problem-arrow">&darr;</span>
+        </div>
+        <div class="problem-solution">
+          <strong>Dockfolio replaces all of them.</strong>
+          <p style="color:var(--text-dim);font-size:14px;margin-top:4px">One dashboard. One Worry Score. If it's under 15, go back to sleep.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== AI SECTION ===== -->
+    <section class="glass-section">
+      <div class="glass-panel" style="text-align:center">
+        <div class="section-label">AI-Native</div>
+        <h2>Built for developers who use AI</h2>
+        <p class="subtitle" style="margin-left:auto;margin-right:auto">Dockfolio is designed to work seamlessly with AI coding tools like Claude Code. Every feature is API-accessible, scriptable, and automatable.</p>
+        <div class="ai-features">
+          <div class="ai-feature">
+            <strong>144 REST Endpoints</strong>
+            Every dashboard feature is an API call. Claude Code can manage your infrastructure, check revenue, restart containers, and run security audits.
+          </div>
+          <div class="ai-feature">
+            <strong>AI Morning Briefing</strong>
+            Automated daily intelligence report covering system health, overnight events, revenue changes, and action items. Cost: ~$0.001/day.
+          </div>
+          <div class="ai-feature">
+            <strong>Command Palette</strong>
+            <code>Ctrl+K</code> fuzzy search across apps, commands, and actions. Same keyboard-first UX you know from your editor.
+          </div>
+          <div class="ai-feature">
+            <strong>Self-Hosted Data</strong>
+            Your metrics, revenue, errors, and traffic data stay on your server. Feed it to AI tools without sharing with SaaS platforms.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== ADHD ===== -->
+    <section class="glass-section">
+      <div class="glass-panel" style="text-align:center">
+        <div class="section-label" style="color:var(--purple)">Built Different</div>
+        <h2>The first ADHD-friendly DevOps dashboard</h2>
+        <p class="subtitle" style="margin-left:auto;margin-right:auto">Built by a developer with ADHD who got tired of noisy dashboards with too many blinking lights. Press <strong>A</strong> to enter a calmer experience.</p>
+        <div class="adhd-features">
+          <div class="adhd-feature"><strong>Kill the Noise</strong>Dims healthy items. Stops all animations. Boosts contrast. You only see what needs attention.</div>
+          <div class="adhd-feature"><strong>Focus Mode</strong>Shift+Z strips the dashboard to a single app. Zero distractions. One thing at a time.</div>
+          <div class="adhd-feature"><strong>Streak Bar</strong>Gamified uptime tracking. Maintain your incident-free streak. Small dopamine hits for keeping things healthy.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== FEATURES ===== -->
+    <section class="glass-section" id="features">
+      <div class="glass-panel glass-panel-wide">
+        <div class="section-label">Why Dockfolio</div>
+        <h2>Infrastructure meets business intelligence</h2>
+        <p class="subtitle">No other self-hosted dashboard combines container management with revenue tracking, security auditing, and AI operations.</p>
+        <div class="feature-grid">
+          <div class="feature-card featured" style="border:1px solid rgba(139,92,246,0.4);background:linear-gradient(135deg,rgba(139,92,246,0.08),rgba(59,130,246,0.06))">
+            <div class="feature-icon" style="background:rgba(139,92,246,0.15);color:var(--purple)">&#x1f9e0;</div>
+            <h3>Marketing Brain <span class="feature-badge badge-new">New</span> <span class="feature-badge badge-unique">Flagship</span></h3>
+            <p>Autonomous AI marketing manager for your entire portfolio. Every 4 hours, analyzes each app's traffic, revenue, SEO, and mentions, then produces 3-6 specific, actionable marketing moves per product — with auto-drafted blog posts, social threads, and research notes landing in your content queues ready to publish. Wake up to 20+ proposals. Not suggestions — drafts.</p>
+          </div>
+          <div class="feature-card featured">
+            <div class="feature-icon" style="background:rgba(6,182,212,0.1);color:var(--cyan)">0</div>
+            <h3>Worry Score <span class="feature-badge badge-unique">Unique</span></h3>
+            <p>One number, 0-100. Composite of container health, API keys, disk, backups, security, and SEO. Under 15? Go back to sleep.</p>
+          </div>
+          <div class="feature-card featured">
+            <div class="feature-icon" style="background:rgba(139,92,246,0.1);color:var(--purple)">AI</div>
+            <h3>Morning Briefing <span class="feature-badge badge-unique">Unique</span></h3>
+            <p>AI-generated daily summary. System health, overnight events, revenue changes, action items. All in 30 seconds.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(34,197,94,0.1);color:var(--green)">&#x2764;</div>
+            <h3>Auto-Healing</h3>
+            <p>Automatic restart of unhealthy containers, disk cleanup, loop detection. Telegram alerts. Your apps fix themselves at 3 AM.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(59,130,246,0.1);color:var(--blue)">$</div>
+            <h3>Revenue Tracking</h3>
+            <p>Stripe MRR, 30-day revenue, per-app breakdown with charts, cross-app customer cohorts.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(239,68,68,0.1);color:var(--red)">&#x1f6e1;</div>
+            <h3>Security Auditing</h3>
+            <p>Container hardening, SSL/TLS, HTTP headers, network exposure. Weighted scoring (A-F), radar charts.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(239,68,68,0.1);color:var(--red)">!</div>
+            <h3>Error Tracking <span class="feature-badge badge-new">New</span></h3>
+            <p>Built-in Sentry replacement. Error fingerprinting, browser SDK, performance metrics, trend charts.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(6,182,212,0.1);color:var(--cyan)">&#8984;K</div>
+            <h3>Command Palette</h3>
+            <p>Ctrl+K fuzzy search across apps, commands, and actions. Restart containers, check SEO, open revenue.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(59,130,246,0.1);color:var(--blue)">&#x1f4ca;</div>
+            <h3>Built-In Analytics <span class="feature-badge badge-new">New</span></h3>
+            <p>Privacy-first traffic analytics. No cookies, no third parties. Hourly/daily rollups and charts.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(234,179,8,0.1);color:var(--yellow)">SEO</div>
+            <h3>SEO Auditing</h3>
+            <p>13-check audit for every app: meta tags, headers, mobile, speed. A-F scoring with recommendations.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(139,92,246,0.1);color:var(--purple)">&#x1f4cb;</div>
+            <h3>Projects + Kanban</h3>
+            <p>Track every app's lifecycle, tasks, and roadmap. Kanban board, AI-generated insights.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(234,179,8,0.1);color:var(--yellow)">&#x2709;</div>
+            <h3>Email + Content Pipelines</h3>
+            <p>Resend email sequences, AI-drafted blog posts in the content queue, Plausible traffic analytics, Stripe revenue attribution — all in one place.</p>
+          </div>
+          <div class="feature-card">
+            <div class="feature-icon" style="background:rgba(34,197,94,0.1);color:var(--green)">&#x26a1;</div>
+            <h3>Alert Rules</h3>
+            <p>Custom thresholds for CPU, memory, disk, error rates. 2-minute evaluation cycle. Telegram notifications.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== MARKETING BRAIN DEEP DIVE ===== -->
+    <section class="glass-section" id="marketing-brain">
+      <div class="glass-panel glass-panel-wide" style="background:linear-gradient(135deg,rgba(139,92,246,0.04),rgba(59,130,246,0.03))">
+        <div class="section-label">New Flagship Feature</div>
+        <h2>&#x1f9e0; Meet the Marketing Brain</h2>
+        <p class="subtitle">An autonomous AI marketing manager that runs inside your Dockfolio instance. Every 4 hours, it rotates through your apps, studies them, and produces a fresh batch of specific, ready-to-publish marketing work. Not templates. Not suggestions. Real drafts.</p>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;margin-top:32px">
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:22px">
+            <div style="font-size:32px;margin-bottom:8px">&#x1f4ca;</div>
+            <h3 style="font-size:16px;margin-bottom:8px">Observes every app</h3>
+            <p style="font-size:13px;color:var(--text-dim);line-height:1.6">Pulls traffic from Plausible, revenue from Stripe, SEO scores, recent mentions on Reddit/HN, and the history of its own prior briefs. Your context becomes its context.</p>
+          </div>
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:22px">
+            <div style="font-size:32px;margin-bottom:8px">&#x1f9ea;</div>
+            <h3 style="font-size:16px;margin-bottom:8px">Analyzes brutally</h3>
+            <p style="font-size:13px;color:var(--text-dim);line-height:1.6">Claude reads the full picture of each product and returns a brutally-honest assessment plus 3-6 hypotheses about what's working, what's not, and what to try next — specific to YOUR audience, niche, and positioning.</p>
+          </div>
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:22px">
+            <div style="font-size:32px;margin-bottom:8px">&#x270d;&#xfe0f;</div>
+            <h3 style="font-size:16px;margin-bottom:8px">Drafts real content</h3>
+            <p style="font-size:13px;color:var(--text-dim);line-height:1.6">Safe actions auto-execute: full blog post outlines land in your content queue, social threads land in your posts queue, research notes land in your learnings log. Ready for one-click review.</p>
+          </div>
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:22px">
+            <div style="font-size:32px;margin-bottom:8px">&#x1f465;</div>
+            <h3 style="font-size:16px;margin-bottom:8px">Rotates fairly</h3>
+            <p style="font-size:13px;color:var(--text-dim);line-height:1.6">Stalest-first scheduler picks the apps that haven't been analyzed recently, so every product in your portfolio gets attention. No favorites. No forgotten apps.</p>
+          </div>
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:22px">
+            <div style="font-size:32px;margin-bottom:8px">&#x1f4b0;</div>
+            <h3 style="font-size:16px;margin-bottom:8px">Costs almost nothing</h3>
+            <p style="font-size:13px;color:var(--text-dim);line-height:1.6">Claude Haiku per cycle ≈ $0.015. Full daily coverage of 24 apps ≈ $0.30. A hard $5/day circuit breaker protects you from runaway costs. Compare that to a $500/mo marketing SaaS.</p>
+          </div>
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:22px">
+            <div style="font-size:32px;margin-bottom:8px">&#x1f512;</div>
+            <h3 style="font-size:16px;margin-bottom:8px">Runs on your infra</h3>
+            <p style="font-size:13px;color:var(--text-dim);line-height:1.6">Self-hosted. Your API keys. Your SQLite. Your drafts. No third-party sees your product data. The only outbound call is to Anthropic, and you can swap the model at any time.</p>
+          </div>
+        </div>
+
+        <div style="margin-top:40px;padding:24px;background:var(--surface3);border:1px solid var(--border);border-radius:14px">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Sample output</div>
+          <div style="display:grid;gap:10px">
+            <div style="padding:12px 14px;background:var(--surface2);border-left:3px solid #8b5cf6;border-radius:6px">
+              <div style="font-size:10px;color:#8b5cf6;font-weight:700;text-transform:uppercase;margin-bottom:4px">content.draft &middot; abschlusscheck &middot; p8</div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:4px">Blog post: "AbschlussCheck vs. Fotograf: Kosten, Zeit, Qualit&auml;t"</div>
+              <div style="font-size:11px;color:var(--text-muted)">Auto-drafted full 2000-word outline. Landed in content_queue ready for review.</div>
+            </div>
+            <div style="padding:12px 14px;background:var(--surface2);border-left:3px solid #3b82f6;border-radius:6px">
+              <div style="font-size:10px;color:#3b82f6;font-weight:700;text-transform:uppercase;margin-bottom:4px">social.draft &middot; betpilot &middot; p6</div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:4px">Twitter thread: BetPilot value prop + how-to</div>
+              <div style="font-size:11px;color:var(--text-muted)">Auto-drafted 8-tweet thread. Landed in social_posts as draft, ready to queue.</div>
+            </div>
+            <div style="padding:12px 14px;background:var(--surface2);border-left:3px solid #f59e0b;border-radius:6px">
+              <div style="font-size:10px;color:#f59e0b;font-weight:700;text-transform:uppercase;margin-bottom:4px">outreach &middot; abfindungsoptimizer &middot; p8</div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:4px">Community seeding: r/Finanzen, r/Steuern, Finanzforum</div>
+              <div style="font-size:11px;color:var(--text-muted)">Specific subreddits + forum names + value-first approach notes.</div>
+            </div>
+            <div style="padding:12px 14px;background:var(--surface2);border-left:3px solid #22c55e;border-radius:6px">
+              <div style="font-size:10px;color:#22c55e;font-weight:700;text-transform:uppercase;margin-bottom:4px">seo &middot; lohncheck &middot; p9</div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:4px">Optimize core pages for 'Brutto Netto Rechner' cluster</div>
+              <div style="font-size:11px;color:var(--text-muted)">Specific keyword target + which pages to update + meta description gaps.</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="text-align:center;margin-top:40px">
+          <p style="font-size:14px;color:var(--text-dim);max-width:640px;margin:0 auto 20px">No other self-hosted dashboard ships this. Most marketing SaaS costs $200-500/mo and still makes you do the work. The Brain does the work.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== PRICING ===== -->
+    <section class="glass-section" id="pricing">
+      <div class="glass-panel glass-panel-wide" style="text-align:center">
+        <div class="section-label">Pricing</div>
+        <h2>Free forever. Pay for more.</h2>
+        <p class="subtitle" style="margin-left:auto;margin-right:auto">Self-host for free with full features. Paid plans add multi-server support, priority updates, and dedicated help.</p>
+        <div class="pricing-grid">
+          <div class="pricing-card">
+            <div class="pricing-name">Free</div>
+            <div class="pricing-price">$0<span>/mo</span></div>
+            <div class="pricing-desc">Perfect for solo developers</div>
+            <ul class="pricing-features">
+              <li>1 server</li>
+              <li>All dashboard features</li>
+              <li>Unlimited apps</li>
+              <li>All 144 API endpoints</li>
+              <li>Community support</li>
+            </ul>
+            <a href="https://github.com/dockfolio/dockfolio" class="pricing-btn pricing-btn-outline">Self-Host Free</a>
+          </div>
+          <div class="pricing-card">
+            <div class="pricing-name">Solo</div>
+            <div class="pricing-price">$9<span>/mo</span></div>
+            <div class="pricing-desc">For serious side-project builders</div>
+            <ul class="pricing-features">
+              <li>1 server</li>
+              <li>Priority updates</li>
+              <li>Email support</li>
+              <li>Custom branding</li>
+              <li>Export reports</li>
+            </ul>
+            <a href="#" class="pricing-btn pricing-btn-outline">Coming Soon</a>
+          </div>
+          <div class="pricing-card popular">
+            <div class="pricing-name">Builder</div>
+            <div class="pricing-price">$19<span>/mo</span></div>
+            <div class="pricing-desc">For indie hackers with multiple apps</div>
+            <ul class="pricing-features">
+              <li>Up to 3 servers</li>
+              <li>Multi-server dashboard</li>
+              <li>Team members (3)</li>
+              <li>Webhook integrations</li>
+              <li>Priority support</li>
+            </ul>
+            <a href="#" class="pricing-btn pricing-btn-primary">Coming Soon</a>
+          </div>
+          <div class="pricing-card">
+            <div class="pricing-name">Portfolio</div>
+            <div class="pricing-price">$39<span>/mo</span></div>
+            <div class="pricing-desc">For agencies and power users</div>
+            <ul class="pricing-features">
+              <li>Unlimited servers</li>
+              <li>Unlimited team members</li>
+              <li>White-label option</li>
+              <li>API rate limit boost</li>
+              <li>Dedicated support</li>
+            </ul>
+            <a href="#" class="pricing-btn pricing-btn-outline">Coming Soon</a>
+          </div>
+        </div>
+        <div style="margin-top:28px">
+          <p style="color:var(--text-muted);font-size:13px">Launch special: <strong style="color:var(--green)">$199 lifetime</strong> for early supporters. Limited to first 50 customers.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== COMPARISON ===== -->
+    <section class="glass-section" id="compare">
+      <div class="glass-panel glass-panel-wide">
+        <div class="section-label">Comparison</div>
+        <h2>Different from everything else</h2>
+        <p class="subtitle">Coolify deploys apps. Portainer manages containers. Dockfolio helps you understand and grow your entire portfolio.</p>
+        <div class="comparison-wrapper">
+          <table class="comparison-table">
+            <thead>
+              <tr>
+                <th>Feature</th>
+                <th class="highlight-col">Dockfolio</th>
+                <th>Coolify</th>
+                <th>Portainer</th>
+                <th>Homepage</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Container management</td><td class="highlight-col check">&#10003;</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Revenue tracking (Stripe)</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Built-in analytics</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Error tracking</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Security auditing</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>AI operations</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Auto-healing</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>ADHD mode</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Charts + visualizations</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Command palette</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Marketing automation</td><td class="highlight-col check"><strong>&#10003;</strong></td><td class="cross">&mdash;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Git deployments</td><td class="cross">&mdash;</td><td class="check">&#10003;</td><td class="cross">&mdash;</td><td class="cross">&mdash;</td></tr>
+              <tr><td>Multi-server</td><td class="cross">Planned</td><td class="check">&#10003;</td><td class="check">&#10003;</td><td class="cross">&mdash;</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="savings-banner">
+          <div class="amount">$158/mo saved</div>
+          <p>Self-host for $12/mo what would cost $171/mo as separate SaaS tools (93% savings)</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== ARCHITECTURE ===== -->
+    <section class="glass-section">
+      <div class="glass-panel" style="text-align:center">
+        <div class="section-label">Architecture</div>
+        <h2>Minimal by design</h2>
+        <p class="subtitle" style="margin-left:auto;margin-right:auto">Single-container Node.js app. ~370KB frontend. SQLite database. No external dependencies.</p>
+        <div class="stats-grid">
+          <div class="stat-card"><div class="num" style="color:var(--cyan)">144</div><div class="label">API endpoints</div></div>
+          <div class="stat-card"><div class="num" style="color:var(--green)">33</div><div class="label">SQLite tables</div></div>
+          <div class="stat-card"><div class="num" style="color:var(--purple)">28</div><div class="label">Cron jobs</div></div>
+          <div class="stat-card"><div class="num" style="color:var(--yellow)">21</div><div class="label">Keyboard shortcuts</div></div>
+          <div class="stat-card"><div class="num" style="color:var(--red)">0</div><div class="label">External deps required</div></div>
+          <div class="stat-card"><div class="num" style="color:var(--text)">94</div><div class="label">Automated tests</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== GUIDE ===== -->
+    <section class="glass-section" id="guide">
+      <div class="glass-panel glass-panel-wide">
+        <div class="guide-card">
+          <div class="guide-cover">
+            <span class="guide-cover-icon">&#x1F433;</span>
+            <div class="guide-cover-title">The Dockfolio Playbook</div>
+            <div class="guide-cover-sub">From Zero to Production-Grade Dashboard</div>
+            <div class="guide-cover-pages">PDF &middot; 85 pages &middot; 12 chapters</div>
+          </div>
+          <div class="guide-info">
+            <div class="section-label">Premium Guide</div>
+            <h2>Master your Docker portfolio</h2>
+            <p>Everything we learned running 30+ apps on a single Hetzner VPS. Real configs, real numbers, real mistakes.</p>
+            <ul class="guide-features">
+              <li>Production nginx configs with security headers, SSL, and rate limiting</li>
+              <li>Stripe + Plausible integration walkthroughs with real revenue dashboards</li>
+              <li>Auto-healing playbooks: restart policies, disk cleanup, loop detection</li>
+              <li>Security hardening checklist (container, network, SSH, fail2ban)</li>
+              <li>AI ops setup: morning briefings, worry scores, Telegram alerts</li>
+              <li>ADHD-friendly workflow: from 5-tab chaos to single Worry Score</li>
+            </ul>
+            <div class="guide-price">
+              <span class="amount">$19</span>
+              <span class="format">PDF &middot; instant download &middot; lifetime updates</span>
+            </div>
+            <div class="guide-cta">
+              <a href="#" class="btn-primary btn-lg">Buy the Playbook</a>
+              <a href="#" class="btn-outline btn-lg">Preview Chapter 1</a>
+            </div>
+            <p class="guide-guarantee">30-day money-back guarantee. No questions asked.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== FINAL CTA ===== -->
+    <section class="cta-section" id="cta">
+      <h2>Ready to take control?</h2>
+      <p>Free forever. Self-hosted. AGPL-3.0 licensed. One command to install.</p>
+      <div class="hero-actions">
+        <a href="https://github.com/dockfolio/dockfolio" class="btn-primary btn-lg">Get Started Free</a>
+        <a href="#install" class="btn-outline btn-lg">One-command install</a>
+      </div>
+    </section>
+
+  </div><!-- /scroll-container -->
+
+  <!-- Impressum -->
+  <div id="impressum" class="legal-page">
+    <a href="#" class="back-link">&larr; Back to Dockfolio</a>
+    <h1>Impressum</h1>
+    <h2>Angaben gem. &sect; 5 DDG</h2>
+    <p>Crelvo<br>Konrad Reyhe<br>c/o MDC Management#6099<br>Welserstra&szlig;e 3<br>87463 Dietmannsried</p>
+    <h2>Kontakt</h2>
+    <p>E-Mail: kreyhe@yahoo.com</p>
+    <h2>Umsatzsteuer</h2>
+    <p>Kein Ausweis der Umsatzsteuer gem&auml;&szlig; &sect; 19 UStG (Kleinunternehmerregelung).</p>
+    <h2>Inhaltlich verantwortlich gem. &sect; 18 Abs. 2 MStV</h2>
+    <p>Konrad Reyhe<br>c/o MDC Management#6099<br>Welserstra&szlig;e 3<br>87463 Dietmannsried</p>
+    <h2>Haftung f&uuml;r Inhalte</h2>
+    <p>Als Diensteanbieter sind wir gem&auml;&szlig; &sect; 7 Abs. 1 DDG f&uuml;r eigene Inhalte auf diesen Seiten nach den allgemeinen Gesetzen verantwortlich. Nach &sect;&sect; 8 bis 10 DDG sind wir als Diensteanbieter jedoch nicht verpflichtet, &uuml;bermittelte oder gespeicherte fremde Informationen zu &uuml;berwachen. Bei Bekanntwerden von Rechtsverletzungen werden wir diese Inhalte umgehend entfernen.</p>
+    <h2>Haftung f&uuml;r Links</h2>
+    <p>Unser Angebot enth&auml;lt Links zu externen Websites Dritter, auf deren Inhalte wir keinen Einfluss haben. F&uuml;r die Inhalte der verlinkten Seiten ist stets der jeweilige Anbieter oder Betreiber verantwortlich. Bei Bekanntwerden von Rechtsverletzungen werden wir derartige Links umgehend entfernen.</p>
+    <h2>Urheberrecht</h2>
+    <p>Die durch den Seitenbetreiber erstellten Inhalte und Werke auf diesen Seiten unterliegen dem deutschen Urheberrecht. Die Vervielf&auml;ltigung, Bearbeitung, Verbreitung und jede Art der Verwertung au&szlig;erhalb der Grenzen des Urheberrechtes bed&uuml;rfen der schriftlichen Zustimmung des jeweiligen Autors bzw. Erstellers.</p>
+    <h2>Streitschlichtung</h2>
+    <p>Die Europ&auml;ische Kommission stellt eine Plattform zur Online-Streitbeilegung (OS) bereit: <a href="https://ec.europa.eu/consumers/odr/" target="_blank" rel="noopener">https://ec.europa.eu/consumers/odr/</a>. Wir sind nicht bereit oder verpflichtet, an Streitbeilegungsverfahren vor einer Verbraucherschlichtungsstelle teilzunehmen.</p>
+    <p style="margin-top: 24px; font-size: 12px; color: var(--text-muted);">Stand: M&auml;rz 2026</p>
+  </div>
+
+  <!-- Datenschutzerklaerung -->
+  <div id="datenschutz" class="legal-page">
+    <a href="#" class="back-link">&larr; Back to Dockfolio</a>
+    <h1>Datenschutzerkl&auml;rung</h1>
+    <h2>1. Verantwortlicher</h2>
+    <p>Konrad Reyhe<br>c/o MDC Management#6099<br>Welserstra&szlig;e 3<br>87463 Dietmannsried<br>E-Mail: kreyhe@yahoo.com</p>
+    <h2>2. &Uuml;bersicht der Verarbeitungen</h2>
+    <p>Die nachfolgende &Uuml;bersicht fasst die Arten der verarbeiteten Daten und die Zwecke ihrer Verarbeitung zusammen und verweist auf die betroffenen Personen.</p>
+    <ul>
+      <li>Bereitstellung des Onlineangebotes und Webhosting</li>
+      <li>Webanalyse (anonymisiert, cookielos)</li>
+      <li>Kontaktaufnahme per E-Mail</li>
+    </ul>
+    <h2>3. Hosting</h2>
+    <p>Hoster: <strong>Hetzner Online GmbH</strong>, Industriestr. 25, 91710 Gunzenhausen, Deutschland. Server-Logfiles werden nach 14 Tagen automatisch gel&ouml;scht. Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO.</p>
+    <h2>4. Webanalyse</h2>
+    <p>Wir setzen <strong>Plausible Analytics</strong> ein (self-hosted). Keine Cookies, keine personenbezogenen Daten, keine IP-Adressen. Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO.</p>
+    <h2>5. Kontaktaufnahme</h2>
+    <p>Bei der Kontaktaufnahme per E-Mail werden Ihre Angaben zur Bearbeitung gespeichert. Rechtsgrundlage: Art. 6 Abs. 1 lit. b/f DSGVO.</p>
+    <h2>6. SSL/TLS-Verschl&uuml;sselung</h2>
+    <p>Diese Seite nutzt SSL/TLS-Verschl&uuml;sselung.</p>
+    <h2>7. Ihre Rechte</h2>
+    <p>Auskunft (Art. 15), Berichtigung (Art. 16), L&ouml;schung (Art. 17), Einschr&auml;nkung (Art. 18), Daten&uuml;bertragbarkeit (Art. 20), Widerspruch (Art. 21), Beschwerde bei der Aufsichtsbeh&ouml;rde.</p>
+    <h2>8. Aufsichtsbeh&ouml;rde</h2>
+    <p>S&auml;chsischer Datenschutzbeauftragter, Devrientstra&szlig;e 5, 01067 Dresden</p>
+    <p style="margin-top: 24px; font-size: 12px; color: var(--text-muted);">Stand: M&auml;rz 2026</p>
+  </div>
+
+  <footer>
+    <p>&copy; 2026 Dockfolio. Open source under <a href="https://github.com/dockfolio/dockfolio/blob/master/LICENSE">AGPL-3.0</a>. Built by <a href="https://crelvo.dev">Crelvo</a>.</p>
+    <div class="footer-links"><a href="#impressum">Impressum</a><a href="#datenschutz">Datenschutz</a></div>
+  </footer>
+
+  <script>
+    // ---- Glass panel reveal on scroll ----
+    const panelObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+          panelObserver.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.08, rootMargin: '0px 0px -60px 0px' });
+    document.querySelectorAll('.glass-panel').forEach(el => panelObserver.observe(el));
+
+    // ---- Floating CTA ----
+    const heroEl = document.getElementById('hero');
+    const floatingCta = document.getElementById('floatingCta');
+    const ctaObs = new IntersectionObserver(([e]) => {
+      floatingCta.classList.toggle('show', !e.isIntersecting);
+    }, { threshold: 0 });
+    ctaObs.observe(heroEl);
+
+    // ---- Scroll progress bar ----
+    const progressBar = document.getElementById('scrollProgress');
+    window.addEventListener('scroll', () => {
+      const h = document.documentElement.scrollHeight - window.innerHeight;
+      progressBar.style.width = (window.scrollY / h * 100) + '%';
+    }, { passive: true });
+
+    // ---- Legal page hash routing ----
+    function handleHash() {
+      const hash = location.hash.slice(1);
+      const legalPages = document.querySelectorAll('.legal-page');
+      const mainContent = document.querySelectorAll('nav, #scroll-container, .floating-cta, #scene-canvas, .scroll-progress');
+      if (hash === 'impressum' || hash === 'datenschutz') {
+        legalPages.forEach(p => p.classList.toggle('active', p.id === hash));
+        mainContent.forEach(el => el.style.display = 'none');
+        window.scrollTo(0, 0);
+      } else {
+        legalPages.forEach(p => p.classList.remove('active'));
+        mainContent.forEach(el => el.style.display = '');
+      }
+    }
+    window.addEventListener('hashchange', handleHash);
+    if (location.hash === '#impressum' || location.hash === '#datenschutz') handleHash();
+  </script>
+
+  <!-- ===== THREE.JS IMMERSIVE SCENE ===== -->
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.172.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/" } }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+    // ---- SETUP ----
+    const canvas = document.getElementById('scene-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x09090b, 0.012);
+
+    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
+    camera.position.set(0, 2, 30);
+
+    // ---- COLORS ----
+    const CYAN = new THREE.Color(0x06b6d4);
+    const PURPLE = new THREE.Color(0x8b5cf6);
+    const BLUE = new THREE.Color(0x3b82f6);
+    const GREEN = new THREE.Color(0x22c55e);
+    const RED = new THREE.Color(0xef4444);
+    const DIM = new THREE.Color(0x1a2a3a);
+    const COLORS = [CYAN, PURPLE, BLUE, GREEN, CYAN, BLUE, DIM];
+
+    // ---- CONTAINER NODES (Instanced rounded boxes) ----
+    const NODE_COUNT = 30;
+    const boxGeo = new RoundedBoxGeometry(1, 1, 1, 4, 0.15);
+    const boxMat = new THREE.MeshPhysicalMaterial({
+      color: 0x111118,
+      metalness: 0.3,
+      roughness: 0.4,
+      transmission: 0.1,
+      thickness: 0.5,
+      emissive: new THREE.Color(0x06b6d4),
+      emissiveIntensity: 0.15,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const nodesMesh = new THREE.InstancedMesh(boxGeo, boxMat, NODE_COUNT);
+    scene.add(nodesMesh);
+
+    // Node data
+    const nodeData = [];
+    const dummy = new THREE.Object3D();
+    const nodeColor = new THREE.Color();
+
+    for (let i = 0; i < NODE_COUNT; i++) {
+      const theta = (i / NODE_COUNT) * Math.PI * 2;
+      const r = 6 + Math.random() * 10;
+      const y = (Math.random() - 0.5) * 12;
+      const scale = 0.4 + Math.random() * 0.6;
+      const color = COLORS[i % COLORS.length];
+
+      nodeData.push({
+        baseX: Math.cos(theta) * r,
+        baseY: y,
+        baseZ: Math.sin(theta) * r,
+        scale,
+        phase: Math.random() * Math.PI * 2,
+        speed: 0.15 + Math.random() * 0.25,
+        orbitSpeed: 0.02 + Math.random() * 0.04,
+        color,
+        rotSpeed: (Math.random() - 0.5) * 0.5,
+      });
+
+      // Set initial instance color (emissive tint per instance via color attribute)
+      nodeColor.copy(color).multiplyScalar(0.3).add(new THREE.Color(0x111118));
+      nodesMesh.setColorAt(i, nodeColor);
+    }
+    nodesMesh.instanceColor.needsUpdate = true;
+
+    // ---- GLOW SPRITES for each node ----
+    const glowTex = createGlowTexture();
+    const glowGroup = new THREE.Group();
+    scene.add(glowGroup);
+
+    const glowSprites = [];
+    for (let i = 0; i < NODE_COUNT; i++) {
+      const spriteMat = new THREE.SpriteMaterial({
+        map: glowTex,
+        color: nodeData[i].color,
+        transparent: true,
+        opacity: 0.25,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.scale.set(3, 3, 1);
+      glowGroup.add(sprite);
+      glowSprites.push(sprite);
+    }
+
+    function createGlowTexture() {
+      const size = 128;
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      const ctx = c.getContext('2d');
+      const grad = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+      grad.addColorStop(0, 'rgba(255,255,255,1)');
+      grad.addColorStop(0.3, 'rgba(255,255,255,0.3)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, size, size);
+      const tex = new THREE.CanvasTexture(c);
+      return tex;
+    }
+
+    // ---- CONNECTION LINES ----
+    const MAX_CONNECTIONS = 200;
+    const linePositions = new Float32Array(MAX_CONNECTIONS * 6);
+    const lineColors = new Float32Array(MAX_CONNECTIONS * 6);
+    const lineGeo = new THREE.BufferGeometry();
+    lineGeo.setAttribute('position', new THREE.BufferAttribute(linePositions, 3));
+    lineGeo.setAttribute('color', new THREE.BufferAttribute(lineColors, 3));
+    const lineMat = new THREE.LineBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.2,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const connectionLines = new THREE.LineSegments(lineGeo, lineMat);
+    scene.add(connectionLines);
+
+    // ---- AMBIENT PARTICLES ----
+    const PARTICLE_COUNT = 2000;
+    const pGeo = new THREE.BufferGeometry();
+    const pPositions = new Float32Array(PARTICLE_COUNT * 3);
+    const pSizes = new Float32Array(PARTICLE_COUNT);
+    const pPhases = new Float32Array(PARTICLE_COUNT);
+    const pColors = new Float32Array(PARTICLE_COUNT * 3);
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      pPositions[i*3]   = (Math.random() - 0.5) * 100;
+      pPositions[i*3+1] = (Math.random() - 0.5) * 60;
+      pPositions[i*3+2] = (Math.random() - 0.5) * 80;
+      pSizes[i] = 0.3 + Math.random() * 1.2;
+      pPhases[i] = Math.random() * Math.PI * 2;
+      const c = COLORS[Math.floor(Math.random() * COLORS.length)];
+      pColors[i*3] = c.r; pColors[i*3+1] = c.g; pColors[i*3+2] = c.b;
+    }
+
+    pGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
+    pGeo.setAttribute('aSize', new THREE.BufferAttribute(pSizes, 1));
+    pGeo.setAttribute('color', new THREE.BufferAttribute(pColors, 3));
+
+    const particleMat = new THREE.ShaderMaterial({
+      vertexShader: `
+        attribute float aSize;
+        varying vec3 vColor;
+        varying float vAlpha;
+        uniform float uTime;
+        void main() {
+          vColor = color;
+          vec3 pos = position;
+          pos.x += sin(uTime * 0.1 + position.y * 0.1) * 0.5;
+          pos.y += cos(uTime * 0.08 + position.x * 0.1) * 0.4;
+          vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+          float dist = -mv.z;
+          vAlpha = smoothstep(80.0, 10.0, dist) * 0.35;
+          gl_PointSize = aSize * (120.0 / dist);
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+        varying float vAlpha;
+        void main() {
+          float d = length(gl_PointCoord - vec2(0.5));
+          if (d > 0.5) discard;
+          float a = smoothstep(0.5, 0.0, d) * vAlpha;
+          gl_FragColor = vec4(vColor, a);
+        }
+      `,
+      uniforms: { uTime: { value: 0 } },
+      vertexColors: true,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+
+    scene.add(new THREE.Points(pGeo, particleMat));
+
+    // ---- DATA FLOW PARTICLES (along connections) ----
+    const FLOW_COUNT = 120;
+    const flowGeo = new THREE.BufferGeometry();
+    const flowPos = new Float32Array(FLOW_COUNT * 3);
+    const flowCol = new Float32Array(FLOW_COUNT * 3);
+    flowGeo.setAttribute('position', new THREE.BufferAttribute(flowPos, 3));
+    flowGeo.setAttribute('color', new THREE.BufferAttribute(flowCol, 3));
+
+    const flowMat = new THREE.PointsMaterial({
+      size: 0.15,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.7,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const flowPoints = new THREE.Points(flowGeo, flowMat);
+    scene.add(flowPoints);
+
+    const flowData = [];
+    for (let i = 0; i < FLOW_COUNT; i++) {
+      flowData.push({
+        fromNode: Math.floor(Math.random() * NODE_COUNT),
+        toNode: Math.floor(Math.random() * NODE_COUNT),
+        t: Math.random(),
+        speed: 0.3 + Math.random() * 0.7,
+      });
+      const c = CYAN;
+      flowCol[i*3] = c.r; flowCol[i*3+1] = c.g; flowCol[i*3+2] = c.b;
+    }
+
+    // ---- ORBITAL RING ----
+    const ringGeo = new THREE.TorusGeometry(14, 0.02, 8, 128);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: CYAN,
+      transparent: true,
+      opacity: 0.12,
+      blending: THREE.AdditiveBlending,
+    });
+    const ring1 = new THREE.Mesh(ringGeo, ringMat);
+    ring1.rotation.x = Math.PI / 2.2;
+    scene.add(ring1);
+
+    const ring2 = new THREE.Mesh(
+      new THREE.TorusGeometry(18, 0.015, 8, 128),
+      new THREE.MeshBasicMaterial({ color: PURPLE, transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending })
+    );
+    ring2.rotation.x = Math.PI / 3;
+    ring2.rotation.z = 0.5;
+    scene.add(ring2);
+
+    // ---- CENTRAL GLOW ----
+    const centralGlowMat = new THREE.SpriteMaterial({
+      map: glowTex,
+      color: CYAN,
+      transparent: true,
+      opacity: 0.15,
+      blending: THREE.AdditiveBlending,
+    });
+    const centralGlow = new THREE.Sprite(centralGlowMat);
+    centralGlow.scale.set(20, 20, 1);
+    scene.add(centralGlow);
+
+    // ---- LIGHTS ----
+    const ambientLight = new THREE.AmbientLight(0x1a1a2e, 0.5);
+    scene.add(ambientLight);
+
+    const pointLight1 = new THREE.PointLight(CYAN, 3, 50);
+    pointLight1.position.set(5, 5, 10);
+    scene.add(pointLight1);
+
+    const pointLight2 = new THREE.PointLight(PURPLE, 2, 40);
+    pointLight2.position.set(-8, -3, -5);
+    scene.add(pointLight2);
+
+    const pointLight3 = new THREE.PointLight(BLUE, 1.5, 35);
+    pointLight3.position.set(0, 8, -10);
+    scene.add(pointLight3);
+
+    // ---- MOUSE ----
+    const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
+    window.addEventListener('mousemove', (e) => {
+      mouse.tx = (e.clientX / window.innerWidth - 0.5) * 2;
+      mouse.ty = -(e.clientY / window.innerHeight - 0.5) * 2;
+    }, { passive: true });
+
+    // ---- SCROLL STATE ----
+    let scrollProgress = 0;
+    const docHeight = () => document.documentElement.scrollHeight - window.innerHeight;
+    window.addEventListener('scroll', () => {
+      scrollProgress = Math.min(window.scrollY / docHeight(), 1);
+    }, { passive: true });
+
+    // ---- CAMERA PATH (scroll-driven) ----
+    // Camera orbits around the node cluster, moving through different vantage points
+    function getCameraTarget(t) {
+      // t: 0..1 scroll progress
+      // Phase 1 (0-0.15): Starting position, looking at cluster
+      // Phase 2 (0.15-0.4): Orbit right, slightly above
+      // Phase 3 (0.4-0.65): Zoom closer, orbit below
+      // Phase 4 (0.65-0.85): Pull back, wide shot
+      // Phase 5 (0.85-1.0): Final approach, cinematic
+
+      const angle = t * Math.PI * 1.8 - 0.3;
+      const radius = 28 - Math.sin(t * Math.PI) * 10;
+      const height = 2 + Math.sin(t * Math.PI * 2) * 5;
+
+      return {
+        x: Math.sin(angle) * radius,
+        y: height,
+        z: Math.cos(angle) * radius,
+        lookX: Math.sin(t * 0.5) * 2,
+        lookY: Math.cos(t * Math.PI) * 1.5,
+        lookZ: 0,
+      };
+    }
+
+    // ---- ANIMATE ----
+    const clock = new THREE.Clock();
+    let connectionFrame = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const t = clock.getElapsedTime();
+      const dt = clock.getDelta();
+
+      // Smooth mouse
+      mouse.x += (mouse.tx - mouse.x) * 0.03;
+      mouse.y += (mouse.ty - mouse.y) * 0.03;
+
+      // Camera
+      const cam = getCameraTarget(scrollProgress);
+      const targetX = cam.x + mouse.x * 3;
+      const targetY = cam.y + mouse.y * 2;
+      const targetZ = cam.z;
+      camera.position.x += (targetX - camera.position.x) * 0.04;
+      camera.position.y += (targetY - camera.position.y) * 0.04;
+      camera.position.z += (targetZ - camera.position.z) * 0.04;
+      camera.lookAt(cam.lookX, cam.lookY, cam.lookZ);
+
+      // Update particle shader time
+      particleMat.uniforms.uTime.value = t;
+
+      // Update nodes
+      const nodePositions = []; // store current positions for connections
+      for (let i = 0; i < NODE_COUNT; i++) {
+        const nd = nodeData[i];
+        const phase = nd.phase + t * nd.speed;
+        const orbit = t * nd.orbitSpeed;
+
+        const cx = nd.baseX * Math.cos(orbit) - nd.baseZ * Math.sin(orbit);
+        const cz = nd.baseX * Math.sin(orbit) + nd.baseZ * Math.cos(orbit);
+
+        const x = cx + Math.sin(phase) * 0.8;
+        const y = nd.baseY + Math.cos(phase * 1.3) * 0.6;
+        const z = cz + Math.sin(phase * 0.7) * 0.5;
+
+        dummy.position.set(x, y, z);
+        dummy.rotation.set(t * nd.rotSpeed, t * nd.rotSpeed * 0.7, t * nd.rotSpeed * 0.5);
+        dummy.scale.setScalar(nd.scale);
+        dummy.updateMatrix();
+        nodesMesh.setMatrixAt(i, dummy.matrix);
+
+        // Update glow sprite
+        glowSprites[i].position.set(x, y, z);
+        glowSprites[i].material.opacity = 0.15 + Math.sin(t * nd.speed + nd.phase) * 0.08;
+
+        nodePositions.push(x, y, z);
+      }
+      nodesMesh.instanceMatrix.needsUpdate = true;
+
+      // Update connections (every 4th frame)
+      connectionFrame++;
+      if (connectionFrame % 4 === 0) {
+        let lineIdx = 0;
+        const threshold = 12;
+        for (let i = 0; i < NODE_COUNT && lineIdx < MAX_CONNECTIONS; i++) {
+          for (let j = i + 1; j < NODE_COUNT && lineIdx < MAX_CONNECTIONS; j++) {
+            const dx = nodePositions[i*3] - nodePositions[j*3];
+            const dy = nodePositions[i*3+1] - nodePositions[j*3+1];
+            const dz = nodePositions[i*3+2] - nodePositions[j*3+2];
+            const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+            if (dist < threshold) {
+              const fade = 1 - dist / threshold;
+              const idx = lineIdx * 6;
+              linePositions[idx]   = nodePositions[i*3];
+              linePositions[idx+1] = nodePositions[i*3+1];
+              linePositions[idx+2] = nodePositions[i*3+2];
+              linePositions[idx+3] = nodePositions[j*3];
+              linePositions[idx+4] = nodePositions[j*3+1];
+              linePositions[idx+5] = nodePositions[j*3+2];
+              const c = nodeData[i].color;
+              lineColors[idx]   = c.r * fade; lineColors[idx+1] = c.g * fade; lineColors[idx+2] = c.b * fade;
+              lineColors[idx+3] = c.r * fade; lineColors[idx+4] = c.g * fade; lineColors[idx+5] = c.b * fade;
+              lineIdx++;
+            }
+          }
+        }
+        lineGeo.setDrawRange(0, lineIdx * 2);
+        lineGeo.attributes.position.needsUpdate = true;
+        lineGeo.attributes.color.needsUpdate = true;
+      }
+
+      // Data flow particles
+      for (let i = 0; i < FLOW_COUNT; i++) {
+        const fd = flowData[i];
+        fd.t += fd.speed * 0.008;
+        if (fd.t > 1) {
+          fd.t = 0;
+          fd.fromNode = Math.floor(Math.random() * NODE_COUNT);
+          fd.toNode = Math.floor(Math.random() * NODE_COUNT);
+          if (fd.toNode === fd.fromNode) fd.toNode = (fd.toNode + 1) % NODE_COUNT;
+        }
+        const fi = fd.fromNode * 3;
+        const ti = fd.toNode * 3;
+        const lerp = fd.t;
+        flowPos[i*3]   = nodePositions[fi]   + (nodePositions[ti]   - nodePositions[fi])   * lerp;
+        flowPos[i*3+1] = nodePositions[fi+1] + (nodePositions[ti+1] - nodePositions[fi+1]) * lerp + Math.sin(lerp * Math.PI) * 1.5;
+        flowPos[i*3+2] = nodePositions[fi+2] + (nodePositions[ti+2] - nodePositions[fi+2]) * lerp;
+      }
+      flowGeo.attributes.position.needsUpdate = true;
+
+      // Rings
+      ring1.rotation.z = t * 0.05;
+      ring2.rotation.y = t * 0.04;
+
+      // Central glow pulse
+      centralGlow.material.opacity = 0.1 + Math.sin(t * 0.5) * 0.05;
+
+      // Lights
+      pointLight1.position.x = Math.sin(t * 0.3) * 12;
+      pointLight1.position.z = Math.cos(t * 0.3) * 12;
+      pointLight2.position.y = Math.sin(t * 0.2) * 8;
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // ---- RESIZE ----
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

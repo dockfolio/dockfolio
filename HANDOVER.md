@@ -22,6 +22,21 @@ Also committed the `orbedge-landing/` directory to this repo (no better home exi
 
 ## What Got Done
 
+### Round 5 — Dashboard UI panel, cost cap, productization
+- [x] **Full Marketing Brain UI in dashboard** — New tab in the Marketing panel (`mkt-brain`) with gradient hero card, stats row (briefs today, proposed count, cost meter with visual bar, stale apps), kind/app/status filters, action queue with rich cards (kind badge, priority, impact/effort badges, body preview, per-card Approve/Reject/Mark-done buttons), recent-briefs sidebar, stale-apps list, brief detail modal (analysis + hypotheses + all actions + model metadata). Lazy-loaded on tab click. Matches existing glassmorphic aesthetic
+- [x] **Cost circuit breaker** — Hard $5/day cap enforced in `runBrainCycle`. Cron skips cleanly when cap reached. HTTP endpoints return 429 with `code=COST_CAP` on breach. Manual triggers can override via `force=1` query param. Stats endpoint exposes `daily_cap_usd`, `cap_remaining_usd`, `cap_pct_used` so the UI cost meter shows a live progress bar
+- [x] **Productization — Dockfolio landing page updated** — `dockfolio-landing/index.html` now features Marketing Brain as the flagship product:
+  - New top-position featured card in the feature grid (purple-gradient border, "Flagship" badge)
+  - Hero headline rewritten: "Run your Docker portfolio. Let the AI run your marketing."
+  - Hero subtitle rewritten to lead with Marketing Brain
+  - Meta title + description + og: tags all rebranded around the Brain
+  - New dedicated `#marketing-brain` section with 6 benefit cards (Observes/Analyzes/Drafts/Rotates/Cheap/Private) plus a "Sample output" card showing real anonymized brain actions
+  - Nav bar gets a "Brain ✨" link in purple between Features and Playbook
+  - Old generic "Marketing Automation" card renamed to "Email + Content Pipelines" to distinguish from the Brain
+- [x] **Landing page pulled into repo** — The dockfolio.dev static HTML was previously only on VM at `/home/deploy/dockfolio-landing/`. Now version-controlled at `dockfolio-landing/` in this repo (first time tracked). Deploy via `scp dockfolio-landing/index.html deploy@91.99.104.132:/home/deploy/dockfolio-landing/`
+- [x] **CLAUDE.md updated** — "What This Is" section now mentions Marketing Brain as the flagship feature with a pointer to implementation + docs
+- [x] **Live verification** — `https://dockfolio.dev` returns 200 with new Marketing Brain content visible in HTML
+
 ### Round 4 — Marketing Brain auto-execution + slug fix
 - [x] **Auto-execution wired for 3 action kinds:**
   - `content.draft` → inserts a row in `content_queue` with `content_type='blog-brain'`, status='draft'
