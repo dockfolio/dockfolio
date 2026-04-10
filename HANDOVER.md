@@ -22,6 +22,26 @@ Also committed the `orbedge-landing/` directory to this repo (no better home exi
 
 ## What Got Done
 
+### Round 6 — URGENT FIX: PromoForge auth popup (nginx auth_basic gap)
+- [x] **Root cause** — User reported PromoForge loading an unexpected "Dockfolio" login popup. Traced to the `/home/deploy/nginx-configs/sites/appmanager` nginx config: session 12's cleanup left a stub comment `# Public banner management endpoints (no auth — served to external sites)` but REMOVED the corresponding `location /api/banners/ { auth_basic off; proxy_pass ... }` block. Without that exemption, nginx's `auth_basic "Dockfolio"` at the server level returned 401 with `WWW-Authenticate: Basic realm="Dockfolio"` for any cross-origin `/api/banners/*` call, and browsers show their native auth popup as a result
+- [x] **Contributing factor** — 3 of 4 sites (promoforge, abschlusscheck, bannerforge) still have the hardcoded `<script src="/api/banners/embed.js">` tag in their served HTML because their containers were never rebuilt after the session 12 source fix. These scripts 404 locally, but in some browser CSP configurations the script tag would be interpreted as pointing at the Dockfolio admin and trigger the cross-origin auth popup
+- [x] **Primary fix** — Added back the missing nginx location block to `/home/deploy/nginx-configs/sites/appmanager`:
+  ```nginx
+  location /api/banners/ {
+      auth_basic off;
+      proxy_pass http://127.0.0.1:9091;
+      proxy_http_version 1.1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $remote_addr;
+      proxy_set_header X-Forwarded-Proto $scheme;
+  }
+  ```
+  Reloaded nginx. Verified `admin.crelvo.dev/api/banners/embed.js` returns **200 OK** with the JS content (no auth challenge). Verified `admin.crelvo.dev/api/banners/serve?app=promoforge` returns 200
+- [x] **Defensive cleanup** — Stripped the stale `<script src="/api/banners/embed.js">` tag from promoforge-api-1's `/app/web/dist/index.html` via `sed -i`. Restarted the container to flush in-memory caches. Verified via curl that served HTML has 0 `/api/banners/` references
+- [x] **Verified in Playwright** — Loaded promoforge.app fresh. No cross-origin admin.crelvo.dev requests. No auth popup. Only 2 harmless local 404s on `promoforge.app/api/banners/embed.js` (the relative tag still exists until the container is rebuilt from local source)
+- [x] **Related finding** — Verified bewerbungsfotos-ai.de is clean (0 refs), but abschlusscheck.de and bannerforge.app still have the relative embed.js tag in HTML. Nginx fix covers them too — they no longer trigger auth popups. Cosmetic 404s remain until container rebuilds
+
 ### Round 5 — Dashboard UI panel, cost cap, productization
 - [x] **Full Marketing Brain UI in dashboard** — New tab in the Marketing panel (`mkt-brain`) with gradient hero card, stats row (briefs today, proposed count, cost meter with visual bar, stale apps), kind/app/status filters, action queue with rich cards (kind badge, priority, impact/effort badges, body preview, per-card Approve/Reject/Mark-done buttons), recent-briefs sidebar, stale-apps list, brief detail modal (analysis + hypotheses + all actions + model metadata). Lazy-loaded on tab click. Matches existing glassmorphic aesthetic
 - [x] **Cost circuit breaker** — Hard $5/day cap enforced in `runBrainCycle`. Cron skips cleanly when cap reached. HTTP endpoints return 429 with `code=COST_CAP` on breach. Manual triggers can override via `force=1` query param. Stats endpoint exposes `daily_cap_usd`, `cap_remaining_usd`, `cap_pct_used` so the UI cost meter shows a live progress bar
