@@ -2,7 +2,73 @@
 // Runs on a cron, rotates through all marketable apps, produces briefs and
 // proposes concrete actions. See plans/marketing-brain.md for design.
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { asyncRoute, callAnthropic, getMarketableApps, safeJSON, parseId, slugify } from '../utils.js';
+
+// Read-only view of /home/deploy/nginx-configs/sites mounted into the container.
+// Lets collectAppContext see proxy-layer state (plausible injection, banner
+// injection, CSP, etc.) so the brain stops proposing infra work that's already
+// done. See session 14 handover: the "install Plausible" false-positive class.
+const NGINX_SITES_DIR = process.env.NGINX_SITES_DIR || '/etc/dockfolio/nginx-sites';
+const INFRA_CACHE_TTL_MS = 60_000;
+let infraCache = null;
+let infraCacheAt = 0;
+
+function buildInfraCache() {
+  const map = {};
+  let files;
+  try { files = fs.readdirSync(NGINX_SITES_DIR); }
+  catch { return map; }
+  for (const f of files) {
+    if (f.includes('.bak') || f.startsWith('.') || f.endsWith('~')) continue;
+    const full = path.join(NGINX_SITES_DIR, f);
+    let content;
+    try {
+      const stat = fs.statSync(full);
+      if (!stat.isFile() || stat.size > 200_000) continue;
+      content = fs.readFileSync(full, 'utf8');
+    } catch { continue; }
+    const domains = new Set();
+    for (const m of content.matchAll(/server_name\s+([^;]+);/g)) {
+      for (const d of m[1].trim().split(/\s+/)) {
+        if (d && d !== '_') domains.add(d.replace(/^www\./, '').toLowerCase());
+      }
+    }
+    // Substring checks (not regex-anchored to sub_filter) — nginx sub_filter
+    // replacement strings contain JS with semicolons, which breaks [^;]* clauses.
+    // Presence of the marker string anywhere is the honest signal.
+    const lower = content.toLowerCase();
+    const state = {
+      nginx_file: f,
+      plausible_injected: lower.includes('data-domain=') || /proxy_pass\s+http:\/\/[^\s;]*plausible/i.test(content) || /location\s*=?\s*\/js\/script\.js/i.test(content),
+      admin_tracking: lower.includes('admin.crelvo.dev/api/analytics/track.js'),
+      banner_injection: lower.includes('/api/banners/embed.js'),
+      crosslinks_widget: lower.includes('/api/crosslinks/widget.js'),
+      csp_header: /add_header\s+content-security-policy/i.test(content),
+      gzip_on: /\bgzip\s+on\s*;/i.test(content),
+      long_cache: /cache-control[^"'\n]*immutable/i.test(content),
+      ssl_letsencrypt: content.includes('ssl_certificate /etc/letsencrypt'),
+    };
+    for (const d of domains) map[d] = state;
+  }
+  return map;
+}
+
+function loadInfraCache() {
+  const now = Date.now();
+  if (infraCache && now - infraCacheAt < INFRA_CACHE_TTL_MS) return infraCache;
+  infraCache = buildInfraCache();
+  infraCacheAt = now;
+  return infraCache;
+}
+
+function readInfraState(appDef) {
+  const domain = appDef?.domain?.replace(/^www\./, '').toLowerCase();
+  if (!domain) return null;
+  const map = loadInfraCache();
+  return map[domain] || null;
+}
 
 // Approximate cost per 1M tokens for Claude Haiku 4.5 (input / output). Rough.
 const HAIKU_COST_IN = 1.00 / 1_000_000;
@@ -190,6 +256,9 @@ export default function registerMarketingBrainRoutes({
       ctx.learnings = learnings;
     } catch { ctx.learnings = []; }
 
+    // Proxy-layer infra state (nginx sub_filter, CSP, etc.). Null if mount missing.
+    ctx.infra_state = readInfraState(appDef);
+
     return ctx;
   }
 
@@ -229,7 +298,8 @@ Rules:
 - For outreach: name the specific target (a subreddit, a newsletter, a Fachschaft, a competitor's audience) with channel + approach
 - For research.note: a crisp insight to remember for future cycles
 - Reference prior briefs and avoid proposing duplicates of open actions
-- Acknowledge learnings when relevant`;
+- Acknowledge learnings when relevant
+- If an infra flag in "Proxy-layer state" is already true, DO NOT propose installing it again (e.g. do not propose "install Plausible" when plausible_injected=true)`;
   }
 
   function buildSystemPromptDeep() {
@@ -265,7 +335,8 @@ Rules:
 - If learnings tagged [WORKED] exist, propose how to scale them. If learnings tagged [FAILED] exist, propose a different angle or a kill decision
 - Do NOT propose duplicates of still-open actions
 - For content.draft / social.draft / email.draft: write the actual draft content, production-ready
-- For outreach: name the exact target (specific subreddit, newsletter, conference, person)`;
+- For outreach: name the exact target (specific subreddit, newsletter, conference, person)
+- Respect the "Proxy-layer state" section: infra items already flagged true are DONE at nginx layer — do not propose reinstalling them`;
   }
 
   function buildUserPromptDeep(ctx) {
@@ -282,6 +353,11 @@ Rules:
     if (ctx.revenue) lines.push(`Revenue (Stripe): MRR €${(ctx.revenue.mrr / 100).toFixed(2)}, 30d €${(ctx.revenue.revenue_30d / 100).toFixed(2)}, customers ${ctx.revenue.customer_count}`);
     else lines.push('Revenue: none yet');
     if (ctx.seo) lines.push(`SEO score: ${ctx.seo.score}/100. Top issues: ${JSON.stringify(ctx.seo.issues)}`);
+    if (ctx.infra_state) {
+      lines.push('');
+      lines.push('## Proxy-layer state (nginx sub_filter, already done — DO NOT propose installing these)');
+      lines.push(JSON.stringify(ctx.infra_state));
+    }
     lines.push('');
     if (ctx.cadence_30d) {
       lines.push(`## Brain cadence (30d)`);
@@ -344,6 +420,11 @@ Rules:
     if (ctx.seo) {
       lines.push(`SEO score: ${ctx.seo.score}/100. Top issues: ${JSON.stringify(ctx.seo.issues)}`);
     } else lines.push('SEO: unknown');
+    if (ctx.infra_state) {
+      lines.push('');
+      lines.push('## Proxy-layer state (nginx sub_filter, already done — DO NOT propose installing these)');
+      lines.push(JSON.stringify(ctx.infra_state));
+    }
     lines.push('');
     if (ctx.recent_mentions?.length) {
       lines.push('## Recent mentions');
