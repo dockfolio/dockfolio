@@ -1,295 +1,314 @@
 # Session Handover
 
-**Date:** 2026-04-10 (Session 15)
-**Duration:** ~2 hours of autonomous work
-**Goal:** Pick up from session 14's handover and "keep going" autonomously. User said "keep going" four times total, no other direction.
+**Date:** 2026-04-10 (Session 16)
+**Duration:** ~1 hour, driven by a short chain of "keep going" prompts
+**Goal:** Continue from session 15's handover and work down the autonomous priority list.
 
 ## Summary
 
-Session 15 turned into the deepest single session since the Marketing Brain was built. It delivered **two major rounds (7 and 8)**, **three validated Sonnet deep cycles** on the portfolio's most important apps, and uncovered two pre-existing bugs that had silently crippled the brain since day one. By the end of the session the brain can, for the first time, see its own data: infrastructure state at the nginx layer, and real traffic/revenue numbers flowing from Plausible/Stripe.
+Session 16 shipped **four small rounds** with clean commits, two live deploys, three nginx reloads, zero rollbacks. The session's signature move was small-scope, high-leverage wins that cleaned up lingering round-8 follow-ups and made the Marketing Brain's proxy-layer state visible in the UI for the first time. It also caught two factual errors in session 15's handover that would have misled any future session, and explicitly refused to rip 500 lines of "dead code" that is, in fact, still actively wired to the UI.
 
-**Round 7 — nginx infrastructure awareness (commit `a3de07a`)**. The biggest blind spot session 14 documented: the brain recommends "install Plausible" even when Plausible is injected via nginx `sub_filter`, because the brain can't see the proxy layer. Round 7 fixes this by mounting `/home/deploy/nginx-configs/sites` read-only into the dashboard container and adding `readInfraState()`, which parses every nginx site file, extracts `server_name` domains, detects 8 proxy-layer flags (`plausible_injected`, `admin_tracking`, `banner_injection`, `crosslinks_widget`, `csp_header`, `gzip_on`, `long_cache`, `ssl_letsencrypt`), caches for 60s, and injects as `ctx.infra_state`. Both tactical and deep system prompts gained explicit rules forbidding proposals for infra already flagged as done. 32 of 40 detected domains have Plausible injected, matching session 14's manual audit.
+**Round 1 — daily cost cap lowered from $5 to $2** (commit `2b03929`). User said "max 2 dollas". `DAILY_COST_CAP_USD` in `dashboard/routes/marketing-brain.js:84` was hardcoded to `$5.00`. Changed to default `$2.00` and made it env-configurable via `BRAIN_DAILY_COST_CAP_USD`. Actual steady-state brain spend is ~$0.30–0.40/day (18 Haiku cron briefs + weekly Sonnet deep dives), so the new cap is comfortable headroom not a throttle. `.env.example` documents the new variable. Verified live: `docker exec dockfolio-dashboard node -e '...default cap: 2.00'`.
 
-**Three Sonnet deep cycles validated round 7 end-to-end.** Brief #18 (abschlusscheck, $0.078, 123s): *"no traffic data despite Plausible being installed (suggesting zero organic visitors)"* — reframes the problem from missing instrumentation to real go/no-go signal; proposes paid Reddit ads + explicit kill criteria. Brief #21 (promoforge, $0.078, 123s): *"The core blocker identified in brief #15 (instrumentation) was a false alarm: Plausible IS installed via nginx"* — the brain cites and contradicts its own prior brief by number; proposes a concierge beta sprint. Brief #22 (sacredlens, $0.066, 101s): *"SacredLens has been stuck in an analytics installation loop for three weeks across three briefs, despite Plausible being ALREADY INSTALLED at the nginx layer since day one"* — the brain audits its own failure pattern and proposes killing the organic content strategy in favor of paid editorial placement. All three explicitly use `ctx.infra_state` in their reasoning. Total Sonnet spend this session: $0.222.
+**Round 2 — SEO cache warming (round 9 of the Marketing Brain)** (commit `f8aa374`). Session 15's round 8 extracted `refreshRevenueCache()` and `refreshAnalyticsCache()` as shared helpers but explicitly left SEO as a known follow-up. The daily 1:30 AM SEO cron was auditing 10 apps and writing to the `seo_audits` DB table but discarding the in-memory `cachedSEO`, so `ctx.seo` in brain cycles was always null. Round 9 completes the pattern: extracted `refreshSeoCache()` as a module-local helper, HTTP handler `/api/marketing/seo` reuses it, daily cron reuses it, `cache.refreshSeo()` + `cache.warm()` now cover all three layers. **Verification:** startup log now reads `[STARTUP] Marketing cache warmed: {"revenue":true,"analytics":true,"seo":true}` — the first time SEO has been `true` on boot. Next brain cycle will see `ctx.seo.score/grade/issues` populated for every marketable app.
 
-**Round 8 — ctx shape mismatch + cache warming (commit `f9f4af6`)**. While analyzing why all three deep cycles independently recommended "access the Plausible dashboard to see what the data shows", I discovered the brain had never actually been able to read its own marketing cache. Two interlocking bugs had silently crippled every cycle since the brain was built:
+**Round 3 — nginx admin_tracking sub_filter fixes** (VM-only, no git commit). Session 15 flagged abschlusscheck, orbedge, and best-age as missing `admin_tracking`. Session 16 verified reality:
 
-1. **Shape mismatch.** `collectAppContext` expected `marketingCache.analytics.apps` to be an array with `slug`/`name` fields and called `.find()`. The actual cache shape from `marketing.js` is an *object* keyed by `appDef.name` (matching what `ai.js` and the HTTP handlers use). `Array.isArray` returned false every time, so `ctx.traffic`, `ctx.revenue`, and `ctx.seo` were silently `null` for every app in every cycle. The brain's "Traffic: unknown" wasn't because Plausible was unreachable — it's because the brain couldn't parse its own cache.
+| App | s15 claim | Reality | Action |
+|---|---|---|---|
+| promoforge.app | missing | **missing, confirmed** | nginx sub_filter edited |
+| abschlusscheck.de | missing | **already has it** — s15 was wrong | none |
+| orbedge.de | missing | **has it inline in `index.html`** — brain false-negative | none |
+| best-age.de | missing | **missing, confirmed** | nginx sub_filter edited |
 
-2. **Caches were never warmed.** The HTTP handlers populate the caches, but the 6h "revenue + analytics refresh" cron fetched Stripe data and only wrote to `metrics_daily`, discarding the in-memory cache. In practice the caches only existed when a human had loaded the dashboard recently — which might be hours or days before a brain cycle fired.
+Applied `sed` injection of `<script defer src="https://admin.crelvo.dev/api/analytics/track.js" data-app="SLUG"></script>` into the existing `</head>` sub_filter replacement string on promoforge and best-age.de. Nginx reload OK (only pre-existing benign warnings remain). Verified live via `curl https://promoforge.app/ | grep track.js` and same for best-age.de — both return the tag.
 
-Round 8 fixes both: rewrites the three context-collection blocks to use object-keyed lookups with correct field names (`revenue30d` not `revenue_30d`, `activeSubscriptions` not `customer_count`, `bounceRate` not `bounce_rate`, etc.); extracts `refreshRevenueCache()` and `refreshAnalyticsCache()` as shared helpers in `marketing.js` that the HTTP handlers, the 6h cron, and a new `cache.warm()` / `cache.refreshX()` all call; adds a 10-second-after-boot startup cache warm in `server.js`; and makes `runBrainCycle` call `marketingCache.warm()` before `collectAppContext` (no-op within TTL, free on back-to-back cycles). Validated via a new `--dry` flag on `brain-smoketest.mjs` which prints ctx without calling the LLM for zero-cost integration tests. The smoketest now also builds a real analytics cache via direct Plausible fetches instead of passing `{}`, so it exercises the same code path as a production cycle.
+**Cleanup byproduct:** moved `promoforge.bak.20260410-s215` (a leftover from session 15 that was still being loaded by nginx and causing `conflicting server name` warnings) out of `/home/deploy/nginx-configs/sites/` and into a new `/home/deploy/nginx-configs/backups/` directory. Session 16's own `.bak.s16` backups also live there from the start.
 
-Dry-run validation: promoforge `ctx.traffic = {visitors_30d: 11, pageviews_30d: 234, bounce_rate: 8, visit_duration_s: 1276}`; abschlusscheck `ctx.traffic = {visitors_30d: 0, ...}` — real measured zero, not "unknown", which fundamentally changes the brain's reasoning pattern from "data is missing" to "data is real, and it's saying zero". This is the bug the three deep cycles were crying out about. Next cycles will have actual numbers to reason with.
+**Round 4 — portfolio infra_state UI panel** (commit `a7b173b`). The Marketing Brain scanned nginx config files into `ctx.infra_state` during round 7 (session 15) but the 8 proxy-layer flags were only visible inside brain cycles. Session 16 surfaces them in the dashboard UI:
 
-The three deep cycles ran **before** round 8 was shipped, so their analysis still complained about "Traffic: unknown". The next natural cron (every 4h for Haiku, next Monday 6 AM for Sonnet) will be the first to see real numbers. That shift will be visible in the next briefs.
+- New endpoint `GET /api/brain/infra-state` returns every marketable app's 8 flags (`plausible_injected`, `admin_tracking`, `banner_injection`, `crosslinks_widget`, `csp_header`, `gzip_on`, `long_cache`, `ssl_letsencrypt`) plus a portfolio-wide summary count per flag. Reads the same 60s-cached infra map that brain cycles use, so it's essentially free.
+- New Brain tab UI panel (bottom-right column) renders the state as per-app cards with colored flag badges: green = detected, grey outline = missing. Tooltips explain each flag's meaning. The summary header shows `AT 18/22`-style counts so you can see at a glance which flags are widely adopted and which are rare.
+- Verified from inside the container that the mount picks up round 3's nginx edits: `promoforge admin_tracking via nginx mount: true`, `best-age.de admin_tracking via nginx mount: true`, `files scanned: 30`.
 
-A sweep of the 83 open actions for lingering "install Plausible" / "set up analytics" proposals turned up **zero** — session 14's manual cleanup held, and round 7's prompt rule prevented new Haiku cycles from reintroducing the pattern.
+After a full reload of the Brain tab at admin.crelvo.dev, the infra state panel will show all marketable apps with green AT badges everywhere except wherever admin tracking is still actually missing.
+
+**Refused work:** the handover's "Banner management dead code cleanup (~500 lines in `marketing.js`)" item was investigated and rejected. Grep showed `/api/marketing/banners` + `/api/marketing/placements` (v2) has 10+ active references in `public/index.html` for an admin panel, and `/api/crosspromo/*` (v1 legacy) has 28 references backing an entire "Cross-Promo" tab. Neither system is actually dead. The handover item was stale — probably based on "no nginx site injects the v2 banner embed script" (which is true) being conflated with "the v2 banner code is unused" (which is false). Ripping 500 lines would have broken live UI. Session 16 declined and wrote this up instead of inventing make-work.
 
 ## What Got Done
 
-### Round 7 — Marketing Brain nginx awareness (1 commit, 2 deploys, pushed)
+### Round 1 — Cost cap lowered (1 commit, 1 deploy, pushed)
 
-- [x] **Volume mount** — added `/home/deploy/nginx-configs/sites:/etc/dockfolio/nginx-sites:ro` to the `dashboard` service in `/home/deploy/appmanager/docker-compose.yml` on the VM. NOT in the tracked `docker-compose.prod.yml` (that's the public productized template, different file). The VM compose is manually edited and not synced by `deploy.sh`. Backup was saved to `.bak.s15` and removed after validation.
-- [x] **`readInfraState(appDef)` helper** in `dashboard/routes/marketing-brain.js` — new top-level module code (before the exported `registerMarketingBrainRoutes`). Reads all files in `NGINX_SITES_DIR` (defaults to `/etc/dockfolio/nginx-sites`, overridable via env), parses each for `server_name` directives to build a domain→state map, detects 8 flags per file, caches for 60s, silently returns `null` if the mount is missing (local dev safe).
-- [x] **Detection flags** — `plausible_injected`, `admin_tracking`, `banner_injection`, `crosslinks_widget`, `csp_header`, `gzip_on`, `long_cache`, `ssl_letsencrypt`. Plus `nginx_file` for traceability.
-- [x] **Substring detection over regex** — initial attempt used `sub_filter[^;]*plausible` which FAILED because nginx `sub_filter` replacement strings embed JavaScript containing semicolons, breaking the `[^;]*` clause. Rewrote to substring checks on lowercased content for the JS-heavy patterns; kept regex for the clean directives (`add_header`, `gzip on`). This moved the detection from "0 of 6 apps plausible" to "32 of 40 domains plausible", matching session 14's manual audit.
-- [x] **`.bak` / dotfile filter** — skips `promoforge.bak.20260410-s215` etc. so `promoforge.app` correctly maps to the live `promoforge` file. Before the filter, map iteration order made the backup file win (last-write-wins).
-- [x] **`ctx.infra_state` wiring** — `collectAppContext` now sets `ctx.infra_state = readInfraState(appDef)` (null if not tracked). Propagates automatically to `collectAppContextDeep` which calls `collectAppContext` internally.
-- [x] **Prompt rendering in both user prompts** — `buildUserPrompt` and `buildUserPromptDeep` both emit a new section: `## Proxy-layer state (nginx sub_filter, already done — DO NOT propose installing these)` followed by the JSON state. Only renders if `ctx.infra_state` is non-null.
-- [x] **System prompt rules** — both `buildSystemPrompt` and `buildSystemPromptDeep` got a new rule line forbidding proposals of already-flagged infra: *"If an infra flag in 'Proxy-layer state' is already true, DO NOT propose installing it again"* (tactical) and *"Respect the 'Proxy-layer state' section: infra items already flagged true are DONE at nginx layer"* (strategic).
-- [x] **Unit tests pass** — 119/119 still green after the changes.
-- [x] **Two deploys** — first deploy shipped the broken `[^;]*` regex (0 plausible matches). Fixed regex, redeployed. Both deploys passed health check 200 OK.
+- [x] **`DAILY_COST_CAP_USD` made env-configurable** with default `2.00` — reads `process.env.BRAIN_DAILY_COST_CAP_USD`, falls back to `2.00` if missing or invalid
+- [x] **`.env.example` documents the variable** with clear explanation of what it covers (all brain cycles, Haiku + Sonnet)
+- [x] **Tests pass** — 119/119 unchanged
+- [x] **Deploy** — green health check
+- [x] **Verified in-container** — default cap confirmed as `2.00`
+- [x] **Committed `2b03929`**, pushed to origin/master
 
-### Validation — Deep cycle on abschlusscheck (brief #18)
+### Round 2 — Round 9: SEO cache warming (1 commit, 1 deploy, pushed)
 
-- [x] **`scp` + `docker cp` brain-smoketest.mjs** into the dashboard container (it's not part of `deploy.sh`'s sync set — same limitation as session 14 noted).
-- [x] **Ran `node brain-smoketest.mjs abschlusscheck --deep`** — full Sonnet deep cycle.
-- [x] **Result: brief #18** — 122.7s, $0.0785, 6634 tokens, 8 actions, 3 auto-executed (1 research.note → learning #35, 2 content.draft → content_queue #112/#113).
-- [x] **Critical evidence the fix works** — analysis explicitly writes: *"After 2 briefs and 12 open actions across 20 days, AbschlussCheck remains in pre-traction limbo: no traffic data despite Plausible being installed (suggesting zero organic visitors)..."* — this is the brain CORRECTLY reframing the zero-traffic as real signal (because `ctx.infra_state.plausible_injected=true`), not a missing-instrumentation bug. Before round 7, the tactical cycles kept proposing "install Plausible" to fix the phantom gap.
-- [x] **Strategic bet proposed** — "Launch 'Thesis Anxiety Check' lead magnet with paid Reddit validation" (p10, horizon=this-quarter, high/high) targeting `r/de_IAmA`, `r/Studium`, German uni subs, with a kill-decision at "100 clicks / 0 signups = positioning wrong". Genuinely strategic output.
-- [x] **Secondary strategic option** — "Pivot to B2B: anti-plagiarism + quality check for thesis supervisors" (p9, horizon=this-quarter) as an alternative bet if B2C validation fails. Exactly the kind of honest alternative-positioning thinking the deep prompt was designed to produce.
+- [x] **`refreshSeoCache()` helper extracted** in `marketing.js` — runs the 10-app audit loop, populates `cachedSEO`, writes to `seo_audits` + `metrics_daily` DB tables, all in one place
+- [x] **HTTP handler `GET /api/marketing/seo` simplified** — respects TTL, delegates to the helper
+- [x] **Daily 1:30 AM cron simplified** — was duplicating the audit loop inline with no cache write, now calls `refreshSeoCache()` with proper logging
+- [x] **`cache.refreshSeo()` exposed** on the marketing cache object, TTL-aware like the others
+- [x] **`cache.warm()` now covers SEO too** — the startup warm and the 6h revenue/analytics cron's cache warm both now include SEO for free
+- [x] **Startup log verified** — `{"revenue":true,"analytics":true,"seo":true}` — first time SEO has been `true`
+- [x] **Tests pass** — 119/119
+- [x] **Deploy** — green health check
+- [x] **Committed `f8aa374`**, pushed to origin/master
 
-### Stale proposal sweep
+### Round 3 — nginx admin_tracking fixes (VM-only, not in git)
 
-- [x] **Queried open actions** (status in `proposed,approved`) for titles matching `%plausible%`, `%install%analytics%`, `%set up analytics%`, `%add analytics%`, `%analytics%instrument%`. **Zero matches.** Session 14's manual cleanup held up — the Haiku cycles that ran since haven't reintroduced the pattern, and now with round 7 they won't because the prompt forbids it.
+- [x] **Audited all 4 apps s15 flagged** — found only 2 were actually missing admin_tracking, 1 was already fixed, 1 had inline HTML tracking
+- [x] **`sed` edit to `promoforge` nginx config** — added admin track.js script before `</head>` in the existing sub_filter replacement string, `data-app="promoforge"`
+- [x] **`sed` edit to `best-age.de` nginx config** — same pattern, `data-app="best-age"`
+- [x] **Backups created** as `.bak.s16` and moved out of `sites/` to `/home/deploy/nginx-configs/backups/` before nginx test (so they wouldn't cause `conflicting server name` warnings)
+- [x] **Cleaned up stale session 15 backup** — `promoforge.bak.20260410-s215` was still in `sites/` and causing conflicts; moved it to `backups/` too
+- [x] **`nginx -t` clean** — only pre-existing benign warnings (`http2` option redefinition, `duplicate MIME type` etc.)
+- [x] **Nginx reload OK**
+- [x] **Verified live** — `curl https://promoforge.app/ | grep track.js` returns the tag; same for best-age.de
+- [x] **Corrected 2 factual errors in session 15's handover** — abschlusscheck.de already has admin_tracking (s15 said missing), and orbedge.de has inline HTML admin tracking (s15 said missing, and the brain still reports `admin_tracking: false` because `readInfraState` only scans nginx files — known false-negative, not worth fixing)
 
-### Round 8 — ctx shape mismatch + cache warming (commit `f9f4af6`, pushed)
+### Round 4 — Portfolio infra_state UI panel (1 commit, 1 deploy, pushed)
 
-- [x] **Shape-mismatch fix in `collectAppContext`** — rewrote all three cache-reading blocks (analytics, revenue, seo) to use object-keyed `marketingCache.{x}.apps[appDef.name]` lookups with correct field names. Matched the shape already used by `ai.js` (briefing) and the HTTP handlers, so no other consumer needed changes.
-- [x] **Extracted shared refresh helpers** in `marketing.js` — `refreshRevenueCache()` and `refreshAnalyticsCache()` are now module-local async functions. Both the HTTP handlers (`/api/marketing/revenue`, `/api/marketing/analytics`) and the 6h cron call them instead of duplicating the fetch logic. Single source of truth.
-- [x] **Exposed `cache.warm()` + `cache.refreshRevenue()` / `cache.refreshAnalytics()`** on the cache object returned by `registerMarketingRoutes`. All three are TTL-aware (5 min); pass `force=true` to bypass.
-- [x] **6h cron now warms caches** — was fetching Stripe data and throwing it away; now also populates `cachedRevenue` and `cachedAnalytics`.
-- [x] **Startup cache warm** — `server.js` schedules a non-blocking `marketingCache.warm()` 10 seconds after `listen`, with the result logged: `[STARTUP] Marketing cache warmed: {"revenue":true,"analytics":true,"seo":false}`. Ensures the brain sees real data without waiting for either the 6h cron or a human dashboard visit.
-- [x] **`runBrainCycle` calls `marketingCache.warm()`** before `collectAppContext`. TTL no-op so it's free on back-to-back cycles; only does work if triggered before the 6h cron has landed (or on cold start).
-- [x] **`brain-smoketest.mjs` builds a real analytics cache** — direct Plausible fetches via the same URL/key the dashboard uses, passing a populated cache object to `registerMarketingBrainRoutes`. Smoketest now exercises the same ctx.traffic code path as a production cycle.
-- [x] **`brain-smoketest.mjs` `--dry` flag** — prints the collected ctx (traffic/revenue/seo/infra_state/counts) without calling the LLM. Zero-cost integration validation for cache-reading bugs and context-shape changes.
-- [x] **Validated via dry-run on VM** — promoforge: `visitors_30d: 11, pageviews_30d: 234, bounce_rate: 8, visit_duration_s: 1276` (real data, flowing). abschlusscheck: `visitors_30d: 0` (real measured zero, not "unknown"). Before round 8 both were `null`. Startup log confirmed `{"revenue":true,"analytics":true,"seo":false}` — SEO cache still unwarmed (separate follow-up, see Known Issues).
+- [x] **`GET /api/brain/infra-state` endpoint** — new, wired in `marketing-brain.js` right before the cron registration block. Returns `{total, summary, flags, apps[]}` where each app has `{slug, name, domain, nginx_file, flags{}}`. Uses `getMarketableApps(config.apps)` so it matches the brain's own app pool. Reads the same 60s-cached `loadInfraCache()` the brain cycles read.
+- [x] **UI panel added to Brain tab** (`public/index.html`) — new div `#brainInfraState` in the bottom-right column, right after `#brainLearningsList`. Section header has a tooltip explaining what "proxy-layer state" means.
+- [x] **`brainRenderInfraState()` function added** — renders a summary-badge header (`AT 18/22`) followed by per-app cards with colored flag badges. Uses `FLAG_META` for short labels (`PL`, `AT`, `BN`, `CL`, `CSP`, `GZ`, `CA`, `SSL`) and tooltip-full names. Green when `true`, outlined grey when `false`, muted grey when `null` (unknown — usually means the domain isn't in the nginx map at all).
+- [x] **`brainLoadAll()` updated** — adds `/api/brain/infra-state` to the `Promise.allSettled` batch, stores in `brainState.infra`, calls `brainRenderInfraState()` after the other renders
+- [x] **`brainState` initializer updated** — now includes `infra: null`
+- [x] **Tests pass** — 119/119
+- [x] **Deploy** — green health check
+- [x] **Verified from inside container** — `files scanned: 30`, `promoforge admin_tracking via nginx mount: true`, `best-age.de admin_tracking via nginx mount: true`
+- [x] **Committed `a7b173b`**, pushed to origin/master
+
+### Refused work: banner dead code cleanup
+
+- [x] **Investigated** via grep against `public/index.html`
+- [x] **Found**: `/api/marketing/banners` and `/api/marketing/placements` (v2) have 10+ UI references (Banners admin panel, BannerForge regenerate, placement CRUD, embed code generation). `/api/crosspromo/*` (v1 legacy) has 28 references backing a full "Cross-Promo" tab.
+- [x] **Concluded**: the handover item was stale and wrong. Neither system is dead. Session 16 refused to rip 500 lines and potentially break live UI features.
+- [x] **Documented** here so future sessions don't get tricked into retrying it
 
 ### Git state
 
-- [x] **Committed `a3de07a`** — "Marketing Brain round 7 — nginx infra awareness" (1 file, +83/-2)
-- [x] **Committed `222e5b0`** — "Session 15 handover — round 7 nginx awareness + brief #18" (initial handover, later extended)
-- [x] **Committed `f9f4af6`** — "Marketing Brain round 8 — fix ctx shape mismatch + warm caches" (4 files, +210/-153)
-- [x] **All pushed to origin/master** — branch clean
+- [x] **Committed `2b03929`** — "Lower Marketing Brain daily cost cap to $2, make env-configurable" (2 files, +11/-2)
+- [x] **Committed `f8aa374`** — "Marketing Brain round 9 — warm SEO cache (follow-up to round 8)" (1 file, +36/-34)
+- [x] **Committed `a7b173b`** — "Marketing Brain — portfolio infra_state UI panel + endpoint" (2 files, +80/-2)
+- [x] **All pushed to origin/master** — working tree clean
 
-### Brain state snapshot (end of session 15)
+### Brain state snapshot (end of session 16)
 
 | Metric | Value |
 |--------|-------|
-| Total briefs | 22 (17 Haiku + 5 Sonnet: headshot-ai #17, abschlusscheck #18, promoforge #21, sacredlens #22, + 2 Haiku auto-triggered mid-session #19/#20) |
-| Sonnet briefs this session | 3 (abschlusscheck, promoforge, sacredlens) |
-| Open actions | ~85 (was 76 in session 14, +9 from 3 deep cycles × ~5 non-auto-exec actions each, minus auto-exec drift) |
-| Learnings | 41 (was 26 in session 14, +15 from auto-exec research.note actions across cycles + the 3 deep cycles' ~7 new learnings) |
-| Session 15 Sonnet spend | $0.222 ($0.078 + $0.078 + $0.066) |
-| Session 15 total brain cost | ~$0.40 (Sonnet + background Haiku cycles) |
+| Daily cost cap | **$2.00** (was $5.00) |
+| Brain cache layers warmed on boot | **3** (revenue + analytics + SEO) — was 2 |
+| Apps with nginx `admin_tracking` | **+2** (promoforge, best-age.de now injected) |
+| New UI panels | **1** (portfolio infra_state grid) |
+| Briefs today | 22 (unchanged from session 15 — no new cycles ran during this session) |
+| Brain cost today | $0.58 (unchanged — 22 briefs from s15) |
 
 ## What's In Progress
 
-Nothing. Round 7 is committed, deployed, pushed. Brief #18 is persisted. Working tree clean.
+Nothing. All 4 rounds committed, deployed, pushed. Working tree clean.
 
 ## What Didn't Get Done (and Why)
 
-- **`BRAIN_MORNING_EMAIL` activation** — STILL INERT. Same blocker as session 14: needs the user's destination email address. The code path is live, untouched by this session. User action to set env var on VM and restart `dockfolio-dashboard`.
+- **Banner dead code cleanup** — REFUSED. See "Refused work" above. The item was stale; both v1 crosspromo and v2 banners/placements are actively wired to the UI. Future sessions should remove this from the priority list or rewrite it as "audit whether ANY banner code path is unused" rather than "rip 500 lines".
 
-- **Monday weekly deep cron verification** — Code is scheduled for Monday 6 AM. Today is not Monday. Cannot verify organic firing. Round 7 did not touch the cron registration. Will be visible in logs on Monday.
+- **`BRAIN_MORNING_EMAIL` activation** — STILL INERT. Unchanged since session 14. Still needs user's destination email address. Code path is live, just needs the env var set on VM and container restart. 5 minutes of user action.
 
-- **Triage of the 83 open actions** — Human task (per session 14 handover). With round 7 deployed, future tactical cycles will produce infra-aware actions, so the triage backlog will naturally drift toward more-signal-less-noise.
+- **Triage of ~85 open brain actions** — Human task, unchanged. With the s15 fix layers all live, future cycles will produce cleaner actions and the backlog will drift toward more signal.
 
-- **Deep cycles on promoforge / sacredlens** — Session 14 suggested these as follow-ups after abschlusscheck. Deliberately skipped: running multiple Sonnet cycles autonomously spends money on a question ("which app gets priority deep dive?") that session 14 explicitly flagged as *needs user preference*. One validation deep cycle is defensible; three is deciding for the user. Wait for direction.
+- **Monday weekly deep cron verification** — Time-blocked. Today is Friday 2026-04-10. Monday 6 AM cron fires in 3 days.
 
-- **Infra state UI panel** — Considered adding a dashboard panel showing each app's `infra_state` flags as a portfolio overview. Skipped as scope creep — not in the handover priority list. If the user wants it, it's ~15 min of vanilla JS in `public/index.html` against a new `GET /api/brain/infra-state` endpoint (which doesn't exist yet — would need to be added).
+- **Deep cycles on promoforge / sacredlens** — Session 15 ran these already (briefs #21 and #22). The s15 handover listed them as "next steps" but they were actually already done by the time that handover was written. Stale item.
 
-- **Session 13 / 14 carry-overs** — all still deferred with unchanged rationale:
-  - Banner management dead code cleanup (~500 lines in `marketing.js`)
-  - BannerForge build fix
-  - `dockfolio.dev` dual paths deletion
-  - Social platform credentials (Reddit/YouTube/Bluesky) — user action
-  - Show HN post — user action
-  - `promoforge` stale GitHub remote URL — cosmetic
+- **BannerForge build fix** — Unknown scope, skipped for autonomous work because debugging a broken build usually needs error messages the AI can't trigger without user context.
+
+- **`dockfolio.dev` dual paths deletion** — Session 13 carryover, scope still unclear from handovers. Needs a session that starts with "show me what's in both paths and decide what to cut".
+
+- **Social platform credentials (Reddit/YouTube/Bluesky)** — User action.
+
+- **Show HN post** — User action.
+
+- **`promoforge` stale GitHub remote URL** — Cosmetic, trivially fixable, but no user value in doing it autonomously. 30 seconds if the user asks.
+
+- **Track VM `docker-compose.yml` in git** — Policy call about whether to expose internal paths in the public repo. Not an AI decision.
 
 ## Architecture & Design Decisions
 
 | Decision | Chosen Approach | Why | Alternatives Considered | Why Rejected |
 |----------|----------------|-----|------------------------|--------------|
-| Where to read nginx configs | Read-only bind mount `/home/deploy/nginx-configs/sites → /etc/dockfolio/nginx-sites` | Lowest-risk, no sudo needed, no SSH from inside the container, works with Node's plain `fs` module. Standard Docker pattern. | SSH from inside container back to the host; separate API service that exposes nginx state; embedded nginx API calls | SSH-in-container is a security antipattern. Separate API service is over-engineered. Nginx doesn't have a first-class state API |
-| Mount path inside container | `/etc/dockfolio/nginx-sites` | Matches standard `/etc/nginx` naming convention so an operator can find it. `/etc/dockfolio/*` namespace avoids collision with the container's own `/etc/nginx` if it ever gets one | Bare `/nginx-sites`; `/home/deploy/nginx-configs/sites` (same-as-host) | Bare paths are ugly and could collide. Same-as-host leaks host filesystem geometry into the container |
-| Compose file edit location | VM's `/home/deploy/appmanager/docker-compose.yml` (not tracked in git) | The tracked `docker-compose.prod.yml` is the public productized template for new installs (different defaults, uses `dockfolio-data` named volume, etc.). The VM runs a bespoke compose with app `.env` mounts. They're different files with different purposes. | Update `docker-compose.prod.yml` to keep them in sync | The two files serve different audiences. Diverging them is intentional (session 12 productization split). Adding VM-specific mounts to the public template would pollute it |
-| Detection strategy: regex vs substring | Substring (lowercased content includes) for JS-heavy matches; regex for clean directives | `sub_filter '</head>' '<script ...gtag(...);...data-domain="...">'` — the replacement string contains JS with `;`. Regex anchored to `sub_filter[^;]*` cuts off before the target. Substring is honest to what nginx files actually look like | Multi-line regex with `[\s\S]*?`; parse nginx config with a proper parser | Multi-line non-greedy spans multiple `sub_filter` directives in one file and gets false positives. Proper parser is overkill for 8 boolean flags |
-| Cache TTL | 60 seconds | Nginx configs change rarely (operator edits at most a few times/week). 60s is long enough to amortize the scan across a brain cycle's cohort of apps, short enough that a fresh edit is visible before the next 4h cron | No cache; long cache (1 hour) | No cache scans 30+ files on every `collectAppContext` call, wasteful. 1h cache hides edits during active ops work |
-| `.bak` file filter | Skip files matching `.bak`, starting with `.`, ending with `~` | promoforge had `promoforge` + `promoforge.bak.20260410-s215` both with `server_name promoforge.app;`. Map iteration order made the backup win. Skipping backups is the obvious fix and matches how every operator thinks about backup files | Use file mtime to pick newest; first-write-wins | mtime comparison is brittle (copies preserve mtime). First-write-wins depends on `readdirSync` order, which is FS-dependent |
-| System prompt rule phrasing | Declarative "DO NOT propose installing these" in both prompts, with explicit reference to the "Proxy-layer state" section name | Matches the brain's existing prompt style (declarative rules, no chain-of-thought). References the section by name so the LLM can attend to the right context block | Few-shot examples; negative examples in the rules | The prompt is already long. Few-shot would double its size. The existing rule style is working well enough for the other constraints (no duplicates, cite briefs by number) so a matching rule is the low-risk add |
-| One deep cycle vs multiple | One (abschlusscheck only) | Validates the round 7 change under real Sonnet pressure, produces a brief for the highest-revenue app (session 14's suggested priority), costs $0.08 — defensible as "integration test". More cycles without user direction = burning money on a question flagged for user preference | Two cycles (add promoforge); three (add sacredlens) | Session 14's "Open Questions" explicitly says *"Which marketable app should receive the next deep dive priority? Needs user preference."* Multi-cycle autonomy contradicts that |
-| When to stop this session | After round 7 + validation + stale sweep | The remaining handover items are user-blocked (email, triage, direction) or time-blocked (Monday cron). Clean stopping point. "Keep going" has a natural end when the autonomous work list exhausts | Invent new work (infra UI panel, portfolio overview); force more Haiku cycles | Inventing work drifts away from the user's direction. Forcing cycles that would run naturally in 4h anyway is wasted motion |
+| Cost cap default | $2.00, env-overridable | User explicitly said "max 2 dollas". Env var gives wiggle room for tuning without code change. Default matches stated preference, not historical burn | $1.00 default; keep $5.00 but rename the env var; separate caps for Haiku vs Sonnet | $1 would cap the weekly Sonnet deep cycle's budget to the point one cycle nearly exhausts the day. $5 ignores the stated request. Separate caps add complexity for a single-user system |
+| SEO cache warming approach | Extract `refreshSeoCache()` shared helper, mirror rounds 8's pattern exactly | Round 8 already established the idiom (extract helper, use in HTTP handler + cron + `cache.warm()`). Consistency > novelty | Read SEO from `seo_audits` DB table in `collectAppContext` as a fallback; warm cache only on demand | DB fallback adds a second code path for brain cycles (cache OR DB) which is worse than always-cache. On-demand warming defeats the purpose — brain cycles would still see null SEO on the first invocation |
+| Which nginx apps to fix in round 3 | Only the 2 that were actually missing (promoforge, best-age.de) | Reality > inherited wisdom. s15's list was a manual audit that had 2 errors out of 4. Fix what's broken, skip what isn't, document the errors so future sessions don't retry them | Fix all 4 anyway ("safe"); skip all 4 (wait for user direction) | Fixing abschlusscheck (which already has it) would have double-injected and broken the page. Skipping all 4 abandons the easy wins |
+| How to handle orbedge's inline HTML tracking | Leave nginx alone, accept the brain false-negative | orbedge.de embeds `<script src="admin.crelvo.dev/api/analytics/track.js">` directly in `index.html`, not via nginx sub_filter. Adding a nginx sub_filter would double-inject the script. The brain's `readInfraState` will keep reporting `admin_tracking: false` for orbedge, but a human looking at the page source sees it's there. Cost of the false-negative: brain might propose "add admin tracking" for orbedge; user knows to reject it | Move the script from HTML to nginx; extend `readInfraState` to also scan `index.html` files | Moving breaks orbedge's static-site deploy flow and risks missing the change on next deploy. Scanning HTML adds a whole new code path and conflicts with Next.js dynamic HTML |
+| Where to surface infra_state in UI | Bottom-right column of Brain tab, under learnings | Lowest-scroll area of an existing panel. Doesn't need a new tab or keyboard shortcut. Users looking at the brain's actions/briefs will naturally see it | New tab; separate Infra page; summary row at top of Brain tab | New tab is overweight for one small panel. Separate page requires routing. Top-row summary competes with the brain stats row for visual priority |
+| Flag badge labels | 2-3 letter codes (`PL`, `AT`, `BN`, `CL`, `CSP`, `GZ`, `CA`, `SSL`) with tooltips | Compact enough to fit 8 badges on one row per app across 22 apps without wrapping. Tooltips carry the full meaning for anyone who doesn't memorize them | Full names (`Plausible`, `Admin Tracking`, etc.); icons only; color-only | Full names wrap to 3 rows per app — unreadable at portfolio scale. Icons would require an icon font or inline SVGs. Color-only loses meaning for color-blind users |
+| Refusing to rip the banner code | Document the refusal in the handover, pivot to the handover itself | Session 16 was shipping high-velocity small wins. Breaking live UI on an "it said do it" misread would erase the round's credibility. The right move on an ambiguous instruction with high blast radius is to investigate, document, and stop | Rip the code anyway; ask the user; rip only the crosspromo v1 code | Ripping anyway is reckless. Asking the user violates "work autonomously" — and the answer is "don't rip it". Ripping just v1 is exactly what the reckless option looks like but with a narrower blast radius — v1 is still wired to a full UI tab |
 
 ## Mental Model
 
-### Round 7 — closing the last big feedback gap
+### Rounds 1–4 as a unit: "cleaning up the edges of rounds 7+8"
 
-Session 14 discovered that the brain had a systematic blind spot: it couldn't see the nginx sub_filter layer, so ~87% of its "install Plausible" proposals were already done at the proxy. Session 14's workaround was to manually inject 24 `[VERIFIED]` learnings to teach the brain "Plausible is installed, don't propose it again." That fixed the symptom for one specific pattern.
+Session 15 shipped two big rounds (7 + 8) and validated them with three deep cycles. Those rounds were load-bearing architecture changes: nginx infra awareness and cache shape/warming. They landed clean, but every load-bearing change leaves small follow-ups around its edges. Session 16 was the cleanup shift:
 
-**Round 7 fixes the class of problem**, not just the Plausible instance. The brain now reads the nginx config directly and knows about 8 classes of proxy-layer state:
+1. **Cost cap** — round 8 made the brain see real data for the first time; it's appropriate to tighten the financial leash once you trust the output more. $2/day is enough to run the whole cron schedule with headroom for a few manual cycles
+2. **SEO warming** — round 8 explicitly punted this with a "follow-up" note. Closing it means all three cache layers are now symmetric, and future brain cycles will have access to SEO scores/grades/issues when scoring content opportunities
+3. **nginx admin_tracking** — round 7 added visibility, round 3 of session 16 adds the actual pixel to 2 apps that were missing it. Visibility without action would be observability theater; now the brain AND the operator both see + fix
+4. **infra_state UI panel** — round 7 put the nginx scan into brain cycles, round 4 puts it into the operator's eyes. Same data, new consumer. Makes it possible to look at one page and say "promoforge is missing X" without running a brain cycle
 
-```
-ctx.infra_state = {
-  nginx_file: 'abschlusscheck.de',        // which file it matched
-  plausible_injected: true,               // data-domain= or /js/script.js proxy
-  admin_tracking: true,                   // admin.crelvo.dev/api/analytics/track.js
-  banner_injection: false,                // banners/embed.js
-  crosslinks_widget: false,               // crosslinks/widget.js (legacy)
-  csp_header: false,                      // Content-Security-Policy
-  gzip_on: true,                          // gzip on;
-  long_cache: false,                      // Cache-Control: immutable
-  ssl_letsencrypt: true,                  // ssl_certificate /etc/letsencrypt
-}
-```
+The whole session reinforces one pattern: **when you add a new data source, make it visible in as many places as possible — brain prompts, UI panels, API endpoints**. Each surface you add increases the chance someone (AI or human) will act on it.
 
-Any of these flags appearing in an app's ctx means "the brain knows this is done, don't re-propose it." This immediately kills the Plausible false-positive class and preemptively kills future classes (e.g. "add gzip compression", "set up HTTPS", "add banner injection").
+### Two errors caught in session 15's handover
 
-### The brain's three memory layers now include proxy state
+Future sessions that read s15 handover should treat the "Session 15 → Known Issues → promoforge live nginx is missing `admin_tracking`" section with light skepticism:
 
-Before session 15, the brain's context was:
-1. `marketing_briefs.analysis` — what it said last time
-2. `marketing_actions` (open) — what it proposed, dedup list
-3. `marketing_learnings` — crystallized insights, human + auto-exec
+- It was CORRECT about promoforge and best-age
+- It was WRONG about abschlusscheck (already had it)
+- It was WRONG about orbedge (has it inline in HTML, not in nginx — brain will report false-negative forever unless `readInfraState` is extended to scan HTML, which isn't worth it)
 
-Session 15 adds a fourth layer (not persisted — read fresh each cycle):
-4. **`ctx.infra_state`** — what the proxy layer has already done
+Session 16's UI panel will make these errors obvious: anyone looking at the Brain tab's infra state panel will see orbedge with a grey AT badge, think "that's wrong", and either fix it at the nginx layer or extend the detection. Surfacing the false-negative is itself a debugging aid.
 
-Unlike the other three, this layer is **read from reality**, not from the brain's own historical output. It's ground truth from the nginx config files. That makes it more reliable than the learnings layer (which can go stale or be incorrect) and it updates instantly when an operator edits nginx (modulo the 60s cache).
+### The cost cap is not the burn
 
-### Why the abschlusscheck brief #18 matters more than the cost suggests
+Session 16's round 1 dropped the cap from $5 to $2. That's a hard ceiling change, not a burn-rate change. Actual cron burn:
 
-$0.08 for one brief isn't the interesting number. The interesting number is the *change in the brain's reasoning pattern*:
+- **6 tactical cycles/day** (every 4h :15) × **3 apps/cycle** = 18 Haiku briefs/day. Each brief: ~$0.014–0.018. Daily: **~$0.30**
+- **Weekly Monday 6 AM** × **2 apps** = 2 Sonnet deep briefs/week. Each: ~$0.08. Daily average: **~$0.02**
+- **Total steady state: ~$0.32/day**
 
-- **Before round 7** (session 14's Haiku briefs on abschlusscheck): proposed "install Plausible analytics" as p7-10 priority action. The brain attributed zero traffic to missing instrumentation.
-- **After round 7** (brief #18, deep Sonnet): *"no traffic data despite Plausible being installed (suggesting zero organic visitors)"* — the brain attributes zero traffic to zero actual visitors and proposes a forcing function (paid Reddit ads + kill criteria) to validate or kill the product.
+So the cap at $2 gives ~6x headroom for manual cycles, failed retries, and deep cycles outside the weekly cron. $1 would probably be fine too but risks hitting the cap during manual deep-dive sessions. $2 is the conservative middle.
 
-That's not a marginal improvement — that's a qualitatively different analysis. Round 7 turned a phantom-instrumentation problem into a real go/no-go decision. This is exactly what the Marketing Brain architecture was designed to do: honest analysis grounded in real state.
+### What the infra_state UI panel tells you at a glance
 
-### Still blind to other infra layers
+After session 16, any operator loading admin.crelvo.dev → Brain tab can now see:
 
-The nginx layer is the most important one because almost every public-facing behavior (tracking, banners, CSP, caching, redirects) lives there. But the brain is still blind to:
+- **How many apps have each proxy-layer feature** (header summary)
+- **Which specific apps are missing each feature** (per-app cards)
+- **Whether a recent nginx edit has propagated** (60s cache, so within 60s of edit + reload)
 
-- **Application-layer state** — what routes exist, what middleware is loaded, what feature flags are on. Would require reading the actual app source, a much bigger lift.
-- **CI/CD state** — which branches are deploying, what's in pending PRs. Would require GitHub API integration.
-- **Container runtime state beyond health checks** — memory pressure, slow queries, background job backlogs. Some of this is in Prometheus/existing metrics but not piped to the brain.
-- **Domain registrar / DNS state** — handled via INWX API in other parts of the dashboard, not surfaced to the brain.
+Typical operational questions the panel answers without SQL or SSH:
 
-None of these are urgent. The nginx layer was the obvious first target because session 14 discovered the actual false positive. Others should wait for evidence of similar blind-spot patterns.
+- "Did promoforge pick up the admin_tracking fix?" → green AT badge on promoforge card
+- "Which apps are missing gzip?" → scan for grey GZ badges
+- "How widespread is banner injection?" → summary shows `BN 0/22`, which means the v2 banner embed system is wired to nginx on zero sites (i.e. it's waiting to be turned on)
+- "What's orbedge's nginx state?" → everything green except AT, because AT is actually in HTML not nginx
+
+This is the kind of at-a-glance operational UI that the session 13 "portfolio dashboard" vision was reaching for, scoped down to the one dimension (infra flags) where the data is cheap and structured.
 
 ## Known Issues & Risks
 
-- **`docker-compose.yml` edit is not in git** — Impact: if the container is ever recreated from a pristine clone without the mount line, the brain silently loses infra_state and reverts to its blind-spot behavior. `collectAppContext` handles the missing mount gracefully (returns `null`), so there's no crash — just a degraded brain. | Mitigation: the mount is a one-liner; documented in this handover; `docker-compose.yml.bak.s15` backup was deleted (clean). Long-term fix: either track the VM compose in git (would expose internal paths) or add a startup assertion that logs a warning if `NGINX_SITES_DIR` is unreadable
-- **60-second infra_state cache** — Impact: if an operator edits nginx and immediately triggers a brain cycle, the brain might see stale state for up to 60s. | Risk: very low. Tactical cycles are every 4h; manual triggers are rare; the stale window is a minute. | Mitigation: the cache key could be extended to include nginx file mtimes for instant invalidation, but it's not worth the complexity for a nearly-impossible race
-- **`.bak` filter is a substring match** — Impact: a legitimate file named `my.backup.site` would be excluded. | Risk: very low, nginx site filenames are conventionally just domains. | Mitigation: none needed
-- **Substring-based plausible detection is loose** — Impact: a site that merely mentions `data-domain=` in a comment (not an actual sub_filter) would be flagged as `plausible_injected=true`. | Risk: very low, nginx configs rarely contain such text. | Mitigation: could tighten to require `sub_filter` on the same line, but the session 14 audit showed substring detection produces the same count as manual verification (32/40 = 21 of 23 public marketable apps)
-- **All session 14 known issues carry unchanged** — infra blind spot (now partially fixed by round 7 for nginx layer specifically), morning email inert, deep cycle cost, weekly cron unverified, regex sentiment imperfection, betpilot `/` vs `/dashboard`, HANDOVER.md gitignored-but-tracked
-
-- **SEO cache is never warmed** — Impact: `ctx.seo` is still null for every app. The daily 1:30 AM SEO cron writes to the `seo_audits` DB table but does NOT populate `cachedSEO`. `cache.warm()` only covers revenue + analytics. | Fix: analogous to round 8 — extract `refreshSeoCache()` helper, call from both the HTTP handler and the daily cron, add to `cache.warm()`. Estimated 15 minutes. Left as a follow-up because (a) SEO data is the least important of the three (b) it involves more moving parts (running `auditSEO()` per app on 10+ apps sequentially) (c) the daily cron DOES persist to DB so brain could read from there as a fallback
-
-- **promoforge live nginx is missing `admin_tracking`** — Impact: the Crelvo admin analytics pixel is not injected on promoforge.app, so the admin dashboard has no visibility into raw promoforge visits beyond what Plausible provides (and Plausible is at the proxy layer, not the admin tracker). The `promoforge.bak.20260410-s215` backup file DOES have `admin_tracking`, so the tracking was intentionally removed at some point and then forgotten. | Fix: add the `sub_filter` for `admin.crelvo.dev/api/analytics/track.js` to `/home/deploy/nginx-configs/sites/promoforge`, `sudo nginx -c .../nginx.conf -s reload`. 5 minutes. Might reveal other apps in the same state — session 14 flagged abschlusscheck/orbedge/best-age as missing admin_tracking; this adds promoforge to that list. Worth a portfolio-wide audit
-
-- **brain-smoketest.mjs revenue cache is empty** — Impact: smoketest doesn't populate `ctx.revenue`, only `ctx.traffic`. The production brain cycle WILL have `ctx.revenue` (via the real server's warmed cache) but the smoketest won't. For `--dry` validation of revenue-related logic this would mislead you. | Fix: extend `buildRealMarketingCache()` in smoketest to fetch Stripe data via shared helper. Low priority — smoketest is dev-only and this limitation is documented in the commit message
+- **Round 2 (SEO warming) adds to startup latency** — Impact: boot warmth now audits 10 marketable apps' SEO in parallel on top of revenue + analytics. Total startup warm is ~20 seconds. Non-blocking (fires 10s after `listen`) so the health check still passes instantly, but cron fires that happen within the first ~30 seconds of boot might not see SEO in the cache yet. | Mitigation: already handled by TTL fallback — `runBrainCycle` calls `cache.warm()` before `collectAppContext`, which re-runs any refresh that isn't populated. No action needed
+- **Round 3 nginx edits are not in git** — Impact: `/home/deploy/nginx-configs/sites/promoforge` and `/home/deploy/nginx-configs/sites/best-age.de` have live changes that don't exist in the appManager repo. If the VM is ever restored from a pristine backup, these edits disappear silently. | Mitigation: same structural issue as the s15 docker-compose mount. nginx configs should be either tracked or scripted in a post-deploy hook, but that's a policy decision for the user
+- **`.bak.s16` files in `/home/deploy/nginx-configs/backups/`** — Impact: none during nginx reload (they're outside the `sites/` dir now, so they aren't included). But they accumulate across sessions. | Mitigation: `/home/deploy/nginx-configs/backups/` should get a retention policy (delete after 30 days), or just manual cleanup next session
+- **The orbedge false-negative** — Impact: the brain will keep seeing `orbedge.de.admin_tracking = false` forever because `readInfraState` only scans nginx, and orbedge has the tracking inline in HTML. Cost: occasional proposal like "add admin tracking to orbedge" which the operator knows is wrong. | Mitigation: document it (done here), accept the false-negative, or extend `readInfraState` to scan `index.html` for static sites. Not worth doing unless more static sites develop the same pattern
+- **The banner dead-code refusal leaves the code in place** — Impact: ~500 lines of v1 crosspromo and v2 banners/placements code remain in `marketing.js` (~2200 lines total), some of which may be genuinely stale even if the UI still references it. Future cleanup could be targeted (e.g. verify the v1 crosspromo banner serve endpoint gets zero traffic for 30 days, then rip it). | Mitigation: a proper audit pass would need traffic data from access logs, which the brain doesn't have. Not this session's fight
+- **All session 15 known issues carry unchanged** except:
+  - **SEO cache is never warmed** — ✅ FIXED in round 2 of this session
+  - **promoforge nginx missing admin_tracking** — ✅ FIXED in round 3 of this session
+- **brain-smoketest.mjs is still ephemeral in container** — unchanged since session 14. `deploy.sh` still doesn't sync it. Unchanged known issue
 
 ## What Worked Well
 
-- **Reading session 14's handover in full before doing anything** — The "Next Steps" section pointed directly at round 7 with an effort estimate and concrete implementation sketch. Saved at least 15 minutes of scoping. This is what a good handover is for.
-- **Fast failure on the first regex** — Deployed with the broken `sub_filter[^;]*` regex, immediately tested against 6 apps, saw 0 plausible matches, knew something was wrong within a minute. One SSH grep into the promoforge nginx file showed the semicolons-inside-sub_filter-replacement issue, fixed it, redeployed. Total time for the regex bug: ~5 minutes. Fail fast > fail slow.
-- **Validating via the real module path, not a parallel script** — After the substring fix validated via the inline ad-hoc test, I went one level deeper and imported `marketing-brain.js` via `registerMarketingBrainRoutes` with fake args to call the actual `collectAppContext` function. This caught an issue I wouldn't have seen in the inline test: file iteration order made the `.bak` file overwrite the live one for promoforge. The fix was trivial but the validation path is the important lesson — trust the real code path, not your simulation of it.
-- **Running the deep cycle as integration test, not demo** — I didn't run it to "see if it works" — I ran it against the highest-revenue app that specifically needed a Sonnet brief, so the validation spend doubles as real product value (an actual strategic brief the user can act on). Cost justification is effortless.
-- **Zero-result queries are a valid result** — The stale proposal sweep turned up zero. That's not "nothing to do" — that's confirmation that session 14's cleanup held and round 7 is preventing regression. Log the zero result, move on.
-- **Knowing when to stop** — The handover priority list has 6 items. I delivered #2 (nginx awareness) and #5 (abschlusscheck deep cycle). The other 4 are user-blocked or time-blocked. Rather than inventing new work, I stopped and wrote this handover. "Keep going" has a natural end.
+- **Reading the previous handover's "What Worked Well" and "What Didn't Work" sections before starting** — Session 15 explicitly warned "read the traps section, not just the priorities". Session 16 did, and it paid off immediately when round 3's sed-on-nginx-sub_filter task required escaping the exact kind of JS-in-quotes pattern that session 15 had already burned a deploy cycle on. Knowing that substring matches beat regex for these strings saved time
+- **Verifying handover claims against reality, not trusting them** — Session 15 said 4 apps were missing admin_tracking. Session 16 checked all 4 and found only 2 were. The other 2 would have been fixed "successfully" with no-op edits, polluting the git log and maybe (in the abschlusscheck case) double-injecting the script into the HTML. Always verify the premise before acting on it
+- **Moving backup files out of `sites/` before running `nginx -t`** — Initial attempt left `.bak.s16` in `sites/` and triggered `conflicting server name` warnings that the user would have treated as a regression. Catching it in the test step and fixing by `mv`-ing to a new `backups/` directory turned "almost-broken" into "cleaner than before"
+- **The refusal to rip 500 lines of banner code** — The handover said "do it". The reality said "don't". Session 16 picked reality. A 1-minute grep audit prevented 20+ minutes of cleanup work followed by rollback and an embarrassing session note about "broke the Banners admin panel". The right autonomous move on a high-blast-radius instruction is to verify first and refuse second if verification fails
+- **Keeping rounds small and independently committable** — 4 commits instead of 1. Each round was rolled out, verified, and pushed before starting the next. If round 4 had broken the dashboard somehow, rounds 1–3 would still be good. This is the "cheap rollback" discipline from sessions 13–14 continuing to pay off
+- **Running both `nginx -t` AND a live `curl` to verify round 3** — syntax passing doesn't mean the sub_filter is matching. A curl against the live site was the only real proof. Always verify the output of a config change, not just the config's syntactic validity
 
 ## What Didn't Work (Traps to Avoid)
 
-- **`sub_filter[^;]*<target>` regex** — Nginx sub_filter replacement strings frequently contain JavaScript with semicolons. The `[^;]*` clause matches zero characters because the first `;` is right after `sub_filter '`. Always prefer substring checks for content that might contain shell/JS-like punctuation. Lesson: **when writing regex to match config files, sample 2-3 real files first and mentally trace the match**. I didn't, and it cost one deploy cycle.
-- **Committing before verifying end-to-end** — I almost committed round 7 after the inline ad-hoc test showed the map had correct entries, before the real-module path test caught the `.bak` issue. The inline test was testing *my understanding of the regex*, not *the actual code path a brain cycle exercises*. If I had committed before that final check, promoforge would have had a degraded infra_state (matching the backup file, which had identical content — so it would have been silently ~correct, but the nginx_file traceability field would have been misleading). Tight lesson: **commit only after the real code path is validated**.
-- **Not `docker cp`-ing brain-smoketest.mjs first** — `deploy.sh` doesn't sync `brain-smoketest.mjs`. I forgot this from session 14's handover (it was explicitly flagged as a trap) and tried to run the smoketest in-container, got "No such file", had to re-do the scp + docker cp dance. Re-reading the "Traps to Avoid" section of the previous handover before starting would have saved ~30 seconds. Lesson: **read the traps section, not just the priorities**.
-- **Inline node -e with quoted SQL inside docker exec inside SSH** — Session 14 flagged this specifically: "write the script to /tmp on the VM, docker cp into the container". I partially ignored this and got lucky that the queries were simple enough. For more complex queries (multi-table joins, updates, etc.) the right move is always: write to a local file, scp, docker cp, run. Re-committing to this lesson.
+- **First `nginx -t` had conflicting server names from the fresh `.bak.s16` files** — Left the backups in `sites/` by habit. nginx includes every file in the directory, so any backup with `server_name` directives becomes a live conflict. **Rule: ALWAYS put nginx config backups in a sibling directory, never in `sites/`**. This session caught it during the test step, but it's the kind of thing that could pass a lax test and then 502 the site under load
+- **Attempted to verify `/api/brain/infra-state` via HTTPS with basic auth** — The `.env` file on the VM doesn't have `BASIC_AUTH_USERNAME` / `BASIC_AUTH_PASSWORD`. The nginx `auth_basic` uses `.htpasswd` which the deploy user can't read without sudo. Wasted a couple minutes chasing a red herring. **Rule: for live endpoint verification, use `docker exec ... node -e '...'` to call the endpoint's underlying function directly, or use `docker exec ... curl http://127.0.0.1:3000/...` with the internal Express port (which bypasses nginx auth_basic)**. The internal curl needs a valid session cookie OR the endpoint needs to be in `PUBLIC_PATHS`, so the underlying-function approach is usually cleaner
+- **Read `fs.existsSync` + iteration in `node -e` worked fine** but for more complex verification (like calling `registerMarketingBrainRoutes` with mock args), the brain-smoketest.mjs approach from session 14/15 is still the right tool. It's ephemeral but reliable
+- **Cost cap env var name** — used `BRAIN_DAILY_COST_CAP_USD` which matches the existing `BRAIN_MORNING_EMAIL` prefix pattern. Future session should NOT rename this to something shorter or more generic; consistency with the existing `BRAIN_*` family is worth more than brevity
 
 ## Next Steps (Priority Order)
 
-1. **Activate `BRAIN_MORNING_EMAIL` on VM** — UNCHANGED from session 14 handover. Still blocked on user email address. SSH to VM, add env var to `/home/deploy/appmanager/docker-compose.yml` dashboard service's environment block (session 15 already edited this file for the nginx mount — safe to edit again in the same section), `docker compose up -d dashboard`. 5 minutes. Impact: daily rollup lands in inbox.
-
-2. **Trigger / verify the morning rollup email path works** — Once `BRAIN_MORNING_EMAIL` is set, call `POST /api/brain/morning/send-test?to=<same-email>` and confirm delivery. Takes 30 seconds. Catches any Resend API key / domain issues before the 7 AM cron fires for real.
-
-3. **Triage the 83 open brain actions** — Human task. The UI is at `admin.crelvo.dev` → `🧠 Brain` tab. With round 7 deployed, future cycles will produce cleaner actions, so this triage is mostly about draining the pre-round-7 backlog. Approve the good ones (auto-exec kicks in), reject the stale ones (feedback loop persists `[FAILED]` learnings). ~20-30 minutes.
-
-4. **Verify Monday 6 AM weekly deep cron** — Code is live, scheduled. `docker logs dockfolio-dashboard 2>&1 | grep 'brain-cron-deep'` on Monday should show 2 deep briefs created. If nothing fires, the cron registration or `cronFail` handler needs inspection.
-
-5. **Run deep cycles on promoforge + sacredlens** — Session 14's suggestion, session 15 deliberately skipped to respect user-preference open question. User should pick the priority order or say "just do both". Each costs ~$0.08, produces a strategic brief. promoforge = newest SaaS (flagship PromoForge), sacredlens = oldest tool (lots of tactical history to synthesize).
-
-6. **Extend nginx awareness to other classes of blind-spot false positives** — Round 7 covers the proxy layer only. Future session could:
-   - Scan `config.yml` `tech` field to forbid proposals like "migrate to Next.js" when the app IS Next.js (should be a one-liner in the prompt, not a new helper)
-   - Read Dockerfiles to detect installed dependencies (risk: Docker context is more complex than nginx)
-   - Integrate GitHub API for PR/branch state (risk: token management, rate limits)
-   - Prometheus/uptime state beyond what `marketingCache` already exposes
-   None of these have demonstrated false-positive evidence yet. Wait for the brain to produce a bad proposal in one of these classes before investing.
-
-7. **Add a portfolio infra_state overview to the dashboard UI** — Not in the handover list but would be genuinely useful operational info. For each app, show the 8 infra flags as a badge grid (green/red). Makes it obvious which apps are missing admin_tracking (abschlusscheck/orbedge/best-age per the session 15 smoketest) or which are missing banner injection (all of them, since the v1 banner system is deprecated). ~15-30 min vanilla JS + one new endpoint `GET /api/brain/infra-state` that returns the full map.
-
-8. **Session 13 / 14 carry-overs** — unchanged, all still deferred with rationale:
-   - Banner management dead code cleanup (~500 lines)
-   - BannerForge build fix
-   - dockfolio.dev dual paths deletion
+1. **Activate `BRAIN_MORNING_EMAIL` on VM** — UNCHANGED from sessions 14 and 15. 5 minutes. Needs user email address. Highest-value user-unblocked item remaining
+2. **Trigger / verify the morning rollup email path works** — Once #1 is set, `POST /api/brain/morning/send-test?to=<email>` confirms delivery. 30 seconds
+3. **Triage the ~85 open brain actions** — Human task via the Brain tab UI. With rounds 7, 8, 9 live, new actions will be higher-signal; drain the pre-round-7 backlog of stale proposals. 20-30 minutes
+4. **Verify Monday 6 AM weekly deep cron on Monday** — Time-blocked. Confirm 2 new briefs appear in the DB and in the Brain tab's "Recent briefs" list
+5. **Look at the new infra_state UI panel and decide what to do with the grey badges** — This is the most valuable use of the session 16 UI addition. Load admin.crelvo.dev → Brain tab → scroll down. Any widely-grey flag (e.g. `BN 0/22` = no banner injection anywhere) is a policy question: turn it on, or formally kill that system. Any scattered grey (e.g. missing gzip on 2 apps) is a trivial nginx fix
+6. **Run deep cycles on whichever apps the user wants prioritized** — Session 15 already ran promoforge, sacredlens, abschlusscheck. Remaining marketable apps without a Sonnet brief: whatever is left in `pickNextDeepApps(N)`. Each costs ~$0.08 and produces a strategic brief. User chooses the list; AI runs them
+7. **Clean up `/home/deploy/nginx-configs/backups/` periodically** — Not urgent. When the count exceeds ~20 files, delete the older half. Could be a weekly cron but not worth building
+8. **Scoped audit of banner code's actual usage** — If the user genuinely wants dead code removed from `marketing.js`, the right approach is: (a) turn on access logging for the v1 crosspromo endpoints for 30 days, (b) query which endpoints got zero traffic, (c) confirm the corresponding UI paths are unreachable, (d) rip those specific paths only. NOT a blind 500-line cleanup
+9. **Session 13/14/15 carry-overs** — all still deferred:
+   - BannerForge build fix (needs interactive debug)
+   - dockfolio.dev dual paths deletion (needs scoping)
    - Social platform credentials (user action)
    - Show HN post (user action)
-   - `promoforge` stale GitHub remote URL (cosmetic)
+   - promoforge stale GitHub remote URL (cosmetic)
 
 ## Rollback Plan
 
-- **Last known good state before session 15:** `3cd0c6f Session 14 handover — round 6 + Plausible audit`
-- **Round 7 commit:** `a3de07a Marketing Brain round 7 — nginx infra awareness` — pushed to origin/master
-- **To revert round 7 entirely:**
-  1. `git revert a3de07a && bash deploy.sh --rebuild` — removes the code changes
-  2. On VM: remove the `- /home/deploy/nginx-configs/sites:/etc/dockfolio/nginx-sites:ro` line from `/home/deploy/appmanager/docker-compose.yml`, then `docker compose up -d dashboard` — removes the mount
-  3. The brain will degrade gracefully: `readInfraState` returns null (directory missing), `ctx.infra_state` is null, both prompts silently skip the infra section
-- **Brief #18 (abschlusscheck deep):** persisted to `marketing_briefs`. To revert: `DELETE FROM marketing_briefs WHERE id=18; DELETE FROM marketing_actions WHERE brief_id=18;` — but not recommended, it's a real strategic brief for the highest-revenue app
-- **Round 7's in-container changes:** brain-smoketest.mjs was copied into the container but is ephemeral (lost on recreate). Not a concern — it's a dev tool, not runtime code
-- **Nothing on the nginx layer was touched** — session 15 was read-only against nginx configs. No rollback needed there
-- **No new database migrations or schema changes** — the `marketing_briefs` / `marketing_actions` / `marketing_learnings` schemas are untouched
+- **Last known good state before session 16:** `3cc6067 Session 15 handover — extend to cover rounds 7+8 + 3 deep cycles`
+- **To revert all 4 rounds:** `git revert a7b173b f8aa374 2b03929 && bash deploy.sh --rebuild`
+- **Round 1 only (cost cap):** `git revert 2b03929 && bash deploy.sh --rebuild` — OR simpler: set `BRAIN_DAILY_COST_CAP_USD=5.00` in the VM's `/home/deploy/appmanager/docker-compose.yml` dashboard environment and `docker compose up -d dashboard`
+- **Round 2 only (SEO warming):** `git revert f8aa374 && bash deploy.sh --rebuild` — safe, nothing downstream depends on `cache.refreshSeo()` existing
+- **Round 3 only (nginx admin_tracking):** on VM, copy `/home/deploy/nginx-configs/backups/promoforge.bak.s16` over `/home/deploy/nginx-configs/sites/promoforge` and `best-age.de.bak.s16` over `best-age.de`, then `sudo nginx -c /home/deploy/nginx-configs/nginx.conf -s reload`
+- **Round 4 only (infra_state UI):** `git revert a7b173b && bash deploy.sh --rebuild` — UI panel + new endpoint both removed, no data loss
+- **Nothing touches the database this session** — no migrations, no schema changes, no DB rollback needed
+- **Nothing on the brain's history is touched** — all 22 briefs from session 15 persist untouched
 
 ## Files Changed This Session
 
 ### appManager repo (tracked, committed, pushed)
 
-- `dashboard/routes/marketing-brain.js` — 1068 → ~1200 lines. Round 7: `fs`/`path` imports, `NGINX_SITES_DIR`, `buildInfraCache`, `loadInfraCache`, `readInfraState`, `ctx.infra_state` injection, infra section rendering in both user prompts, system prompt rules. Round 8: rewrote analytics/revenue/seo blocks in `collectAppContext` for the object-keyed shape with correct field names, added `marketingCache.warm()` call at top of `runBrainCycle`, updated prompt rendering for new field names (`active_subscriptions`, `charge_count_30d`, etc.)
-- `dashboard/routes/marketing.js` — round 8: extracted `refreshRevenueCache()` and `refreshAnalyticsCache()` shared helpers; rewrote HTTP handlers to use them; rewrote 6h cron to call them; exposed `cache.warm()` / `cache.refreshRevenue()` / `cache.refreshAnalytics()` on the returned cache object. Net diff: +210/-153 but lots of it is deleting duplicated fetch logic
-- `dashboard/server.js` — round 8: added a 10-second-post-boot `marketingCache.warm()` call with logged result. 9 lines
-- `dashboard/brain-smoketest.mjs` — round 8: `buildRealMarketingCache()` helper that does direct Plausible fetches so the smoketest passes a populated cache; `--dry` flag that prints ctx without LLM call; minor imports (`callAnthropic`). +61 lines
+- `dashboard/routes/marketing-brain.js` — round 1: made `DAILY_COST_CAP_USD` env-configurable with default 2.00 (line 82-88). Round 4: added `GET /api/brain/infra-state` endpoint with portfolio summary + per-app flag breakdown (right before the cron block, ~30 lines)
+- `dashboard/routes/marketing.js` — round 2: extracted `refreshSeoCache()` helper, simplified HTTP handler, simplified daily cron, added `cache.refreshSeo()` + made `cache.warm()` cover SEO
+- `dashboard/public/index.html` — round 4: added `#brainInfraState` div in Brain tab bottom-right column, added `brainRenderInfraState()` function, wired it into `brainLoadAll()` + `brainState.infra`
+- `.env.example` — round 1: documented `BRAIN_DAILY_COST_CAP_USD` under the existing "Marketing Brain (optional)" section
 
 ### VM (not in git)
 
-- `/home/deploy/appmanager/docker-compose.yml` — added 2 lines to the `dashboard:` service `volumes:` block: a comment + the read-only nginx-configs mount. Backup `.bak.s15` was created and then deleted after validation
-- `/home/deploy/marketing/data.db` — brief #18 (abschlusscheck deep), 8 new actions, 2 new auto-exec content_queue rows (#112, #113), 1 new learning (#35)
-- `dockfolio-dashboard` container — `brain-smoketest.mjs` copied in via `docker cp` (ephemeral, lost on container recreate — same situation as session 14)
+- `/home/deploy/nginx-configs/sites/promoforge` — round 3: added `<script defer src="https://admin.crelvo.dev/api/analytics/track.js" data-app="promoforge"></script>` inside the existing `</head>` sub_filter replacement string
+- `/home/deploy/nginx-configs/sites/best-age.de` — round 3: same pattern with `data-app="best-age"`
+- `/home/deploy/nginx-configs/backups/` — new directory created. Contains `promoforge.bak.s16`, `best-age.de.bak.s16` (session 16's own backups), and `promoforge.bak.20260410-s215` (leftover from session 15, moved out of `sites/` to stop nginx warnings)
 
 ### Remote pushes
 
-- appManager: `3cd0c6f..a3de07a` pushed to `origin/master` (1 commit)
+- appManager: `3cc6067..a7b173b` pushed to `origin/master` (3 commits)
 
 ### Not touched
 
-- `docker-compose.prod.yml` (tracked) — the public productized template, intentionally not in sync with the VM's bespoke compose
-- `.env.example` — round 7 introduced no new env vars the user needs to set (`NGINX_SITES_DIR` defaults to the mount path and is almost never overridden)
-- `CLAUDE.md` (gitignored, local only) — unchanged
-- `dashboard/config.yml` (gitignored on VM) — unchanged
+- `docker-compose.prod.yml` (tracked) — unchanged
+- `docker-compose.yml` on VM — unchanged since session 15's nginx-configs mount was added
+- `dashboard/config.yml` — unchanged
+- `dashboard/brain-smoketest.mjs` — unchanged
+- `server.js` — unchanged (round 8's 10s startup warm is still the right hook; now covers SEO for free via `cache.warm()`)
 
 ## Open Questions
 
-- **Does the user want the portfolio infra_state UI panel?** Session 15's validation produced interesting operational info (e.g. abschlusscheck/orbedge/best-age are missing admin_tracking; no apps have banner_injection — the v1 banner system is effectively dead). A UI panel would surface this. Low priority but high info/effort ratio.
-- **Should round 7 trigger a portfolio-wide audit of which apps should have admin_tracking and don't?** abschlusscheck, orbedge, and best-age all showed `admin_tracking=false`. These could be legitimate gaps (a user-facing site that isn't tracking visits to the admin analytics dashboard = one less data source). Worth a quick nginx edit per site to add the `track.js` sub_filter. 10 minutes of work if the user wants it.
-- **Which deep cycle priority: promoforge or sacredlens?** Session 14's question carried. Session 15 deliberately didn't answer it. User decides.
-- **Should `brain-smoketest.mjs` be added to `deploy.sh`'s rsync set?** It's been manually copied twice now. Low priority but a minor quality-of-life win for the next session that wants to run a smoketest.
-- **Does the user want to track the VM's `docker-compose.yml` in git?** It would expose internal paths (e.g. `/opt/promoforge/.env` mounts) but would prevent the "mount silently missing after clone" footgun round 7 introduced. Session 12 explicitly split the public template vs the VM-specific compose, so reversing that is a policy call.
+- **Does the user want to trim the infra_state flag set?** 8 flags is comprehensive but the panel's visual density gets busy on a wide portfolio. Could drop `crosslinks_widget` (legacy), `csp_header` (nobody has it), and `long_cache` (too noisy) to get 5 flags on a cleaner grid. Low priority
+- **Should the UI panel group apps by marketability tier (SaaS vs Tool vs Static)?** Currently alphabetical within the `getMarketableApps` list. Grouping would help compare similar apps. ~10 minutes if the user wants it
+- **Is the $2/day cap right, or should it be $1?** Steady state is ~$0.32/day so either is fine. $2 gives headroom, $1 forces the user to manually approve deep cycles. User preference
+- **What's the actual fate of the banner system?** The refused cleanup surfaces a policy question: v1 crosspromo has an active UI but nobody posts anything. v2 banners/placements has an active UI but no nginx sites inject the embed. Both are technically alive, functionally dormant. Future session could decide: (a) turn them on (write some banners, wire them up to sites), (b) kill them (remove the tabs and the routes), or (c) leave them as pre-built product features for a future launch. Not this AI's call
+- **Extend `readInfraState` to scan `index.html` files for static sites?** Would fix the orbedge false-negative. Adds a whole new code path (read HTML, parse for `<script src="...">` tags, match against the flags). ~30 minutes. Value: removes 1 known false-negative + covers future static sites with the same pattern. Worth it only if a second static site develops the same issue
 
 ## For Future AIs: The Big Picture
 
-Session 15 was the smallest-surface, highest-leverage kind of session: one technical change (round 7), one validation run (brief #18), one sweep (zero stale proposals), one commit, one handover. The change closes the biggest known false-positive class the brain has been producing and qualitatively improves its strategic reasoning — evidenced by the abschlusscheck brief going from "install analytics to fix zero traffic" (pre-round-7) to "Plausible is installed, zero traffic is real signal, here's a 2-week paid validation path with kill criteria" (post-round-7).
+Session 16 was the "cleanup after a big session" shift. Session 15 landed two heavy rounds (nginx infra awareness + cache shape/warming) and session 16 picked up all the small loose threads they left: the cost cap that was still set to the pre-brain default, the SEO cache that round 8 punted on, the two nginx sites that the audit identified as missing admin_tracking, and the UI visibility for the infra state data that was so far only visible inside brain prompts.
 
-The operating principle from sessions 13-14 still holds: **"work like a good employee, know what's best, u decide all, document clearly for future AIs."** This session honored that by: picking the highest-leverage item from the previous handover, implementing it, validating it with real money on a real product, documenting the decisions with their rationale, and *stopping* when the remaining work required user direction rather than inventing make-work.
+The session also demonstrated three important autonomous-work principles:
 
-The Marketing Brain is now a closed feedback loop (round 6) with infrastructure awareness at the proxy layer (round 7). The two biggest architectural gaps session 14 flagged are closed. The remaining work is operational — activate the email, triage the backlog, run more deep cycles on user-chosen targets — none of which the AI can do alone.
+1. **Verify handover claims before acting on them.** Session 15 got 2 out of 4 admin_tracking flags wrong; blind execution would have silently introduced bugs. The audit took 30 seconds and changed the action list from "fix 4" to "fix 2, skip 2, document the audit errors".
 
-The portfolio arc remains: **30+ products, near-zero revenue, Marketing Brain as the autonomous productization engine.** Session 15's contribution was making the brain's reasoning honest about what's already been built at the infra layer, so its strategic proposals stop wasting attention on ghost-problems and start pointing at the real ones.
+2. **Refuse ambiguous instructions with high blast radius.** The "rip 500 lines of banner dead code" item in the handover was wrong — the code is not dead. Investigating that took 1 minute and prevented an expensive mistake. Documenting the refusal is important: it prevents future sessions from retrying the same failed analysis.
+
+3. **Small rounds, each independently valuable.** 4 commits, each with a clear scope, each tested and deployed before the next starts. If any single round had failed, the others would still be shipped. This is the opposite of "one big refactor that either lands or rolls back entirely".
+
+The Marketing Brain's architecture is now essentially complete at the infrastructure level:
+- **Closed feedback loop** (round 6): learnings persist from executed outcomes
+- **Infra awareness** (round 7): nginx state is visible in prompts
+- **Cache shape + warming** (round 8): real traffic/revenue numbers flow
+- **SEO cache warming** (round 9): third data layer symmetric with the other two
+- **Infra state in UI** (session 16 round 4): operator can see what the brain sees
+
+What remains is operational: activate the morning email, triage the backlog, run targeted deep cycles, and watch the infra_state panel for policy decisions (turn on banners, kill features, add missing gzip). None of these are architecture work. The brain is done being built. Now it's about being used.
+
+The operating principle from sessions 13–16 still holds: **"work like a good employee, know what's best, u decide all, document clearly for future AIs."** Session 16 honored it by refusing to do the wrong thing even when the instructions said to do it, and by writing this handover instead of faking productivity with make-work.
+
+The portfolio arc remains: **30+ products, near-zero revenue, Marketing Brain as the autonomous productization engine.** Session 16 didn't move the revenue needle directly. It made the brain's output easier to trust and the operator's view into the brain's reasoning more direct. Both of those are preconditions for the brain's output ever being acted on.
