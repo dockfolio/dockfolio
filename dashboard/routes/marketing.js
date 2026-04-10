@@ -501,11 +501,88 @@ export default function registerMarketingRoutes({
   let lastAnalyticsUpdate = 0;
   const ANALYTICS_TTL = 300_000;
 
-  // Expose cache getters for other modules (e.g. briefing)
+  // Shared refresh helpers — called by HTTP handlers, the 6h cron, and by
+  // downstream modules (Marketing Brain) via cache.refresh*. Single source
+  // of truth for "populate the in-memory cache from upstream APIs".
+  async function refreshRevenueCache() {
+    const { keys, appKeys } = getStripeKeys();
+    const results = {};
+    let totalMRR = 0, totalRevenue30d = 0, totalBalance = 0;
+    const keyResults = new Map();
+    for (const [key] of keys) {
+      const data = await cbStripe.call(() => fetchStripeData(key, TIMEOUT_STANDARD));
+      keyResults.set(key, data);
+    }
+    for (const [appName, key] of appKeys) {
+      const data = keyResults.get(key);
+      if (!data) continue;
+      const appsWithKey = keys.get(key);
+      results[appName] = { ...data, shared: appsWithKey.length > 1, sharedWith: appsWithKey.filter(n => n !== appName) };
+      if (appsWithKey[0] === appName) {
+        totalMRR += data.mrr || 0;
+        totalRevenue30d += data.revenue30d || 0;
+        totalBalance += data.balance || 0;
+      }
+    }
+    cachedRevenue = { apps: results, totals: { mrr: totalMRR, revenue30d: totalRevenue30d, balance: totalBalance, currency: 'eur' }, timestamp: new Date().toISOString() };
+    lastRevenueUpdate = Date.now();
+    const today = todayString();
+    try {
+      upsertMetric.run('_total', today, 'mrr', totalMRR / 100, null);
+      upsertMetric.run('_total', today, 'revenue_30d', totalRevenue30d / 100, null);
+      for (const [appName, data] of Object.entries(results)) {
+        if (data.mrr != null) upsertMetric.run(slugify(appName), today, 'mrr', data.mrr / 100, null);
+      }
+    } catch (err) { console.error('[METRICS] Revenue snapshot failed:', err.message); }
+    return cachedRevenue;
+  }
+
+  async function refreshAnalyticsCache() {
+    const trackableApps = config.apps.filter(a => (a.type === 'saas' || a.type === 'tool' || a.type === 'static') && a.domain);
+    const results = {};
+    let totalVisitors = 0, totalPageviews = 0, totalRealtime = 0;
+    await Promise.all(trackableApps.map(async (appDef) => {
+      const stats = await cbPlausible.call(() => fetchPlausibleStats(appDef.domain, '30d', getPlausibleUrl, getPlausibleApiKey, cbPlausible, TIMEOUT_STANDARD));
+      results[appDef.name] = { domain: appDef.domain, ...stats };
+      totalVisitors += stats.visitors || 0;
+      totalPageviews += stats.pageviews || 0;
+      totalRealtime += stats.realtime || 0;
+    }));
+    cachedAnalytics = { apps: results, totals: { visitors: totalVisitors, pageviews: totalPageviews, realtime: totalRealtime }, timestamp: new Date().toISOString() };
+    lastAnalyticsUpdate = Date.now();
+    const today = todayString();
+    try {
+      upsertMetric.run('_total', today, 'visitors', totalVisitors, null);
+      upsertMetric.run('_total', today, 'pageviews', totalPageviews, null);
+      for (const [appName, data] of Object.entries(results)) {
+        if (data.visitors != null) upsertMetric.run(slugify(appName), today, 'visitors', data.visitors, null);
+      }
+    } catch (err) { console.error('[METRICS] Analytics snapshot failed:', err.message); }
+    return cachedAnalytics;
+  }
+
+  // Expose cache getters + refresh methods for other modules (Marketing Brain,
+  // briefing, portfolio). Refresh is a no-op if the cache is younger than its
+  // TTL; pass force=true to bypass.
   const cache = {
     get seo() { return cachedSEO; },
     get revenue() { return cachedRevenue; },
     get analytics() { return cachedAnalytics; },
+    async refreshRevenue(force = false) {
+      if (!force && cachedRevenue && (Date.now() - lastRevenueUpdate) < REVENUE_TTL) return cachedRevenue;
+      return refreshRevenueCache();
+    },
+    async refreshAnalytics(force = false) {
+      if (!force && cachedAnalytics && (Date.now() - lastAnalyticsUpdate) < ANALYTICS_TTL) return cachedAnalytics;
+      return refreshAnalyticsCache();
+    },
+    async warm(force = false) {
+      await Promise.all([
+        this.refreshRevenue(force).catch(e => console.error('[CACHE] refreshRevenue failed:', e.message)),
+        this.refreshAnalytics(force).catch(e => console.error('[CACHE] refreshAnalytics failed:', e.message)),
+      ]);
+      return { revenue: !!cachedRevenue, analytics: !!cachedAnalytics, seo: !!cachedSEO };
+    },
   };
 
   function getAnthropicKey() { return getEnvKeyFromApps('ANTHROPIC_API_KEY'); }
@@ -757,59 +834,11 @@ export default function registerMarketingRoutes({
   // =============================================
 
   app.get('/api/marketing/revenue', asyncRoute(async (req, res) => {
-    const now = Date.now();
     const force = req.query.force === 'true';
-    if (!force && cachedRevenue && (now - lastRevenueUpdate) < REVENUE_TTL) {
+    if (!force && cachedRevenue && (Date.now() - lastRevenueUpdate) < REVENUE_TTL) {
       return res.json(cachedRevenue);
     }
-
-    const { keys, appKeys } = getStripeKeys();
-    const results = {};
-    let totalMRR = 0, totalRevenue30d = 0, totalBalance = 0;
-
-    const keyResults = new Map();
-    for (const [key, appNames] of keys) {
-      const data = await cbStripe.call(() => fetchStripeData(key, TIMEOUT_STANDARD));
-      keyResults.set(key, data);
-    }
-
-    for (const [appName, key] of appKeys) {
-      const data = keyResults.get(key);
-      if (!data) continue;
-      const appsWithKey = keys.get(key);
-      results[appName] = {
-        ...data,
-        shared: appsWithKey.length > 1,
-        sharedWith: appsWithKey.filter(n => n !== appName),
-      };
-      if (appsWithKey[0] === appName) {
-        totalMRR += data.mrr || 0;
-        totalRevenue30d += data.revenue30d || 0;
-        totalBalance += data.balance || 0;
-      }
-    }
-
-    cachedRevenue = {
-      apps: results,
-      totals: {
-        mrr: totalMRR,
-        revenue30d: totalRevenue30d,
-        balance: totalBalance,
-        currency: 'eur',
-      },
-      timestamp: new Date().toISOString(),
-    };
-    lastRevenueUpdate = now;
-
-    const today = todayString();
-    try {
-      upsertMetric.run('_total', today, 'mrr', totalMRR / 100, null);
-      upsertMetric.run('_total', today, 'revenue_30d', totalRevenue30d / 100, null);
-      for (const [appName, data] of Object.entries(results)) {
-        if (data.mrr != null) upsertMetric.run(slugify(appName), today, 'mrr', data.mrr / 100, null);
-      }
-    } catch (err) { console.error('[METRICS] Revenue snapshot failed:', err.message); }
-
+    await refreshRevenueCache();
     res.json(cachedRevenue);
   }));
 
@@ -818,43 +847,11 @@ export default function registerMarketingRoutes({
   // =============================================
 
   app.get('/api/marketing/analytics', asyncRoute(async (req, res) => {
-    const now = Date.now();
     const force = req.query.force === 'true';
-    if (!force && cachedAnalytics && (now - lastAnalyticsUpdate) < ANALYTICS_TTL) {
+    if (!force && cachedAnalytics && (Date.now() - lastAnalyticsUpdate) < ANALYTICS_TTL) {
       return res.json(cachedAnalytics);
     }
-
-    const trackableApps = config.apps.filter(a =>
-      (a.type === 'saas' || a.type === 'tool' || a.type === 'static') && a.domain
-    );
-
-    const results = {};
-    let totalVisitors = 0, totalPageviews = 0, totalRealtime = 0;
-
-    await Promise.all(trackableApps.map(async (appDef) => {
-      const stats = await cbPlausible.call(() => fetchPlausibleStats(appDef.domain, '30d', getPlausibleUrl, getPlausibleApiKey, cbPlausible, TIMEOUT_STANDARD));
-      results[appDef.name] = { domain: appDef.domain, ...stats };
-      totalVisitors += stats.visitors || 0;
-      totalPageviews += stats.pageviews || 0;
-      totalRealtime += stats.realtime || 0;
-    }));
-
-    cachedAnalytics = {
-      apps: results,
-      totals: { visitors: totalVisitors, pageviews: totalPageviews, realtime: totalRealtime },
-      timestamp: new Date().toISOString(),
-    };
-    lastAnalyticsUpdate = now;
-
-    const today = todayString();
-    try {
-      upsertMetric.run('_total', today, 'visitors', totalVisitors, null);
-      upsertMetric.run('_total', today, 'pageviews', totalPageviews, null);
-      for (const [appName, data] of Object.entries(results)) {
-        if (data.visitors != null) upsertMetric.run(slugify(appName), today, 'visitors', data.visitors, null);
-      }
-    } catch (err) { console.error('[METRICS] Analytics snapshot failed:', err.message); }
-
+    await refreshAnalyticsCache();
     res.json(cachedAnalytics);
   }));
 
@@ -2119,28 +2116,15 @@ export default function registerMarketingRoutes({
   // Cron Jobs
   // =============================================
 
-  // Every 6 hours: collect revenue + analytics
+  // Every 6 hours: collect revenue + analytics and warm the in-memory caches
+  // so downstream consumers (Marketing Brain, briefing, portfolio) see real
+  // data at cycle time instead of waiting for a human to load the dashboard.
   cron.schedule('0 */6 * * *', async () => {
-    console.log('[CRON] Collecting revenue data...');
-    try {
-      const { keys, appKeys } = getStripeKeys();
-      const today = todayString();
-      let totalMRR = 0;
-      const keyResults = new Map();
-      for (const [key, appNames] of keys) {
-        const data = await cbStripe.call(() => fetchStripeData(key, TIMEOUT_STANDARD));
-        keyResults.set(key, data);
-        if (data.mrr) totalMRR += data.mrr;
-      }
-      upsertMetric.run('_total', today, 'mrr', totalMRR / 100, null);
-      for (const [appName, key] of appKeys) {
-        const data = keyResults.get(key);
-        if (data?.mrr != null) upsertMetric.run(slugify(appName), today, 'mrr', data.mrr / 100, null);
-      }
-      console.log('[CRON] Revenue data collected');
-    } catch (err) {
-      cronFail('Revenue refresh', err);
-    }
+    console.log('[CRON] Collecting revenue + analytics data...');
+    try { await refreshRevenueCache(); console.log('[CRON] Revenue cache warmed'); }
+    catch (err) { cronFail('Revenue refresh', err); }
+    try { await refreshAnalyticsCache(); console.log('[CRON] Analytics cache warmed'); }
+    catch (err) { cronFail('Analytics refresh', err); }
   });
 
   // Daily at 1:30 AM: run SEO audits and store

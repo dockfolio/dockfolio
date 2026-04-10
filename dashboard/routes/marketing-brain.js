@@ -166,51 +166,52 @@ export default function registerMarketingBrainRoutes({
       category: appDef.marketing?.category || appDef.type || 'unknown',
     };
 
-    // Traffic (from marketing cache if available)
+    // Traffic (from marketing cache if available).
+    // Cache shape (from marketing.js:842): { apps: { "AppName": { domain, realtime,
+    // visitors, pageviews, bounceRate, visitDuration, topPages, topSources } } }.
+    // This is a 30d snapshot, not a dual 7d/30d rollup — older brain code
+    // expected suffixed fields that never existed.
     try {
-      const analytics = marketingCache?.analytics;
-      if (analytics && Array.isArray(analytics.apps)) {
-        const row = analytics.apps.find(a => a.slug === appSlug || a.name === appDef.name);
-        if (row) {
-          ctx.traffic = {
-            visitors_7d: row.visitors_7d ?? null,
-            pageviews_7d: row.pageviews_7d ?? null,
-            bounce_rate: row.bounce_rate ?? null,
-            visitors_30d: row.visitors_30d ?? null,
-            trend: row.trend ?? null,
-          };
-        }
+      const row = marketingCache?.analytics?.apps?.[appDef.name];
+      if (row && !row.error) {
+        ctx.traffic = {
+          visitors_30d: row.visitors ?? 0,
+          pageviews_30d: row.pageviews ?? 0,
+          bounce_rate: row.bounceRate ?? null,
+          visit_duration_s: row.visitDuration ?? null,
+          realtime: row.realtime ?? 0,
+          top_pages: Array.isArray(row.topPages) ? row.topPages.slice(0, 3) : [],
+          top_sources: Array.isArray(row.topSources) ? row.topSources.slice(0, 3) : [],
+        };
       }
     } catch {}
 
-    // Revenue (from marketing cache)
+    // Revenue (from marketing cache). Cache shape: { apps: { "AppName":
+    // { mrr, revenue30d, chargeCount30d, activeSubscriptions, balance,
+    // currency, recentCharges } } }. Amounts are in minor units (cents).
     try {
-      const revenue = marketingCache?.revenue;
-      if (revenue && Array.isArray(revenue.apps)) {
-        const row = revenue.apps.find(a => a.slug === appSlug || a.name === appDef.name);
-        if (row) {
-          ctx.revenue = {
-            mrr: row.mrr ?? 0,
-            revenue_30d: row.revenue_30d ?? 0,
-            customer_count: row.customer_count ?? 0,
-            currency: row.currency || 'eur',
-          };
-        }
+      const row = marketingCache?.revenue?.apps?.[appDef.name];
+      if (row && !row.error) {
+        ctx.revenue = {
+          mrr: row.mrr ?? 0,
+          revenue_30d: row.revenue30d ?? 0,
+          charge_count_30d: row.chargeCount30d ?? 0,
+          active_subscriptions: row.activeSubscriptions ?? 0,
+          currency: row.currency || 'eur',
+        };
       }
     } catch {}
 
-    // SEO (latest audit row from cache)
+    // SEO audit (from marketing cache). Cache shape: { apps: { "AppName":
+    // { score, grade, issues, ... } } }.
     try {
-      const seo = marketingCache?.seo;
-      if (seo && Array.isArray(seo.audits)) {
-        const row = seo.audits.find(a => a.slug === appSlug || a.domain === appDef.domain);
-        if (row) {
-          ctx.seo = {
-            score: row.score ?? null,
-            issues: Array.isArray(row.issues) ? row.issues.slice(0, 5) : [],
-            meta_ok: row.meta_ok ?? null,
-          };
-        }
+      const row = marketingCache?.seo?.apps?.[appDef.name];
+      if (row && !row.error) {
+        ctx.seo = {
+          score: row.score ?? null,
+          grade: row.grade ?? null,
+          issues: Array.isArray(row.issues) ? row.issues.slice(0, 5) : [],
+        };
       }
     } catch {}
 
@@ -348,11 +349,11 @@ Rules:
     lines.push(`Tech: ${ctx.tech}`);
     lines.push('');
     lines.push('## Current metrics');
-    if (ctx.traffic) lines.push(`Traffic (Plausible): ${JSON.stringify(ctx.traffic)}`);
-    else lines.push('Traffic: unknown');
-    if (ctx.revenue) lines.push(`Revenue (Stripe): MRR €${(ctx.revenue.mrr / 100).toFixed(2)}, 30d €${(ctx.revenue.revenue_30d / 100).toFixed(2)}, customers ${ctx.revenue.customer_count}`);
+    if (ctx.traffic) lines.push(`Traffic (Plausible 30d): ${JSON.stringify(ctx.traffic)}`);
+    else lines.push('Traffic: cache empty (Plausible reachable but /api/marketing/analytics not yet called this cycle)');
+    if (ctx.revenue) lines.push(`Revenue (Stripe): MRR €${(ctx.revenue.mrr / 100).toFixed(2)}, 30d €${(ctx.revenue.revenue_30d / 100).toFixed(2)}, active subs ${ctx.revenue.active_subscriptions}, charges 30d ${ctx.revenue.charge_count_30d}`);
     else lines.push('Revenue: none yet');
-    if (ctx.seo) lines.push(`SEO score: ${ctx.seo.score}/100. Top issues: ${JSON.stringify(ctx.seo.issues)}`);
+    if (ctx.seo) lines.push(`SEO score: ${ctx.seo.score}/100 (${ctx.seo.grade || '?'}). Top issues: ${JSON.stringify(ctx.seo.issues)}`);
     if (ctx.infra_state) {
       lines.push('');
       lines.push('## Proxy-layer state (nginx sub_filter, already done — DO NOT propose installing these)');
@@ -412,13 +413,13 @@ Rules:
     lines.push('');
     lines.push('## Current state');
     if (ctx.traffic) {
-      lines.push(`Traffic (Plausible): ${JSON.stringify(ctx.traffic)}`);
-    } else lines.push('Traffic: unknown (Plausible data unavailable)');
+      lines.push(`Traffic (Plausible 30d): ${JSON.stringify(ctx.traffic)}`);
+    } else lines.push('Traffic: cache empty (Plausible reachable but /api/marketing/analytics not yet called this cycle)');
     if (ctx.revenue) {
-      lines.push(`Revenue (Stripe): MRR €${(ctx.revenue.mrr / 100).toFixed(2)}, 30d €${(ctx.revenue.revenue_30d / 100).toFixed(2)}, customers ${ctx.revenue.customer_count}`);
+      lines.push(`Revenue (Stripe): MRR €${(ctx.revenue.mrr / 100).toFixed(2)}, 30d €${(ctx.revenue.revenue_30d / 100).toFixed(2)}, active subs ${ctx.revenue.active_subscriptions}, charges 30d ${ctx.revenue.charge_count_30d}`);
     } else lines.push('Revenue: unknown (no Stripe data — likely no paid product or no sales yet)');
     if (ctx.seo) {
-      lines.push(`SEO score: ${ctx.seo.score}/100. Top issues: ${JSON.stringify(ctx.seo.issues)}`);
+      lines.push(`SEO score: ${ctx.seo.score}/100 (${ctx.seo.grade || '?'}). Top issues: ${JSON.stringify(ctx.seo.issues)}`);
     } else lines.push('SEO: unknown');
     if (ctx.infra_state) {
       lines.push('');
@@ -651,6 +652,14 @@ Rules:
         err.code = 'COST_CAP';
         throw err;
       }
+    }
+
+    // Ensure marketing caches are warm before reading context. No-op within TTL
+    // (5 min), so this is free on back-to-back cycles and only does work if a
+    // cycle fires before the 6h cron or startup warm has populated the cache.
+    if (marketingCache?.warm) {
+      try { await marketingCache.warm(); }
+      catch (err) { console.error('[BRAIN] cache warm failed (proceeding with stale):', err.message); }
     }
 
     const started = Date.now();

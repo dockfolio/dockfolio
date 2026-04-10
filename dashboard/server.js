@@ -2887,6 +2887,15 @@ app.get('/health', (_req, res) => res.send('ok'));
 const port = process.env.PORT || 3000;
 const server = app.listen(port, '0.0.0.0', () => {
   console.log(`Dashboard API running on port ${port}`);
+  // Warm the marketing caches ~10s after boot so downstream consumers
+  // (Marketing Brain, briefing, portfolio) see real data without waiting
+  // for the 6h cron or a human dashboard visit. Non-blocking, best-effort.
+  setTimeout(() => {
+    if (marketingCache?.warm) {
+      marketingCache.warm().then(r => console.log('[STARTUP] Marketing cache warmed:', JSON.stringify(r)))
+        .catch(e => console.error('[STARTUP] Marketing cache warm failed:', e.message));
+    }
+  }, 10_000);
 });
 
 // --- Graceful Shutdown ---

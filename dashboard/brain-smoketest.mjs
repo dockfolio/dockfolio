@@ -9,13 +9,14 @@ import Database from 'better-sqlite3';
 import { readFileSync, existsSync } from 'fs';
 import yaml from 'js-yaml';
 import registerMarketingBrainRoutes from './routes/marketing-brain.js';
-import { parseEnvFile, slugify } from './utils.js';
+import { parseEnvFile, slugify, callAnthropic } from './utils.js';
 
 const DB_PATH = process.env.MARKETING_DB_PATH || '/home/deploy/marketing/data.db';
 const CONFIG_PATH = process.env.CONFIG_PATH || '/app/config.yml';
 
 const args = process.argv.slice(2);
 const deep = args.includes('--deep');
+const dry = args.includes('--dry');
 const appSlug = args.find(a => !a.startsWith('--'));
 if (!appSlug) {
   console.error('Usage: node brain-smoketest.mjs <appSlug> [--deep]');
@@ -53,9 +54,49 @@ const fakeCron = { schedule: () => {} };
 // Fake circuit breaker that just calls through
 const cbAnthropic = { call: async (fn) => fn() };
 
+// Minimal cache that replicates what registerMarketingRoutes produces,
+// populated by direct Stripe + Plausible fetches so the smoketest exercises
+// the same ctx.traffic / ctx.revenue path as a production brain cycle.
+async function buildRealMarketingCache() {
+  const TIMEOUT = 15000;
+  const plausibleUrl = process.env.PLAUSIBLE_URL || 'http://plausible-plausible-1:8000';
+  const plausibleKey = process.env.PLAUSIBLE_API_KEY || getEnvKeyFromApps('PLAUSIBLE_API_KEY') || '';
+  // Analytics
+  const analyticsApps = {};
+  const trackable = config.apps.filter(a => (a.type === 'saas' || a.type === 'tool' || a.type === 'static') && a.domain);
+  await Promise.all(trackable.map(async (appDef) => {
+    try {
+      const base = `${plausibleUrl}/api/v1/stats`;
+      const headers = plausibleKey ? { Authorization: `Bearer ${plausibleKey}` } : {};
+      const opts = { headers, signal: AbortSignal.timeout(TIMEOUT) };
+      const r = await fetch(`${base}/aggregate?site_id=${appDef.domain}&period=30d&metrics=visitors,pageviews,bounce_rate,visit_duration`, opts);
+      if (!r.ok) { analyticsApps[appDef.name] = { domain: appDef.domain, visitors: 0, pageviews: 0, error: `HTTP ${r.status}` }; return; }
+      const j = await r.json();
+      analyticsApps[appDef.name] = {
+        domain: appDef.domain,
+        visitors: j.results?.visitors?.value || 0,
+        pageviews: j.results?.pageviews?.value || 0,
+        bounceRate: j.results?.bounce_rate?.value || 0,
+        visitDuration: j.results?.visit_duration?.value || 0,
+        realtime: 0,
+      };
+    } catch (e) { analyticsApps[appDef.name] = { domain: appDef.domain, visitors: 0, pageviews: 0, error: e.message }; }
+  }));
+  // Revenue — smoketest doesn't need it for this validation run; leave empty
+  return {
+    analytics: { apps: analyticsApps, totals: {}, timestamp: new Date().toISOString() },
+    revenue: null,
+    seo: null,
+    async warm() { return { revenue: false, analytics: true, seo: false }; },
+  };
+}
+
+const marketingCache = await buildRealMarketingCache();
+console.log(`[smoketest] Cache: ${Object.keys(marketingCache.analytics.apps).length} apps with analytics`);
+
 const brain = registerMarketingBrainRoutes({
   app: fakeApp, db, config, cron: fakeCron,
-  marketingCache: {},
+  marketingCache,
   getEnvKeyFromApps,
   cbAnthropic,
   cronFail: () => {},
@@ -70,7 +111,21 @@ const canonicalSlug = (() => {
   return match ? slugify(match.name) : appSlug;
 })();
 
-console.log(`[smoketest] Running ${deep ? 'DEEP ' : ''}brain cycle for ${canonicalSlug}...`);
+console.log(`[smoketest] Running ${deep ? 'DEEP ' : ''}${dry ? '(DRY) ' : ''}brain cycle for ${canonicalSlug}...`);
+if (dry) {
+  const ctx = deep ? brain.collectAppContextDeep(canonicalSlug) : brain.collectAppContext(canonicalSlug);
+  console.log('[smoketest] --dry: context snapshot, no LLM call:');
+  console.log(JSON.stringify({
+    traffic: ctx.traffic ?? null,
+    revenue: ctx.revenue ?? null,
+    seo: ctx.seo ?? null,
+    infra_state: ctx.infra_state ?? null,
+    prior_briefs_count: ctx.prior_briefs?.length ?? 0,
+    open_actions_count: ctx.open_actions?.length ?? 0,
+    learnings_count: ctx.learnings?.length ?? 0,
+  }, null, 2));
+  process.exit(0);
+}
 if (deep) {
   try {
     const ctx = brain.collectAppContextDeep(canonicalSlug);
