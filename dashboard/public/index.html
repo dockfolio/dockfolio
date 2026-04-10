@@ -1675,6 +1675,8 @@
           <div id="brainInfraState"><div style="color:var(--text-muted);font-size:12px">—</div></div>
           <div style="font-size:12px;font-weight:600;color:var(--text-dim);margin:20px 0 10px;text-transform:uppercase;letter-spacing:0.05em" title="Marketing knowledge base loaded into the brain at startup. Each brain cycle picks 1-2 most-relevant sections based on the app's stage and context. Click a topic to read the full file.">Marketing KB</div>
           <div id="brainKBList"><div style="color:var(--text-muted);font-size:12px">—</div></div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-dim);margin:20px 0 10px;text-transform:uppercase;letter-spacing:0.05em" title="How often each KB topic was injected into recent brain cycles, and how often the resulting brief actually cited the principle. Cite rate counts analysis + hypotheses + action titles/bodies. 30-60% is healthy — means the KB is influencing output without the brain mechanically echoing every section.">KB usage (30d)</div>
+          <div id="brainKBUsage"><div style="color:var(--text-muted);font-size:12px">—</div></div>
         </div>
       </div>
 
@@ -5994,7 +5996,7 @@
     }
 
     // --- Marketing Brain ---
-    let brainState = { stats: null, actions: [], briefs: [], missing: [], learnings: [], infra: null, kb: null, loading: false };
+    let brainState = { stats: null, actions: [], briefs: [], missing: [], learnings: [], infra: null, kb: null, kbUsage: null, loading: false };
 
     function brainEscape(s) {
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -6024,7 +6026,7 @@
       try {
         const statusEl = document.getElementById('brainFilterStatus');
         const status = statusEl?.value || 'proposed';
-        const [statsRes, actionsRes, briefsRes, morningRes, learningsRes, infraRes, kbRes] = await Promise.allSettled([
+        const [statsRes, actionsRes, briefsRes, morningRes, learningsRes, infraRes, kbRes, kbUsageRes] = await Promise.allSettled([
           apiFetch('/api/brain/stats'),
           apiFetch(`/api/brain/actions?status=${encodeURIComponent(status)}&limit=100`),
           apiFetch('/api/brain/briefs?limit=8'),
@@ -6032,6 +6034,7 @@
           apiFetch('/api/brain/learnings?limit=10'),
           apiFetch('/api/brain/infra-state'),
           apiFetch('/api/brain/kb'),
+          apiFetch('/api/brain/kb/usage?days=30'),
         ]);
         if (statsRes.status === 'fulfilled' && statsRes.value.ok) brainState.stats = await statsRes.value.json();
         if (actionsRes.status === 'fulfilled' && actionsRes.value.ok) brainState.actions = await actionsRes.value.json();
@@ -6043,6 +6046,7 @@
         if (learningsRes.status === 'fulfilled' && learningsRes.value.ok) brainState.learnings = await learningsRes.value.json();
         if (infraRes.status === 'fulfilled' && infraRes.value.ok) brainState.infra = await infraRes.value.json();
         if (kbRes.status === 'fulfilled' && kbRes.value.ok) brainState.kb = await kbRes.value.json();
+        if (kbUsageRes.status === 'fulfilled' && kbUsageRes.value.ok) brainState.kbUsage = await kbUsageRes.value.json();
         brainRenderStats();
         brainPopulateAppFilter();
         brainRenderActions();
@@ -6051,6 +6055,7 @@
         brainRenderLearnings();
         brainRenderInfraState();
         brainRenderKB();
+        brainRenderKBUsage();
       } catch (e) {
         console.error('brain load error', e);
       }
@@ -6248,6 +6253,46 @@
           <div style="color:var(--text-muted);font-size:9px">${brainEscape(f.topic)} · ${kb}k</div>
         </div>`;
       }).join('');
+    }
+
+    function brainRenderKBUsage() {
+      const container = document.getElementById('brainKBUsage');
+      if (!container) return;
+      const u = brainState.kbUsage;
+      if (!u || !u.briefs_scanned) {
+        container.innerHTML = `<div style="color:var(--text-muted);font-size:11px">No briefs in window</div>`;
+        return;
+      }
+      if (!u.briefs_with_kb) {
+        container.innerHTML = `<div style="color:var(--text-muted);font-size:11px">${u.briefs_scanned} briefs scanned · none had KB snippets yet</div>`;
+        return;
+      }
+      const rateColor = u.overall_cite_rate >= 30 ? 'var(--green)' : u.overall_cite_rate >= 10 ? 'var(--orange)' : 'var(--text-muted)';
+      const summary = `
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:6px;font-size:11px">
+          <div style="display:flex;justify-content:space-between;gap:8px">
+            <span style="color:var(--text-muted)">briefs with KB</span>
+            <span style="color:var(--text);font-weight:600">${u.briefs_with_kb} / ${u.briefs_scanned}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:8px;margin-top:3px">
+            <span style="color:var(--text-muted)">overall cite rate</span>
+            <span style="color:${rateColor};font-weight:600">${u.overall_cite_rate}%</span>
+          </div>
+        </div>`;
+      const topics = (u.topics || []).slice(0, 6).map(t => {
+        const pct = t.cite_rate || 0;
+        const barColor = pct >= 30 ? 'var(--green)' : pct >= 10 ? 'var(--orange)' : 'var(--border)';
+        return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;margin-bottom:3px;font-size:10px" title="Shown in ${t.shown} snippet(s) across ${t.distinct_apps} app(s); cited in ${t.cited}">
+          <div style="display:flex;justify-content:space-between;gap:6px;margin-bottom:3px">
+            <span style="color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${brainEscape(t.topic)}</span>
+            <span style="color:var(--text-muted);flex-shrink:0">${t.cited}/${t.shown} · ${pct}%</span>
+          </div>
+          <div style="background:var(--border);height:3px;border-radius:2px;overflow:hidden">
+            <div style="background:${barColor};height:100%;width:${pct}%"></div>
+          </div>
+        </div>`;
+      }).join('');
+      container.innerHTML = summary + (topics || `<div style="color:var(--text-muted);font-size:11px">No topics yet</div>`);
     }
 
     async function brainOpenKB(topic) {
