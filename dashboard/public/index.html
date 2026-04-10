@@ -1673,6 +1673,22 @@
           <div id="brainLearningsList"><div style="color:var(--text-muted);font-size:12px">—</div></div>
           <div style="font-size:12px;font-weight:600;color:var(--text-dim);margin:20px 0 10px;text-transform:uppercase;letter-spacing:0.05em" title="Proxy-layer state detected from nginx configs. Shows which apps already have Plausible, admin tracking, banner injection, etc. wired up at the nginx sub_filter layer — the brain uses this to avoid proposing infra that's already done.">Infra state (nginx)</div>
           <div id="brainInfraState"><div style="color:var(--text-muted);font-size:12px">—</div></div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-dim);margin:20px 0 10px;text-transform:uppercase;letter-spacing:0.05em" title="Marketing knowledge base loaded into the brain at startup. Each brain cycle picks 1-2 most-relevant sections based on the app's stage and context. Click a topic to read the full file.">Marketing KB</div>
+          <div id="brainKBList"><div style="color:var(--text-muted);font-size:12px">—</div></div>
+        </div>
+      </div>
+
+      <!-- Marketing KB modal -->
+      <div id="brainKBModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:1001;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)" onclick="if(event.target===this)brainCloseKB()">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:900px;max-height:90vh;overflow:auto;padding:24px;width:100%">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;position:sticky;top:-24px;background:var(--surface);padding:24px 0 12px;margin:-24px 0 16px;border-bottom:1px solid var(--border)">
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em">Marketing knowledge base</div>
+              <div style="font-size:18px;font-weight:700;margin-top:4px" id="brainKBModalTitle">Loading…</div>
+            </div>
+            <button onclick="brainCloseKB()" style="background:transparent;border:none;color:var(--text-dim);font-size:24px;cursor:pointer;line-height:1">×</button>
+          </div>
+          <div id="brainKBModalBody" style="font-size:13px;line-height:1.6;color:var(--text-dim);white-space:pre-wrap;font-family:var(--font-mono)"></div>
         </div>
       </div>
 
@@ -5978,7 +5994,7 @@
     }
 
     // --- Marketing Brain ---
-    let brainState = { stats: null, actions: [], briefs: [], missing: [], learnings: [], infra: null, loading: false };
+    let brainState = { stats: null, actions: [], briefs: [], missing: [], learnings: [], infra: null, kb: null, loading: false };
 
     function brainEscape(s) {
       return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -6008,13 +6024,14 @@
       try {
         const statusEl = document.getElementById('brainFilterStatus');
         const status = statusEl?.value || 'proposed';
-        const [statsRes, actionsRes, briefsRes, morningRes, learningsRes, infraRes] = await Promise.allSettled([
+        const [statsRes, actionsRes, briefsRes, morningRes, learningsRes, infraRes, kbRes] = await Promise.allSettled([
           apiFetch('/api/brain/stats'),
           apiFetch(`/api/brain/actions?status=${encodeURIComponent(status)}&limit=100`),
           apiFetch('/api/brain/briefs?limit=8'),
           apiFetch('/api/brain/morning'),
           apiFetch('/api/brain/learnings?limit=10'),
           apiFetch('/api/brain/infra-state'),
+          apiFetch('/api/brain/kb'),
         ]);
         if (statsRes.status === 'fulfilled' && statsRes.value.ok) brainState.stats = await statsRes.value.json();
         if (actionsRes.status === 'fulfilled' && actionsRes.value.ok) brainState.actions = await actionsRes.value.json();
@@ -6025,6 +6042,7 @@
         }
         if (learningsRes.status === 'fulfilled' && learningsRes.value.ok) brainState.learnings = await learningsRes.value.json();
         if (infraRes.status === 'fulfilled' && infraRes.value.ok) brainState.infra = await infraRes.value.json();
+        if (kbRes.status === 'fulfilled' && kbRes.value.ok) brainState.kb = await kbRes.value.json();
         brainRenderStats();
         brainPopulateAppFilter();
         brainRenderActions();
@@ -6032,6 +6050,7 @@
         brainRenderStale();
         brainRenderLearnings();
         brainRenderInfraState();
+        brainRenderKB();
       } catch (e) {
         console.error('brain load error', e);
       }
@@ -6212,6 +6231,48 @@
         <div style="margin-bottom:8px;font-size:10px;color:var(--text-muted)">${summaryHtml}</div>
         ${appsHtml}
       `;
+    }
+
+    function brainRenderKB() {
+      const container = document.getElementById('brainKBList');
+      if (!container) return;
+      const data = brainState.kb;
+      if (!data || !data.files || !data.files.length) {
+        container.innerHTML = `<div style="color:var(--text-muted);font-size:11px">KB not loaded</div>`;
+        return;
+      }
+      container.innerHTML = data.files.map(f => {
+        const kb = (f.length/1000).toFixed(0);
+        return `<div onclick="brainOpenKB('${f.topic}')" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;margin-bottom:4px;font-size:11px;cursor:pointer;transition:background .15s" onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='var(--surface2)'">
+          <div style="font-weight:600;color:var(--text);margin-bottom:2px">${brainEscape(f.title)}</div>
+          <div style="color:var(--text-muted);font-size:9px">${brainEscape(f.topic)} · ${kb}k</div>
+        </div>`;
+      }).join('');
+    }
+
+    async function brainOpenKB(topic) {
+      const modal = document.getElementById('brainKBModal');
+      const titleEl = document.getElementById('brainKBModalTitle');
+      const bodyEl = document.getElementById('brainKBModalBody');
+      modal.style.display = 'flex';
+      titleEl.textContent = 'Loading…';
+      bodyEl.textContent = '';
+      try {
+        const res = await apiFetch('/api/brain/kb/' + encodeURIComponent(topic));
+        if (!res.ok) {
+          bodyEl.textContent = 'Failed to load: ' + res.status;
+          return;
+        }
+        const data = await res.json();
+        titleEl.textContent = data.title || topic;
+        bodyEl.textContent = data.content || '(empty)';
+      } catch (e) {
+        bodyEl.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    function brainCloseKB() {
+      document.getElementById('brainKBModal').style.display = 'none';
     }
 
     async function brainRunDeep() {
