@@ -79,9 +79,13 @@ const SONNET_COST_OUT = 15.00 / 1_000_000;
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const DEEP_MODEL = 'claude-sonnet-4-5-20250929';
 
-// Hard cap: max $5/day across all brain cycles. Cron checks this before running.
+// Hard cap: max spend per day across all brain cycles. Cron checks this before running.
 // Manual triggers via HTTP can override by passing ?force=1.
-const DAILY_COST_CAP_USD = 5.00;
+// Override via env BRAIN_DAILY_COST_CAP_USD (e.g. "1.50").
+const DAILY_COST_CAP_USD = (() => {
+  const raw = parseFloat(process.env.BRAIN_DAILY_COST_CAP_USD);
+  return Number.isFinite(raw) && raw > 0 ? raw : 2.00;
+})();
 
 // Only kinds we can safely and meaningfully materialize into downstream queues.
 // email.draft stays advisory because email_queue is per-recipient-per-template, not a draft store.
