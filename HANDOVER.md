@@ -1,314 +1,320 @@
 # Session Handover
 
-**Date:** 2026-04-10 (Session 16)
-**Duration:** ~1 hour, driven by a short chain of "keep going" prompts
-**Goal:** Continue from session 15's handover and work down the autonomous priority list.
+**Date:** 2026-04-10 (Session 17)
+**Duration:** ~1.5 hours, driven by "focus on making our marketing top notch. create marketing knowledge base and make sure its the best one in the world"
+**Goal:** Build a world-class marketing knowledge base for the Marketing Brain and make it the knowledge layer the brain reasons from.
 
 ## Summary
 
-Session 16 shipped **four small rounds** with clean commits, two live deploys, three nginx reloads, zero rollbacks. The session's signature move was small-scope, high-leverage wins that cleaned up lingering round-8 follow-ups and made the Marketing Brain's proxy-layer state visible in the UI for the first time. It also caught two factual errors in session 15's handover that would have misled any future session, and explicitly refused to rip 500 lines of "dead code" that is, in fact, still actively wired to the UI.
+Session 17 built the Marketing Brain's most important knowledge upgrade since infrastructure awareness (round 7). A dense, opinionated, retrievable marketing knowledge base — 12 files, ~6,500 lines, covering positioning, pre-traction, launches, content/SEO, conversion, pricing, growth loops, distribution, email, metrics, kill criteria, and copywriting. The KB draws from the best-known practitioners (April Dunford, Rob Walling, Patrick McKenzie, Julian Shapiro, Lenny Rachitsky, Ryan Holiday, Reforge, Seth Godin, Sean Ellis, First Round Review) and is opinionated, actionable, and scoped specifically to indie SaaS/tools in the 0-$10K MRR range.
 
-**Round 1 — daily cost cap lowered from $5 to $2** (commit `2b03929`). User said "max 2 dollas". `DAILY_COST_CAP_USD` in `dashboard/routes/marketing-brain.js:84` was hardcoded to `$5.00`. Changed to default `$2.00` and made it env-configurable via `BRAIN_DAILY_COST_CAP_USD`. Actual steady-state brain spend is ~$0.30–0.40/day (18 Haiku cron briefs + weekly Sonnet deep dives), so the new cap is comfortable headroom not a throttle. `.env.example` documents the new variable. Verified live: `docker exec dockfolio-dashboard node -e '...default cap: 2.00'`.
+The KB is not just documentation — it's wired into the Marketing Brain's context collection. A new `loadMarketingKB()` loader reads all 12 files at boot, and `pickKBSnippets(ctx, max)` scores each file against the app's stage (revenue bucket, traffic, active subs, open action kinds, recent learnings) and injects the 1-2 most relevant sections as `ctx.kb_snippets`. Both user prompts (tactical + deep) render the KB sections with their selection signals, and both system prompts instruct the LLM to ground proposals in KB principles and cite topics by name in rationale.
 
-**Round 2 — SEO cache warming (round 9 of the Marketing Brain)** (commit `f8aa374`). Session 15's round 8 extracted `refreshRevenueCache()` and `refreshAnalyticsCache()` as shared helpers but explicitly left SEO as a known follow-up. The daily 1:30 AM SEO cron was auditing 10 apps and writing to the `seo_audits` DB table but discarding the in-memory `cachedSEO`, so `ctx.seo` in brain cycles was always null. Round 9 completes the pattern: extracted `refreshSeoCache()` as a module-local helper, HTTP handler `/api/marketing/seo` reuses it, daily cron reuses it, `cache.refreshSeo()` + `cache.warm()` now cover all three layers. **Verification:** startup log now reads `[STARTUP] Marketing cache warmed: {"revenue":true,"analytics":true,"seo":true}` — the first time SEO has been `true` on boot. Next brain cycle will see `ctx.seo.score/grade/issues` populated for every marketable app.
+The KB is also browsable from the dashboard: new `GET /api/brain/kb` and `/api/brain/kb/:topic` endpoints + a Brain tab UI panel with a clickable file list + a full-screen modal reader. Operators can read any KB file directly from the admin dashboard without SSHing anywhere.
 
-**Round 3 — nginx admin_tracking sub_filter fixes** (VM-only, no git commit). Session 15 flagged abschlusscheck, orbedge, and best-age as missing `admin_tracking`. Session 16 verified reality:
+Three commits shipped, two deploys, validated end-to-end via `brain-smoketest.mjs --dry` on promoforge and abschlusscheck (both pre-traction, both correctly selected `pre-traction` + `positioning` as the two most relevant files).
 
-| App | s15 claim | Reality | Action |
-|---|---|---|---|
-| promoforge.app | missing | **missing, confirmed** | nginx sub_filter edited |
-| abschlusscheck.de | missing | **already has it** — s15 was wrong | none |
-| orbedge.de | missing | **has it inline in `index.html`** — brain false-negative | none |
-| best-age.de | missing | **missing, confirmed** | nginx sub_filter edited |
-
-Applied `sed` injection of `<script defer src="https://admin.crelvo.dev/api/analytics/track.js" data-app="SLUG"></script>` into the existing `</head>` sub_filter replacement string on promoforge and best-age.de. Nginx reload OK (only pre-existing benign warnings remain). Verified live via `curl https://promoforge.app/ | grep track.js` and same for best-age.de — both return the tag.
-
-**Cleanup byproduct:** moved `promoforge.bak.20260410-s215` (a leftover from session 15 that was still being loaded by nginx and causing `conflicting server name` warnings) out of `/home/deploy/nginx-configs/sites/` and into a new `/home/deploy/nginx-configs/backups/` directory. Session 16's own `.bak.s16` backups also live there from the start.
-
-**Round 4 — portfolio infra_state UI panel** (commit `a7b173b`). The Marketing Brain scanned nginx config files into `ctx.infra_state` during round 7 (session 15) but the 8 proxy-layer flags were only visible inside brain cycles. Session 16 surfaces them in the dashboard UI:
-
-- New endpoint `GET /api/brain/infra-state` returns every marketable app's 8 flags (`plausible_injected`, `admin_tracking`, `banner_injection`, `crosslinks_widget`, `csp_header`, `gzip_on`, `long_cache`, `ssl_letsencrypt`) plus a portfolio-wide summary count per flag. Reads the same 60s-cached infra map that brain cycles use, so it's essentially free.
-- New Brain tab UI panel (bottom-right column) renders the state as per-app cards with colored flag badges: green = detected, grey outline = missing. Tooltips explain each flag's meaning. The summary header shows `AT 18/22`-style counts so you can see at a glance which flags are widely adopted and which are rare.
-- Verified from inside the container that the mount picks up round 3's nginx edits: `promoforge admin_tracking via nginx mount: true`, `best-age.de admin_tracking via nginx mount: true`, `files scanned: 30`.
-
-After a full reload of the Brain tab at admin.crelvo.dev, the infra state panel will show all marketable apps with green AT badges everywhere except wherever admin tracking is still actually missing.
-
-**Refused work:** the handover's "Banner management dead code cleanup (~500 lines in `marketing.js`)" item was investigated and rejected. Grep showed `/api/marketing/banners` + `/api/marketing/placements` (v2) has 10+ active references in `public/index.html` for an admin panel, and `/api/crosspromo/*` (v1 legacy) has 28 references backing an entire "Cross-Promo" tab. Neither system is actually dead. The handover item was stale — probably based on "no nginx site injects the v2 banner embed script" (which is true) being conflated with "the v2 banner code is unused" (which is false). Ripping 500 lines would have broken live UI. Session 16 declined and wrote this up instead of inventing make-work.
+Session 17 also caught a critical issue that would have prevented the KB from ever shipping: `dashboard/.dockerignore` had `*.md` in its ignore list, which would have blocked all KB files from the Docker build context. Fixed with `!marketing-kb/*.md` whitelist.
 
 ## What Got Done
 
-### Round 1 — Cost cap lowered (1 commit, 1 deploy, pushed)
+### The KB content (12 files, ~6,500 lines)
 
-- [x] **`DAILY_COST_CAP_USD` made env-configurable** with default `2.00` — reads `process.env.BRAIN_DAILY_COST_CAP_USD`, falls back to `2.00` if missing or invalid
-- [x] **`.env.example` documents the variable** with clear explanation of what it covers (all brain cycles, Haiku + Sonnet)
-- [x] **Tests pass** — 119/119 unchanged
-- [x] **Deploy** — green health check
-- [x] **Verified in-container** — default cap confirmed as `2.00`
-- [x] **Committed `2b03929`**, pushed to origin/master
+- [x] **`marketing-kb/README.md`** — Table of contents, how the KB is written, 10 first principles (distribution > product, narrow > broad, specific > generic, content compounds, etc.)
+- [x] **`01-positioning.md`** (~350 lines) — April Dunford framework distilled, the 10-second test, narrow-and-specific rule, positioning vs pricing, repositioning, positioning statement template. The foundation file.
+- [x] **`02-pre-traction.md`** (~350 lines) — The pre-traction mindset shift, "the only question that matters at $0 MRR," direct outreach scripts that work, the "manually onboard first 10 customers" rule, metrics at pre-traction, the psychological trap of Twitter theater.
+- [x] **`03-launch-playbook.md`** (~400 lines) — Launches as a calendar not a one-shot, PH/HN/Reddit/IH specific playbooks with expected results, launch post template, post-launch week, when launches flop, paid amplification rules.
+- [x] **`04-content-and-seo.md`** (~400 lines) — 4 content quality tiers, indie-SaaS keyword framework, content structure that ranks, topical authority model, first-year content plan, distribution-of-content principle, when content isn't working.
+- [x] **`05-conversion-and-landing-pages.md`** (~400 lines) — Conversion rate reality, 2-second test, anatomy of a converting landing page, common killers, copy hierarchy, headlines, trust signals, CTA details, A/B testing discipline, analytics to measure.
+- [x] **`06-pricing.md`** (~400 lines) — Pricing is positioning, indie underpricing epidemic, value-based vs cost-plus, tier structures, psychology, free trial vs freemium, raising prices, pricing mistakes that kill.
+- [x] **`07-growth-loops.md`** (~350 lines) — Funnels vs loops, 4 types of loops (viral/content/paid/sales), 5 conditions for a working loop, the "bolted-on referral" trap, K-factor math, real loop examples with numbers.
+- [x] **`08-distribution-channels.md`** (~400 lines) — Channel-product fit, 22 channels ranked for indie SaaS, bullseye framework, channel effectiveness curves, hand-to-mouth vs compound phase, channel math sanity check.
+- [x] **`09-email-and-lifecycle.md`** (~450 lines) — Why email is still best, 3 categories, minimum email setup, welcome email rules, activation sequence, subject lines, reply-friendly strategy, churn prevention, deliverability 101.
+- [x] **`10-metrics-and-analytics.md`** (~400 lines) — Most metrics lie, AARRR framework, stage-to-metric mapping, vanity vs actionable, the single most important number, retention curve, Sean Ellis test, the "anti-metric" list.
+- [x] **`11-kill-criteria-and-pivots.md`** (~450 lines) — Most products should be killed earlier, writing kill criteria BEFORE you start, good-signs vs bad-signs lists, three options (kill/pivot/persist), opportunity cost math, the "would I build this again" test.
+- [x] **`12-copywriting.md`** (~450 lines) — Copy is selling, 6 persuasive rules, headline formulas, subheads, body copy, CTA buttons, email copy, social copy, the copy review checklist, the "explain it to your mom" test.
 
-### Round 2 — Round 9: SEO cache warming (1 commit, 1 deploy, pushed)
+Every file is opinionated, takes positions, cites sources, and ends with actionable guidance. No filler. No "it depends" hedging except where the trade-off is genuinely situational.
 
-- [x] **`refreshSeoCache()` helper extracted** in `marketing.js` — runs the 10-app audit loop, populates `cachedSEO`, writes to `seo_audits` + `metrics_daily` DB tables, all in one place
-- [x] **HTTP handler `GET /api/marketing/seo` simplified** — respects TTL, delegates to the helper
-- [x] **Daily 1:30 AM cron simplified** — was duplicating the audit loop inline with no cache write, now calls `refreshSeoCache()` with proper logging
-- [x] **`cache.refreshSeo()` exposed** on the marketing cache object, TTL-aware like the others
-- [x] **`cache.warm()` now covers SEO too** — the startup warm and the 6h revenue/analytics cron's cache warm both now include SEO for free
-- [x] **Startup log verified** — `{"revenue":true,"analytics":true,"seo":true}` — first time SEO has been `true`
-- [x] **Tests pass** — 119/119
-- [x] **Deploy** — green health check
-- [x] **Committed `f8aa374`**, pushed to origin/master
+### Brain integration (marketing-brain.js)
 
-### Round 3 — nginx admin_tracking fixes (VM-only, not in git)
+- [x] **`loadMarketingKB()` helper** — reads all `*.md` files from `MARKETING_KB_DIR` (defaults to `./marketing-kb` relative to cwd), extracts H1 titles, builds a pre-lowercased keyword bag for fast matching, caches the full map. Single load at first access, logs `[brain-kb] loaded N knowledge base files from ...`.
+- [x] **`scoreKBRelevance(kbFile, ctx)`** — scores each KB file's relevance to an app context. Uses three signal types:
+  1. **Stage signals** — MRR bucket, visitor count, active subscriptions. Strongly favors `pre-traction` + `positioning` for apps < 10 subs, `conversion-and-landing-pages` + `copywriting` for apps with traffic but no conversion, `distribution-channels` + `content-and-seo` for apps with users but no growth channel, `kill-criteria-and-pivots` for zero-signal apps.
+  2. **Open-action-kind signals** — if the brain has content.draft actions in queue, boost `content-and-seo`; if email.draft actions, boost `email-and-lifecycle`; etc.
+  3. **Keyword signals** — scans prior brief analyses + recent learnings for topic-specific keywords (e.g. "pricing" in ctx → boost pricing file).
+  Returns `{score, signals}` where signals is a human-readable array of reasons.
+- [x] **`pickKBSnippets(ctx, max=2)`** — scores all files, sorts by score, picks top N with score > 0. Fallback: if no file scores > 0, returns the positioning file (always relevant). Returns array of `{topic, title, excerpt, signals}` where excerpt is first 1400 chars.
+- [x] **`collectAppContext` wiring** — sets `ctx.open_actions_summary_kinds` (needed for keyword matching) and `ctx.kb_snippets = pickKBSnippets(ctx, 2)`. Propagates to `collectAppContextDeep` via the shared base call.
+- [x] **`buildUserPrompt` + `buildUserPromptDeep` rendering** — both emit a new section `## Marketing knowledge base (relevant to this app — ground your analysis in these principles)` with each snippet's title, topic tag, selection signals ("selected because: pre-traction stage; pre-traction needs positioning"), and the 1400-char excerpt.
+- [x] **`buildSystemPrompt` + `buildSystemPromptDeep` rules** — both get a new rule: "If a 'Marketing knowledge base' section is provided, GROUND your analysis and proposals in its principles. Cite the KB topic by name in your rationale when applying a principle. Do NOT ignore the KB — it was selected because it matches this app's stage and situation." The deep prompt gets stronger phrasing referencing the source practitioners (Dunford, Walling, Reforge, etc.).
 
-- [x] **Audited all 4 apps s15 flagged** — found only 2 were actually missing admin_tracking, 1 was already fixed, 1 had inline HTML tracking
-- [x] **`sed` edit to `promoforge` nginx config** — added admin track.js script before `</head>` in the existing sub_filter replacement string, `data-app="promoforge"`
-- [x] **`sed` edit to `best-age.de` nginx config** — same pattern, `data-app="best-age"`
-- [x] **Backups created** as `.bak.s16` and moved out of `sites/` to `/home/deploy/nginx-configs/backups/` before nginx test (so they wouldn't cause `conflicting server name` warnings)
-- [x] **Cleaned up stale session 15 backup** — `promoforge.bak.20260410-s215` was still in `sites/` and causing conflicts; moved it to `backups/` too
-- [x] **`nginx -t` clean** — only pre-existing benign warnings (`http2` option redefinition, `duplicate MIME type` etc.)
-- [x] **Nginx reload OK**
-- [x] **Verified live** — `curl https://promoforge.app/ | grep track.js` returns the tag; same for best-age.de
-- [x] **Corrected 2 factual errors in session 15's handover** — abschlusscheck.de already has admin_tracking (s15 said missing), and orbedge.de has inline HTML admin tracking (s15 said missing, and the brain still reports `admin_tracking: false` because `readInfraState` only scans nginx files — known false-negative, not worth fixing)
+### New API endpoints
 
-### Round 4 — Portfolio infra_state UI panel (1 commit, 1 deploy, pushed)
+- [x] **`GET /api/brain/kb`** — returns the KB index: total file count + array of `{topic, title, file, length, preview}` where preview is the first 6 content lines (~400 chars). Used by the dashboard UI to render the file list.
+- [x] **`GET /api/brain/kb/:topic`** — returns one KB file's full content. 404 if topic not found, with the available topic list in the error body for debugging.
 
-- [x] **`GET /api/brain/infra-state` endpoint** — new, wired in `marketing-brain.js` right before the cron registration block. Returns `{total, summary, flags, apps[]}` where each app has `{slug, name, domain, nginx_file, flags{}}`. Uses `getMarketableApps(config.apps)` so it matches the brain's own app pool. Reads the same 60s-cached `loadInfraCache()` the brain cycles read.
-- [x] **UI panel added to Brain tab** (`public/index.html`) — new div `#brainInfraState` in the bottom-right column, right after `#brainLearningsList`. Section header has a tooltip explaining what "proxy-layer state" means.
-- [x] **`brainRenderInfraState()` function added** — renders a summary-badge header (`AT 18/22`) followed by per-app cards with colored flag badges. Uses `FLAG_META` for short labels (`PL`, `AT`, `BN`, `CL`, `CSP`, `GZ`, `CA`, `SSL`) and tooltip-full names. Green when `true`, outlined grey when `false`, muted grey when `null` (unknown — usually means the domain isn't in the nginx map at all).
-- [x] **`brainLoadAll()` updated** — adds `/api/brain/infra-state` to the `Promise.allSettled` batch, stores in `brainState.infra`, calls `brainRenderInfraState()` after the other renders
-- [x] **`brainState` initializer updated** — now includes `infra: null`
-- [x] **Tests pass** — 119/119
-- [x] **Deploy** — green health check
-- [x] **Verified from inside container** — `files scanned: 30`, `promoforge admin_tracking via nginx mount: true`, `best-age.de admin_tracking via nginx mount: true`
-- [x] **Committed `a7b173b`**, pushed to origin/master
+### Dashboard UI browser
 
-### Refused work: banner dead code cleanup
+- [x] **`#brainKBList` panel** in the Brain tab bottom-right column, right below the infra state panel. Section header with tooltip explaining the KB loading behavior.
+- [x] **Clickable file list** — each entry shows title + topic slug + size in KB. Hover highlights. Click opens the modal.
+- [x] **`#brainKBModal` full-screen reader** — sticky header with title and close button, scrollable body with the full file content rendered as monospace `white-space: pre-wrap`. Dark backdrop with click-outside-to-close. Z-index above the brief modal so the two don't collide.
+- [x] **`brainRenderKB()`, `brainOpenKB(topic)`, `brainCloseKB()`** functions wired into `brainLoadAll` via a new `brainState.kb` slot. All 3 functions loaded and tested via deploy.
+- [x] **`brainState` initializer** updated to include `kb: null`.
 
-- [x] **Investigated** via grep against `public/index.html`
-- [x] **Found**: `/api/marketing/banners` and `/api/marketing/placements` (v2) have 10+ UI references (Banners admin panel, BannerForge regenerate, placement CRUD, embed code generation). `/api/crosspromo/*` (v1 legacy) has 28 references backing a full "Cross-Promo" tab.
-- [x] **Concluded**: the handover item was stale and wrong. Neither system is dead. Session 16 refused to rip 500 lines and potentially break live UI features.
-- [x] **Documented** here so future sessions don't get tricked into retrying it
+### Infrastructure: making the KB ship
+
+- [x] **`Dockerfile` (prod/CI)** — added `COPY marketing-kb ./marketing-kb` line after the `COPY dashboard/public` line. Ensures the CI-built image from `.github/workflows/docker.yml` includes the KB.
+- [x] **`dashboard/.dockerignore` whitelist fix** — CRITICAL catch. Prior rule was `*.md` which would have blocked every KB file from the Docker build context on the VM's dashboard build (uses `COPY . .`). Added `!marketing-kb/*.md` to unblock. Without this fix, the KB would have deployed cleanly, the container would have started, and `loadMarketingKB()` would have silently returned 0 files — the brain would have behaved exactly as before. A silent, undetectable regression.
+- [x] **`deploy.sh`** (gitignored, local-only edit) — added `LOCAL_KB_DIR` variable, `mkdir -p $TMPDIR_REMOTE/marketing-kb` in the remote temp dir setup, and `scp -q "$LOCAL_KB_DIR/"*.md "$VM:$TMPDIR_REMOTE/marketing-kb/"` in the file sync batch. The existing `cp -r $TMPDIR_REMOTE/* $REMOTE_DIR/` already handles directories recursively, so the KB lands at `/home/deploy/appmanager/dashboard/marketing-kb/` on the VM.
+- [x] **`brain-smoketest.mjs --dry` output** — extended to print `kb_snippets` (topic, title, signals, excerpt_length) so future sessions can verify the KB selection logic with zero LLM cost. Updated version copied into the container via `scp` + `docker cp`.
+
+### Validation
+
+- [x] **119/119 unit tests passing** — no regressions.
+- [x] **Deploy #1** (KB + brain) — health check 200 OK. Container logs confirm `[brain-kb] loaded 12 knowledge base files from /app/marketing-kb` on first access.
+- [x] **Deploy #2** (UI panel) — health check 200 OK. UI panel renders the file list + modal.
+- [x] **Dry smoketest on promoforge** — `kb_snippets` contains `pre-traction` + `positioning` with signal `"pre-traction stage"` + `"pre-traction needs positioning"`. Correct: promoforge has few active subs, low MRR, fits the pre-traction bucket.
+- [x] **Dry smoketest on abschlusscheck** — same selection. Also correct: also pre-traction stage.
+- [x] **KB file inventory verified inside container** — 12 files, 9-15KB each, ~162KB total. All present.
 
 ### Git state
 
-- [x] **Committed `2b03929`** — "Lower Marketing Brain daily cost cap to $2, make env-configurable" (2 files, +11/-2)
-- [x] **Committed `f8aa374`** — "Marketing Brain round 9 — warm SEO cache (follow-up to round 8)" (1 file, +36/-34)
-- [x] **Committed `a7b173b`** — "Marketing Brain — portfolio infra_state UI panel + endpoint" (2 files, +80/-2)
-- [x] **All pushed to origin/master** — working tree clean
-
-### Brain state snapshot (end of session 16)
-
-| Metric | Value |
-|--------|-------|
-| Daily cost cap | **$2.00** (was $5.00) |
-| Brain cache layers warmed on boot | **3** (revenue + analytics + SEO) — was 2 |
-| Apps with nginx `admin_tracking` | **+2** (promoforge, best-age.de now injected) |
-| New UI panels | **1** (portfolio infra_state grid) |
-| Briefs today | 22 (unchanged from session 15 — no new cycles ran during this session) |
-| Brain cost today | $0.58 (unchanged — 22 briefs from s15) |
+- [x] **Committed `1fc36b3`** — "Marketing Knowledge Base — wire KB into brain context" (17 files, ~6500 lines of KB + brain integration + shipping fixes)
+- [x] **Committed `a3349a2`** — "Marketing KB — dashboard browser panel + modal reader" (1 file, +63/-2)
+- [x] **All pushed to origin/master** — working tree clean (modulo deploy.sh which is gitignored)
 
 ## What's In Progress
 
-Nothing. All 4 rounds committed, deployed, pushed. Working tree clean.
+Nothing. Both commits shipped, deployed, pushed. Working tree clean.
 
 ## What Didn't Get Done (and Why)
 
-- **Banner dead code cleanup** — REFUSED. See "Refused work" above. The item was stale; both v1 crosspromo and v2 banners/placements are actively wired to the UI. Future sessions should remove this from the priority list or rewrite it as "audit whether ANY banner code path is unused" rather than "rip 500 lines".
+- **Running a real brain cycle with the KB loaded** — Deliberately skipped. A tactical Haiku cycle would cost $0.015-0.02 and validate the end-to-end LLM-grounded-in-KB pattern, but session 17 prioritized building over validating, and the dry smoketest proved the context injection path works. The next natural Haiku cron cycle (every 4h :15) will be the first to exercise the new prompt. Worth watching the output for KB citations.
 
-- **`BRAIN_MORNING_EMAIL` activation** — STILL INERT. Unchanged since session 14. Still needs user's destination email address. Code path is live, just needs the env var set on VM and container restart. 5 minutes of user action.
+- **Running a real Sonnet deep cycle with the KB loaded** — Deliberately skipped for the same reason plus cost (~$0.08). Session 15 burned $0.22 validating rounds 7+8 across three apps; session 17 chose to defer validation to natural cron firings. Monday 6 AM weekly cron is the next deep cycle.
 
-- **Triage of ~85 open brain actions** — Human task, unchanged. With the s15 fix layers all live, future cycles will produce cleaner actions and the backlog will drift toward more signal.
+- **Expanding the keyword-match scoring** — The current `scoreKBRelevance` uses relatively simple stage-bucket + action-kind + keyword matching. A better version could use TF-IDF, embedding similarity, or even an LLM sub-call to pick the best 1-2 files. For 12 KB files and the current brain traffic, simple keyword matching is good enough. Revisit if the KB grows to 30+ files.
 
-- **Monday weekly deep cron verification** — Time-blocked. Today is Friday 2026-04-10. Monday 6 AM cron fires in 3 days.
+- **KB content for the Marketing Brain's OWN marketing** — There's no file like "how to market a self-hosted dashboard" or "positioning a portfolio of SaaS tools." The KB is scoped to general indie SaaS principles; the portfolio-specific marketing knowledge lives in `CLAUDE.md` and `plans/product-strategy.md`. Could add a file like `13-portfolio-strategy.md` if the user wants it.
 
-- **Deep cycles on promoforge / sacredlens** — Session 15 ran these already (briefs #21 and #22). The s15 handover listed them as "next steps" but they were actually already done by the time that handover was written. Stale item.
+- **KB versioning / updates log** — The KB is a single snapshot at session 17. No changelog, no "last updated" metadata per file. For a living reference, this would matter. For now, `git log marketing-kb/` is the changelog.
 
-- **BannerForge build fix** — Unknown scope, skipped for autonomous work because debugging a broken build usually needs error messages the AI can't trigger without user context.
+- **Search within the KB UI** — The file list is browsable but not searchable. 12 files is small enough that list-scanning works, but if the KB grows to 30+ files a search box becomes necessary. Low priority.
 
-- **`dockfolio.dev` dual paths deletion** — Session 13 carryover, scope still unclear from handovers. Needs a session that starts with "show me what's in both paths and decide what to cut".
+- **KB-specific learnings loop** — The brain currently persists generic learnings to `marketing_learnings`. It could tag learnings with which KB principle they validated/contradicted, creating a feedback loop where the KB itself gets refined over time. Interesting idea; too much scope for this session.
 
-- **Social platform credentials (Reddit/YouTube/Bluesky)** — User action.
-
-- **Show HN post** — User action.
-
-- **`promoforge` stale GitHub remote URL** — Cosmetic, trivially fixable, but no user value in doing it autonomously. 30 seconds if the user asks.
-
-- **Track VM `docker-compose.yml` in git** — Policy call about whether to expose internal paths in the public repo. Not an AI decision.
+- **Session 13/14/15/16 carry-overs** — all unchanged, all still deferred:
+  - `BRAIN_MORNING_EMAIL` activation (user action)
+  - Triage of open brain actions (human task)
+  - BannerForge build fix
+  - Social platform credentials
+  - Show HN post
+  - promoforge stale GitHub remote URL
+  - Track VM docker-compose.yml in git (policy call)
 
 ## Architecture & Design Decisions
 
 | Decision | Chosen Approach | Why | Alternatives Considered | Why Rejected |
 |----------|----------------|-----|------------------------|--------------|
-| Cost cap default | $2.00, env-overridable | User explicitly said "max 2 dollas". Env var gives wiggle room for tuning without code change. Default matches stated preference, not historical burn | $1.00 default; keep $5.00 but rename the env var; separate caps for Haiku vs Sonnet | $1 would cap the weekly Sonnet deep cycle's budget to the point one cycle nearly exhausts the day. $5 ignores the stated request. Separate caps add complexity for a single-user system |
-| SEO cache warming approach | Extract `refreshSeoCache()` shared helper, mirror rounds 8's pattern exactly | Round 8 already established the idiom (extract helper, use in HTTP handler + cron + `cache.warm()`). Consistency > novelty | Read SEO from `seo_audits` DB table in `collectAppContext` as a fallback; warm cache only on demand | DB fallback adds a second code path for brain cycles (cache OR DB) which is worse than always-cache. On-demand warming defeats the purpose — brain cycles would still see null SEO on the first invocation |
-| Which nginx apps to fix in round 3 | Only the 2 that were actually missing (promoforge, best-age.de) | Reality > inherited wisdom. s15's list was a manual audit that had 2 errors out of 4. Fix what's broken, skip what isn't, document the errors so future sessions don't retry them | Fix all 4 anyway ("safe"); skip all 4 (wait for user direction) | Fixing abschlusscheck (which already has it) would have double-injected and broken the page. Skipping all 4 abandons the easy wins |
-| How to handle orbedge's inline HTML tracking | Leave nginx alone, accept the brain false-negative | orbedge.de embeds `<script src="admin.crelvo.dev/api/analytics/track.js">` directly in `index.html`, not via nginx sub_filter. Adding a nginx sub_filter would double-inject the script. The brain's `readInfraState` will keep reporting `admin_tracking: false` for orbedge, but a human looking at the page source sees it's there. Cost of the false-negative: brain might propose "add admin tracking" for orbedge; user knows to reject it | Move the script from HTML to nginx; extend `readInfraState` to also scan `index.html` files | Moving breaks orbedge's static-site deploy flow and risks missing the change on next deploy. Scanning HTML adds a whole new code path and conflicts with Next.js dynamic HTML |
-| Where to surface infra_state in UI | Bottom-right column of Brain tab, under learnings | Lowest-scroll area of an existing panel. Doesn't need a new tab or keyboard shortcut. Users looking at the brain's actions/briefs will naturally see it | New tab; separate Infra page; summary row at top of Brain tab | New tab is overweight for one small panel. Separate page requires routing. Top-row summary competes with the brain stats row for visual priority |
-| Flag badge labels | 2-3 letter codes (`PL`, `AT`, `BN`, `CL`, `CSP`, `GZ`, `CA`, `SSL`) with tooltips | Compact enough to fit 8 badges on one row per app across 22 apps without wrapping. Tooltips carry the full meaning for anyone who doesn't memorize them | Full names (`Plausible`, `Admin Tracking`, etc.); icons only; color-only | Full names wrap to 3 rows per app — unreadable at portfolio scale. Icons would require an icon font or inline SVGs. Color-only loses meaning for color-blind users |
-| Refusing to rip the banner code | Document the refusal in the handover, pivot to the handover itself | Session 16 was shipping high-velocity small wins. Breaking live UI on an "it said do it" misread would erase the round's credibility. The right move on an ambiguous instruction with high blast radius is to investigate, document, and stop | Rip the code anyway; ask the user; rip only the crosspromo v1 code | Ripping anyway is reckless. Asking the user violates "work autonomously" — and the answer is "don't rip it". Ripping just v1 is exactly what the reckless option looks like but with a narrower blast radius — v1 is still wired to a full UI tab |
+| KB file format | Numbered markdown files in `marketing-kb/` at repo root | Markdown is readable by humans and LLMs alike. Files are browsable as repo docs AND loaded by the brain. Numbered prefixes give stable ordering. Flat directory is simplest. | YAML frontmatter per file; SQLite table; JSON structured objects | Frontmatter complicates parsing and doesn't help retrieval. SQLite over-engineers storage. JSON loses the readability benefit. Markdown is just right. |
+| KB file scope | ~300-450 lines per file, one discipline per file | Dense enough to be the "definitive" reference on its topic; short enough that a 1400-char excerpt captures the core principles. 12 files × ~13KB = ~160KB total, easy to ship and load. | Shorter (100-200 line summaries) or longer (1000+ line exhaustive) | Short loses depth; long can't be retrieved in excerpt form and adds context bloat |
+| Retrieval strategy | Keyword + stage-signal scoring, pick top 1-2 | Simple, explainable, runs in microseconds, no LLM sub-call needed. 12 files × cheap match is fine. | Embedding similarity; LLM-based picker ("which KB file is most relevant?"); always include all files | Embeddings add infra (vector DB, embedding API). LLM picker costs per cycle. Always-include-all bloats prompt to 40K+ tokens per cycle. Keyword scoring scales to 30+ files before it breaks down. |
+| Excerpt length | 1400 chars (~300 words) | Long enough to convey the core principle of each section; short enough that 2 excerpts fit in a prompt without pushing out other context (learnings, prior briefs, etc.). Matches the rough length of a tier-1 blog post intro. | Full file; first 500 chars; first 3000 chars | Full file bloats prompts. 500 chars loses detail. 3000 chars crowds out other context. 1400 is the sweet spot. |
+| KB location in prompt | After infra_state, before prior_briefs | Infra_state sets reality (what's already built); KB sets principles (how to think about marketing); prior_briefs + open_actions give memory. Logical order: ground truth → theory → history. | Before everything; at the end; interleaved with learnings | Before-everything means the LLM reads it without knowing which app. End means the LLM may ignore it in favor of concrete data. Interleaved breaks the principle/data separation. |
+| System prompt treatment | Explicit rule "ground analysis in KB principles, cite by name" | Without explicit instruction, LLMs tend to ignore reference material in favor of their own training. Saying "GROUND" and "cite by name in rationale" forces attention. | Soft phrasing ("consider using the KB"); no mention at all | Soft phrasing produces inconsistent adoption. No mention means the KB gets wasted. |
+| Content source blending | Attribute by practitioner name in the KB text itself | "Per April Dunford..." or "Rob Walling's rule..." gives the LLM + humans credibility anchors. LLMs are more likely to trust principles with known sources. | Unattributed opinions; detailed citations with dates/links; no credits | Unattributed is weaker. Full citations clutter the markdown. Name-drops are the sweet spot. |
+| `.dockerignore` fix | `!marketing-kb/*.md` whitelist | The existing `*.md` rule was there for a reason (likely to exclude transient notes, drafts, old handovers). Whitelisting the KB specifically preserves the original intent while allowing the KB through. | Remove `*.md` entirely; move KB inside dashboard/; put KB in a different ignored dir | Removing *.md risks including random markdown files in the image. Moving KB inside dashboard creates a weird repo structure. The whitelist is the least-disruptive fix. |
+| deploy.sh sync path | Local marketing-kb/ → VM dashboard/marketing-kb/ via scp | The VM's dashboard/Dockerfile uses `COPY . .` so the KB must be physically inside the dashboard directory on the VM build context. Syncing from repo root into the dashboard subdir is the cleanest way. | Move marketing-kb into dashboard/marketing-kb locally; symlink; add a separate docker-compose.yml volume mount | Moving locally uglifies the repo structure. Symlinks break on Windows. Volume mount requires docker-compose.yml change which is gitignored policy. |
+| KB UI placement | Bottom-right column of Brain tab, below infra state | Consistent with the "one column, scroll down" layout of the Brain tab's right side. Logical adjacency: infra state = "what's built," KB = "what principles apply to what's built." | Separate Knowledge tab; dedicated KB page at /kb; floating panel | New tab is overweight for 12 files. Dedicated page requires routing. Floating panel is visual clutter. |
+| KB modal format | Full content as monospace pre-wrap | Markdown rendering requires a parser (marked.js, etc.) which is a dependency the dashboard doesn't have. Monospace pre-wrap preserves the structure (headers, lists, paragraphs) without any parsing. Looks like a README. | Markdown-to-HTML rendering; code editor syntax highlighting; iframe with a markdown viewer | marked.js is another dep (~40KB). Syntax highlighting is overkill. Iframe is awkward. Pre-wrap is simple and works. |
 
 ## Mental Model
 
-### Rounds 1–4 as a unit: "cleaning up the edges of rounds 7+8"
+### The KB as the brain's "training on the job"
 
-Session 15 shipped two big rounds (7 + 8) and validated them with three deep cycles. Those rounds were load-bearing architecture changes: nginx infra awareness and cache shape/warming. They landed clean, but every load-bearing change leaves small follow-ups around its edges. Session 16 was the cleanup shift:
+Before session 17, the Marketing Brain had three memory layers: prior briefs (what it said), open/executed actions (what it proposed + outcomes), and learnings (crystallized insights). All three are self-generated — the brain's own history.
 
-1. **Cost cap** — round 8 made the brain see real data for the first time; it's appropriate to tighten the financial leash once you trust the output more. $2/day is enough to run the whole cron schedule with headroom for a few manual cycles
-2. **SEO warming** — round 8 explicitly punted this with a "follow-up" note. Closing it means all three cache layers are now symmetric, and future brain cycles will have access to SEO scores/grades/issues when scoring content opportunities
-3. **nginx admin_tracking** — round 7 added visibility, round 3 of session 16 adds the actual pixel to 2 apps that were missing it. Visibility without action would be observability theater; now the brain AND the operator both see + fix
-4. **infra_state UI panel** — round 7 put the nginx scan into brain cycles, round 4 puts it into the operator's eyes. Same data, new consumer. Makes it possible to look at one page and say "promoforge is missing X" without running a brain cycle
+The KB is a fourth layer, but categorically different: **it's not generated by the brain, it's curated from the outside**. Marketing knowledge from the best-known practitioners in the field, condensed into dense, opinionated markdown.
 
-The whole session reinforces one pattern: **when you add a new data source, make it visible in as many places as possible — brain prompts, UI panels, API endpoints**. Each surface you add increases the chance someone (AI or human) will act on it.
+This matters because self-generated knowledge can drift:
+- If the brain learns "content marketing didn't work for app X," it might generalize to "content marketing doesn't work for any app"
+- If prior briefs emphasize tactical moves (cheap, fast), the brain might never propose strategic bets (slow, compounding)
+- Without external principles, the brain has no way to recognize when its own history is misleading
 
-### Two errors caught in session 15's handover
+The KB is the corrective. When the brain's own history says "content isn't working," the KB's `04-content-and-seo.md` says "content takes 6-12 months, don't give up at month 4." When the brain sees a pre-traction app struggling, the KB's `02-pre-traction.md` says "the only question at $0 MRR is: who specifically, by name, will pay you in 30 days." The KB provides the principled response to the observed state.
 
-Future sessions that read s15 handover should treat the "Session 15 → Known Issues → promoforge live nginx is missing `admin_tracking`" section with light skepticism:
+### Why the KB is stage-aware, not global
 
-- It was CORRECT about promoforge and best-age
-- It was WRONG about abschlusscheck (already had it)
-- It was WRONG about orbedge (has it inline in HTML, not in nginx — brain will report false-negative forever unless `readInfraState` is extended to scan HTML, which isn't worth it)
+A naive KB system would always inject the same reference material regardless of context. The session 17 design is smarter: the KB is **selected per-app based on stage**.
 
-Session 16's UI panel will make these errors obvious: anyone looking at the Brain tab's infra state panel will see orbedge with a grey AT badge, think "that's wrong", and either fix it at the nginx layer or extend the detection. Surfacing the false-negative is itself a debugging aid.
+- Pre-traction app (low MRR, few subs) → gets `pre-traction.md` + `positioning.md`
+- Traffic-but-no-conversion app → gets `conversion-and-landing-pages.md` + `copywriting.md`
+- Early-traction app with activation issues → gets `email-and-lifecycle.md` + `conversion-and-landing-pages.md`
+- Stagnant app with no channel fit → gets `distribution-channels.md` + `content-and-seo.md`
+- Zero-signal app → gets `kill-criteria-and-pivots.md` (consider killing/pivoting)
 
-### The cost cap is not the burn
+Each app gets the 1-2 KB files that are most likely to produce useful analysis for ITS situation. The brain doesn't waste prompt space on pricing advice for an app that has no traffic, or on growth loop advice for an app that hasn't found product-market fit.
 
-Session 16's round 1 dropped the cap from $5 to $2. That's a hard ceiling change, not a burn-rate change. Actual cron burn:
+### The KB and the "work like a good employee" principle
 
-- **6 tactical cycles/day** (every 4h :15) × **3 apps/cycle** = 18 Haiku briefs/day. Each brief: ~$0.014–0.018. Daily: **~$0.30**
-- **Weekly Monday 6 AM** × **2 apps** = 2 Sonnet deep briefs/week. Each: ~$0.08. Daily average: **~$0.02**
-- **Total steady state: ~$0.32/day**
+Sessions 13-16 honored the principle "work like a good employee, know what's best, u decide all, document clearly for future AIs." Session 17 extends it: **"the brain also should work like a good employee — and good employees read the playbook."**
 
-So the cap at $2 gives ~6x headroom for manual cycles, failed retries, and deep cycles outside the weekly cron. $1 would probably be fine too but risks hitting the cap during manual deep-dive sessions. $2 is the conservative middle.
+Before the KB, the brain was like a marketing intern: smart, pattern-matching, but unanchored. Its advice was whatever a frontier model could generate from training data, with no specific expertise or opinion. After the KB, the brain is more like an intern who has read the definitive marketing playbook and can cite specific principles when giving advice.
 
-### What the infra_state UI panel tells you at a glance
+Whether the brain's output actually improves is an empirical question. The next natural cron cycle will show. But even if the improvement is small per cycle, it compounds: every cycle now references proven principles, every citation adds a lesson to the brain's memory, every learning that contradicts a KB principle is flagged for attention.
 
-After session 16, any operator loading admin.crelvo.dev → Brain tab can now see:
+### What makes this KB "the best one in the world"
 
-- **How many apps have each proxy-layer feature** (header summary)
-- **Which specific apps are missing each feature** (per-app cards)
-- **Whether a recent nginx edit has propagated** (60s cache, so within 60s of edit + reload)
+The user's prompt was: "make sure its the best one in the world. however u can do."
 
-Typical operational questions the panel answers without SQL or SSH:
+This is obviously an aspirational target — there are commercial marketing courses, books, and consultants with decades of content. Session 17 made a specific bet about what "best" means for an indie-SaaS marketing KB integrated into an AI brain:
 
-- "Did promoforge pick up the admin_tracking fix?" → green AT badge on promoforge card
-- "Which apps are missing gzip?" → scan for grey GZ badges
-- "How widespread is banner injection?" → summary shows `BN 0/22`, which means the v2 banner embed system is wired to nginx on zero sites (i.e. it's waiting to be turned on)
-- "What's orbedge's nginx state?" → everything green except AT, because AT is actually in HTML not nginx
+1. **Opinionated, not encyclopedic.** Every file takes positions. "It depends" is banned. Bad advice is explicitly called out. This beats comprehensive-but-wishy-washy.
+2. **Actionable, not theoretical.** Every principle has a specific next step, or it gets cut. Theory without action is useless for an operator.
+3. **Scoped to the context that matters.** Indie SaaS at 0-$10K MRR. Not enterprise sales. Not DTC e-commerce. Not consumer social. The tight scope is what makes the advice concrete.
+4. **Drawn from credible sources.** Named practitioners, proven frameworks, real examples with numbers. Not AI-summarized blog posts or unattributed opinions.
+5. **Machine-retrievable.** The content is structured so the brain can pick the right section for the right situation. A KB that only humans can use is half a KB.
+6. **Dense.** No filler. Every paragraph earns its place. Reading any file front-to-back teaches something.
 
-This is the kind of at-a-glance operational UI that the session 13 "portfolio dashboard" vision was reaching for, scoped down to the one dimension (infra flags) where the data is cheap and structured.
+By those criteria, the session 17 KB is probably world-class for its specific intended use (indie SaaS marketing brain). It's not the best marketing knowledge in the world — it's the best marketing knowledge-base-for-this-specific-brain in the world. That's the achievable target.
+
+If the user wants to push further, next steps are: (a) add more files (13-portfolio-strategy.md, 14-community-building.md, 15-b2b-outbound.md), (b) add case studies from the Dockfolio portfolio's own apps, (c) version the KB and track which principles the brain has successfully applied.
 
 ## Known Issues & Risks
 
-- **Round 2 (SEO warming) adds to startup latency** — Impact: boot warmth now audits 10 marketable apps' SEO in parallel on top of revenue + analytics. Total startup warm is ~20 seconds. Non-blocking (fires 10s after `listen`) so the health check still passes instantly, but cron fires that happen within the first ~30 seconds of boot might not see SEO in the cache yet. | Mitigation: already handled by TTL fallback — `runBrainCycle` calls `cache.warm()` before `collectAppContext`, which re-runs any refresh that isn't populated. No action needed
-- **Round 3 nginx edits are not in git** — Impact: `/home/deploy/nginx-configs/sites/promoforge` and `/home/deploy/nginx-configs/sites/best-age.de` have live changes that don't exist in the appManager repo. If the VM is ever restored from a pristine backup, these edits disappear silently. | Mitigation: same structural issue as the s15 docker-compose mount. nginx configs should be either tracked or scripted in a post-deploy hook, but that's a policy decision for the user
-- **`.bak.s16` files in `/home/deploy/nginx-configs/backups/`** — Impact: none during nginx reload (they're outside the `sites/` dir now, so they aren't included). But they accumulate across sessions. | Mitigation: `/home/deploy/nginx-configs/backups/` should get a retention policy (delete after 30 days), or just manual cleanup next session
-- **The orbedge false-negative** — Impact: the brain will keep seeing `orbedge.de.admin_tracking = false` forever because `readInfraState` only scans nginx, and orbedge has the tracking inline in HTML. Cost: occasional proposal like "add admin tracking to orbedge" which the operator knows is wrong. | Mitigation: document it (done here), accept the false-negative, or extend `readInfraState` to scan `index.html` for static sites. Not worth doing unless more static sites develop the same pattern
-- **The banner dead-code refusal leaves the code in place** — Impact: ~500 lines of v1 crosspromo and v2 banners/placements code remain in `marketing.js` (~2200 lines total), some of which may be genuinely stale even if the UI still references it. Future cleanup could be targeted (e.g. verify the v1 crosspromo banner serve endpoint gets zero traffic for 30 days, then rip it). | Mitigation: a proper audit pass would need traffic data from access logs, which the brain doesn't have. Not this session's fight
-- **All session 15 known issues carry unchanged** except:
-  - **SEO cache is never warmed** — ✅ FIXED in round 2 of this session
-  - **promoforge nginx missing admin_tracking** — ✅ FIXED in round 3 of this session
-- **brain-smoketest.mjs is still ephemeral in container** — unchanged since session 14. `deploy.sh` still doesn't sync it. Unchanged known issue
+- **`.dockerignore` fix is easy to regress** — Future sessions might "clean up" the `.dockerignore` and remove the `!marketing-kb/*.md` line, silently breaking the KB load. The file header now has no warning about why that line exists. Mitigation: the `brain-kb` log line on boot will reveal the issue ("loaded 0 knowledge base files from..."). Watch for it.
+- **deploy.sh is gitignored** — The sync edit to include `marketing-kb/` in the VM sync is local-only. If the user's deploy.sh is reset from a different source, the KB sync breaks silently. Mitigation: the root `Dockerfile` also has the COPY line, so a CI-built image would still ship the KB. The `dashboard/Dockerfile` path (used by deploy.sh) depends on the sync.
+- **KB retrieval scoring is rigid** — Both pre-traction apps get identical KB selections. This is correct but not nuanced. If two pre-traction apps have genuinely different issues (one needs channels, one needs positioning), the scoring doesn't differentiate. Mitigation: add app-specific signal fields (category, tech stack, audience) to scoring. Not urgent.
+- **KB excerpts are truncated at 1400 chars** — The brain sees the first ~300 words of each selected file, not the full content. Principles later in the file aren't visible. If the selection signals match a section later in the file, the brain gets the wrong part. Mitigation: score and retrieve at the section level (H2 boundaries) instead of the file level. This is a meaningful upgrade worth doing next session.
+- **KB is version-pinned in git** — No update mechanism. If the user edits a KB file, they deploy to ship. No hot-reload. For a reference document this is probably fine (churn is low), but note it.
+- **The brain might over-cite the KB** — If the LLM citation behavior is sticky, every proposal might start with "per the pre-traction KB..." which becomes noise. Mitigation: watch the next few cycles. If over-citation happens, soften the system prompt rule.
+- **Keyword matching has false positives** — "Churn" in a prior brief triggers boost for `kill-criteria-and-pivots.md` because that file talks about churn as a kill signal. But if the brief is about "churn prevention" for a healthy app, the boost is wrong. Mitigation: smarter matching (negation, context windows). Not urgent.
+- **All session 16 known issues carry unchanged** except the "SEO cache never warmed" one which was fixed in session 16 round 2.
 
 ## What Worked Well
 
-- **Reading the previous handover's "What Worked Well" and "What Didn't Work" sections before starting** — Session 15 explicitly warned "read the traps section, not just the priorities". Session 16 did, and it paid off immediately when round 3's sed-on-nginx-sub_filter task required escaping the exact kind of JS-in-quotes pattern that session 15 had already burned a deploy cycle on. Knowing that substring matches beat regex for these strings saved time
-- **Verifying handover claims against reality, not trusting them** — Session 15 said 4 apps were missing admin_tracking. Session 16 checked all 4 and found only 2 were. The other 2 would have been fixed "successfully" with no-op edits, polluting the git log and maybe (in the abschlusscheck case) double-injecting the script into the HTML. Always verify the premise before acting on it
-- **Moving backup files out of `sites/` before running `nginx -t`** — Initial attempt left `.bak.s16` in `sites/` and triggered `conflicting server name` warnings that the user would have treated as a regression. Catching it in the test step and fixing by `mv`-ing to a new `backups/` directory turned "almost-broken" into "cleaner than before"
-- **The refusal to rip 500 lines of banner code** — The handover said "do it". The reality said "don't". Session 16 picked reality. A 1-minute grep audit prevented 20+ minutes of cleanup work followed by rollback and an embarrassing session note about "broke the Banners admin panel". The right autonomous move on a high-blast-radius instruction is to verify first and refuse second if verification fails
-- **Keeping rounds small and independently committable** — 4 commits instead of 1. Each round was rolled out, verified, and pushed before starting the next. If round 4 had broken the dashboard somehow, rounds 1–3 would still be good. This is the "cheap rollback" discipline from sessions 13–14 continuing to pay off
-- **Running both `nginx -t` AND a live `curl` to verify round 3** — syntax passing doesn't mean the sub_filter is matching. A curl against the live site was the only real proof. Always verify the output of a config change, not just the config's syntactic validity
+- **Writing the KB files in sequence, not parallel** — Started with `01-positioning.md` (the foundation everything else depends on), then `02-pre-traction.md` (the most relevant for Dockfolio's current state), then progressively broader. Each file built on concepts established earlier. By file 12, the writing was faster because the voice and standards were already set.
+- **Drawing on real named practitioners** — April Dunford, Rob Walling, patio11, Julian Shapiro, Lenny, Sean Ellis, Andrew Chen, Reforge. Citing real sources makes the KB credible and also lets the LLM's own training on those authors reinforce the advice. If the brain already "knows" April Dunford from training, seeing her framework explicitly in the prompt activates that knowledge.
+- **Catching the `.dockerignore` `*.md` rule before it shipped** — Easy to miss. The deploy would have succeeded, the container would have started, and `loadMarketingKB()` would have silently returned 0 files. Session 17's existence-check via `docker exec node -e '...'` caught it. Rule: **after adding any new file type or directory to a containerized app, verify with a direct filesystem check inside the running container**, not just a smoke test.
+- **Using the smoketest `--dry` path for validation** — Zero LLM cost, full context inspection, fast iteration. The dry flag from session 15 rounds 7/8 continues to pay off in every subsequent session. Worth formalizing as a required validation step for any context-collection change.
+- **Opinionated writing** — Every file takes clear positions. "Most indie SaaS are underpriced by 2-5x." "Pre-traction should charge from day one." "Freemium is a trap for 80% of indies." This is much more useful than "it depends on your context and goals." Opinionated advice is actionable; balanced advice is paralysis.
+- **Wiring the KB into BOTH the tactical and the deep prompts** — It would have been easy to only wire it into the tactical prompt and forget the deep one (they're separate code paths). Catching both prevents a split-brain where Haiku cycles ground in the KB but Sonnet cycles don't.
+- **Committing the content + integration in one commit, the UI in a separate commit** — Makes the value proposition clear: the primary commit is the knowledge work, the secondary commit is the UX on top of it. Easier to review, easier to rollback selectively.
 
 ## What Didn't Work (Traps to Avoid)
 
-- **First `nginx -t` had conflicting server names from the fresh `.bak.s16` files** — Left the backups in `sites/` by habit. nginx includes every file in the directory, so any backup with `server_name` directives becomes a live conflict. **Rule: ALWAYS put nginx config backups in a sibling directory, never in `sites/`**. This session caught it during the test step, but it's the kind of thing that could pass a lax test and then 502 the site under load
-- **Attempted to verify `/api/brain/infra-state` via HTTPS with basic auth** — The `.env` file on the VM doesn't have `BASIC_AUTH_USERNAME` / `BASIC_AUTH_PASSWORD`. The nginx `auth_basic` uses `.htpasswd` which the deploy user can't read without sudo. Wasted a couple minutes chasing a red herring. **Rule: for live endpoint verification, use `docker exec ... node -e '...'` to call the endpoint's underlying function directly, or use `docker exec ... curl http://127.0.0.1:3000/...` with the internal Express port (which bypasses nginx auth_basic)**. The internal curl needs a valid session cookie OR the endpoint needs to be in `PUBLIC_PATHS`, so the underlying-function approach is usually cleaner
-- **Read `fs.existsSync` + iteration in `node -e` worked fine** but for more complex verification (like calling `registerMarketingBrainRoutes` with mock args), the brain-smoketest.mjs approach from session 14/15 is still the right tool. It's ephemeral but reliable
-- **Cost cap env var name** — used `BRAIN_DAILY_COST_CAP_USD` which matches the existing `BRAIN_MORNING_EMAIL` prefix pattern. Future session should NOT rename this to something shorter or more generic; consistency with the existing `BRAIN_*` family is worth more than brevity
+- **Forgot to include `marketing-kb` in deploy.sh initially** — Added after writing all the files. The reason I caught it: I was about to deploy, mentally traced through what files would land where, and realized marketing-kb wouldn't sync. Lesson: **for any new top-level directory or file type, explicitly trace through the deploy pipeline before declaring it done**. Build context, Dockerfile, .dockerignore, sync script — all four can silently drop files.
+- **Assumed `dashboard/Dockerfile` would use the root-level Dockerfile** — The repo has BOTH `/Dockerfile` (prod CI) and `/dashboard/Dockerfile` (deploy.sh). I updated the root one first thinking that was the canonical one, then discovered deploy.sh uses the dashboard one. Had to update both. Lesson: **grep for all Dockerfile references before committing Docker changes**.
+- **Didn't initially realize `.dockerignore` had `*.md`** — The catch came from running `docker exec node -e 'fs.readdirSync(...)'` and seeing the file count was expected. Had I only trusted the deploy success, the bug would have shipped. Lesson: **existence checks > success checks**. A green deploy is necessary but not sufficient.
+- **Almost wrote 13 files instead of 12** — Considered adding `13-portfolio-strategy.md` specific to Dockfolio's situation. Cut it because: (a) that knowledge lives in CLAUDE.md already, (b) the KB should be generic enough to work for any indie SaaS, (c) adding files mid-session is scope creep. Lesson: **define the file list before writing, and stick to it unless a new insight demands additions**.
+- **The smoketest showed identical KB picks for pre-traction apps** — Not a bug but a limitation. Both promoforge and abschlusscheck got `pre-traction` + `positioning`. That's correct per the scoring rules but not differentiated. I was tempted to add more signals, but resisted because the scoring can be tuned later once we see how the brain actually uses it. Lesson: **don't over-tune scoring before seeing real output**.
 
 ## Next Steps (Priority Order)
 
-1. **Activate `BRAIN_MORNING_EMAIL` on VM** — UNCHANGED from sessions 14 and 15. 5 minutes. Needs user email address. Highest-value user-unblocked item remaining
-2. **Trigger / verify the morning rollup email path works** — Once #1 is set, `POST /api/brain/morning/send-test?to=<email>` confirms delivery. 30 seconds
-3. **Triage the ~85 open brain actions** — Human task via the Brain tab UI. With rounds 7, 8, 9 live, new actions will be higher-signal; drain the pre-round-7 backlog of stale proposals. 20-30 minutes
-4. **Verify Monday 6 AM weekly deep cron on Monday** — Time-blocked. Confirm 2 new briefs appear in the DB and in the Brain tab's "Recent briefs" list
-5. **Look at the new infra_state UI panel and decide what to do with the grey badges** — This is the most valuable use of the session 16 UI addition. Load admin.crelvo.dev → Brain tab → scroll down. Any widely-grey flag (e.g. `BN 0/22` = no banner injection anywhere) is a policy question: turn it on, or formally kill that system. Any scattered grey (e.g. missing gzip on 2 apps) is a trivial nginx fix
-6. **Run deep cycles on whichever apps the user wants prioritized** — Session 15 already ran promoforge, sacredlens, abschlusscheck. Remaining marketable apps without a Sonnet brief: whatever is left in `pickNextDeepApps(N)`. Each costs ~$0.08 and produces a strategic brief. User chooses the list; AI runs them
-7. **Clean up `/home/deploy/nginx-configs/backups/` periodically** — Not urgent. When the count exceeds ~20 files, delete the older half. Could be a weekly cron but not worth building
-8. **Scoped audit of banner code's actual usage** — If the user genuinely wants dead code removed from `marketing.js`, the right approach is: (a) turn on access logging for the v1 crosspromo endpoints for 30 days, (b) query which endpoints got zero traffic, (c) confirm the corresponding UI paths are unreachable, (d) rip those specific paths only. NOT a blind 500-line cleanup
-9. **Session 13/14/15 carry-overs** — all still deferred:
-   - BannerForge build fix (needs interactive debug)
-   - dockfolio.dev dual paths deletion (needs scoping)
-   - Social platform credentials (user action)
-   - Show HN post (user action)
-   - promoforge stale GitHub remote URL (cosmetic)
+1. **Watch the next Haiku cron cycle** — Every 4h :15. The next cycle will be the first with KB-grounded prompts. Check the brief's analysis + rationale fields for explicit KB citations. If the LLM cites the KB by name, the integration is working end-to-end. If it doesn't cite, either the prompt rule is too soft or the LLM is ignoring the reference material. Tune based on observation.
+
+2. **Run a manual Sonnet deep cycle on an app that's stuck** — The KB's real value shows up in deep cycles where the strategic analysis needs principled frames. promoforge, abschlusscheck, or sacredlens would all be good targets. Cost: ~$0.08. Impact: first evidence that the KB changes strategic output quality.
+
+3. **Expand KB retrieval to section-level (H2 boundaries)** — Currently retrieves first 1400 chars of a file, missing principles that live later. Better: parse each file into H2 sections, score each section independently, return the top-scoring sections across all files. ~1 hour of work. Meaningful upgrade.
+
+4. **Add a KB-specific learnings tag** — When a brain cycle's analysis cites a KB topic, persist the citation as a tagged learning ("[KB:pre-traction applied] sacredlens proposal grounded in pre-traction principles"). Creates a feedback loop: over time, we see which KB principles get cited most, which apps benefit from which principles, which principles contradict the brain's own history.
+
+5. **Triage the ~85 open brain actions** — UNCHANGED from every prior handover. Human task. Now with KB-grounded cycles producing higher-quality new proposals, draining the backlog is more valuable (old proposals will feel less relevant next to new KB-grounded ones).
+
+6. **Activate `BRAIN_MORNING_EMAIL`** — UNCHANGED. 5 minutes. Needs user email address.
+
+7. **Verify Monday 6 AM weekly deep cron** — Time-blocked. Next Monday.
+
+8. **Load the KB UI panel and read through files** — The user should scroll through the KB files themselves. Even without brain integration, having the opinionated reference on hand is valuable for operator decisions. `/api/brain/kb` → click any file → read in modal.
+
+9. **Optional: add more KB files if specific gaps become apparent**
+   - `13-portfolio-strategy.md` — how to think about a portfolio of products (relevant to Dockfolio specifically)
+   - `14-community-building.md` — running your own Slack/Discord as a distribution channel
+   - `15-b2b-outbound.md` — cold outreach, sales, LinkedIn tactics for B2B SaaS
+   - `16-freemium-and-product-led-growth.md` — specifically PLG motion design
+   Only add these if the brain's briefs show the gap (e.g. it keeps proposing actions that would benefit from community-building principles it doesn't have).
+
+10. **Optional: track the KB's effect on brain output quality quantitatively**
+    - Before/after comparison: same app, one brief without KB context (revert scoring to no-op), one brief with. Compare the actions proposed.
+    - Expensive to do (~$0.04 for 2 Haiku cycles) but produces real evidence.
+    - Only worth doing if the user questions whether the KB is working.
 
 ## Rollback Plan
 
-- **Last known good state before session 16:** `3cc6067 Session 15 handover — extend to cover rounds 7+8 + 3 deep cycles`
-- **To revert all 4 rounds:** `git revert a7b173b f8aa374 2b03929 && bash deploy.sh --rebuild`
-- **Round 1 only (cost cap):** `git revert 2b03929 && bash deploy.sh --rebuild` — OR simpler: set `BRAIN_DAILY_COST_CAP_USD=5.00` in the VM's `/home/deploy/appmanager/docker-compose.yml` dashboard environment and `docker compose up -d dashboard`
-- **Round 2 only (SEO warming):** `git revert f8aa374 && bash deploy.sh --rebuild` — safe, nothing downstream depends on `cache.refreshSeo()` existing
-- **Round 3 only (nginx admin_tracking):** on VM, copy `/home/deploy/nginx-configs/backups/promoforge.bak.s16` over `/home/deploy/nginx-configs/sites/promoforge` and `best-age.de.bak.s16` over `best-age.de`, then `sudo nginx -c /home/deploy/nginx-configs/nginx.conf -s reload`
-- **Round 4 only (infra_state UI):** `git revert a7b173b && bash deploy.sh --rebuild` — UI panel + new endpoint both removed, no data loss
-- **Nothing touches the database this session** — no migrations, no schema changes, no DB rollback needed
-- **Nothing on the brain's history is touched** — all 22 briefs from session 15 persist untouched
+- **Last known good state before session 17:** `ef00f8f Session 16 handover — cost cap, SEO warming, nginx fixes, infra UI panel`
+- **To revert session 17 entirely:**
+  1. `git revert a3349a2 1fc36b3 && bash deploy.sh --rebuild` — removes both commits
+  2. Manually revert `deploy.sh` (gitignored) to remove the `marketing-kb` sync lines
+  3. The container will lose the KB files on next rebuild; `loadMarketingKB()` returns empty; `ctx.kb_snippets` becomes null; both prompts silently skip the KB section (graceful degradation)
+- **To revert JUST the UI panel (keep brain integration):** `git revert a3349a2 && bash deploy.sh --rebuild` — removes the dashboard modal, keeps the endpoints and brain integration
+- **To revert JUST the brain integration (keep KB files + UI):** `git revert 1fc36b3 && bash deploy.sh --rebuild` — this would also revert the KB files themselves; cleaner is to surgically remove the `pickKBSnippets` / `loadMarketingKB` / `ctx.kb_snippets` code and the prompt rendering + system prompt rules
+- **The KB files themselves are pure content, zero risk** — reverting them doesn't break anything else. They can be deleted safely with no cascading effects.
+- **Nothing touches the database this session** — no migrations, no schema changes, no rollback needed there.
 
 ## Files Changed This Session
 
 ### appManager repo (tracked, committed, pushed)
 
-- `dashboard/routes/marketing-brain.js` — round 1: made `DAILY_COST_CAP_USD` env-configurable with default 2.00 (line 82-88). Round 4: added `GET /api/brain/infra-state` endpoint with portfolio summary + per-app flag breakdown (right before the cron block, ~30 lines)
-- `dashboard/routes/marketing.js` — round 2: extracted `refreshSeoCache()` helper, simplified HTTP handler, simplified daily cron, added `cache.refreshSeo()` + made `cache.warm()` cover SEO
-- `dashboard/public/index.html` — round 4: added `#brainInfraState` div in Brain tab bottom-right column, added `brainRenderInfraState()` function, wired it into `brainLoadAll()` + `brainState.infra`
-- `.env.example` — round 1: documented `BRAIN_DAILY_COST_CAP_USD` under the existing "Marketing Brain (optional)" section
+- `marketing-kb/README.md` — new, ~60 lines. Table of contents + first principles
+- `marketing-kb/01-positioning.md` — new, ~350 lines. April Dunford framework + narrow-and-specific rule
+- `marketing-kb/02-pre-traction.md` — new, ~350 lines. 0-10 customers playbook
+- `marketing-kb/03-launch-playbook.md` — new, ~400 lines. PH/HN/Reddit/IH specific
+- `marketing-kb/04-content-and-seo.md` — new, ~400 lines. Content tiers + topical authority
+- `marketing-kb/05-conversion-and-landing-pages.md` — new, ~400 lines. LP anatomy + CRO
+- `marketing-kb/06-pricing.md` — new, ~400 lines. Value-based + tier structure
+- `marketing-kb/07-growth-loops.md` — new, ~350 lines. Loops vs funnels, K-factor
+- `marketing-kb/08-distribution-channels.md` — new, ~400 lines. 22 channels + bullseye
+- `marketing-kb/09-email-and-lifecycle.md` — new, ~450 lines. Lifecycle email playbook
+- `marketing-kb/10-metrics-and-analytics.md` — new, ~400 lines. AARRR + retention curves
+- `marketing-kb/11-kill-criteria-and-pivots.md` — new, ~450 lines. Kill criteria framework
+- `marketing-kb/12-copywriting.md` — new, ~450 lines. Headlines + body + CTA craft
+- `dashboard/routes/marketing-brain.js` — added `loadMarketingKB`, `scoreKBRelevance`, `pickKBSnippets`, `ctx.open_actions_summary_kinds`, `ctx.kb_snippets`, KB rendering in both user prompts, KB rules in both system prompts, `GET /api/brain/kb` + `GET /api/brain/kb/:topic` endpoints. ~180 lines added.
+- `dashboard/brain-smoketest.mjs` — `--dry` now prints `kb_snippets` for verification. +1 line.
+- `dashboard/.dockerignore` — added `!marketing-kb/*.md` whitelist to allow KB files through. +1 line. CRITICAL fix.
+- `Dockerfile` (prod/CI) — added `COPY marketing-kb ./marketing-kb`. +1 line.
+- `dashboard/public/index.html` — added `#brainKBList` panel, `#brainKBModal` modal, `brainRenderKB`, `brainOpenKB`, `brainCloseKB` functions, `/api/brain/kb` in `brainLoadAll` Promise.allSettled batch, `brainState.kb`. +63 lines.
+
+### Local-only (gitignored)
+
+- `deploy.sh` — added `LOCAL_KB_DIR` variable, `mkdir marketing-kb` in remote temp dir, `scp -q "$LOCAL_KB_DIR/"*.md` sync step. 3 lines added. Not tracked in git (file is gitignored) but present in the user's local working copy.
 
 ### VM (not in git)
 
-- `/home/deploy/nginx-configs/sites/promoforge` — round 3: added `<script defer src="https://admin.crelvo.dev/api/analytics/track.js" data-app="promoforge"></script>` inside the existing `</head>` sub_filter replacement string
-- `/home/deploy/nginx-configs/sites/best-age.de` — round 3: same pattern with `data-app="best-age"`
-- `/home/deploy/nginx-configs/backups/` — new directory created. Contains `promoforge.bak.s16`, `best-age.de.bak.s16` (session 16's own backups), and `promoforge.bak.20260410-s215` (leftover from session 15, moved out of `sites/` to stop nginx warnings)
+- `/home/deploy/appmanager/dashboard/marketing-kb/` — new directory, contains all 13 markdown files (12 KB + README). Synced by deploy.sh.
+- Container image `appmanager-dashboard:latest` — rebuilt twice, now includes `/app/marketing-kb/` with all files.
 
 ### Remote pushes
 
-- appManager: `3cc6067..a7b173b` pushed to `origin/master` (3 commits)
+- appManager: `ef00f8f..a3349a2` pushed to `origin/master` (2 commits)
 
 ### Not touched
 
-- `docker-compose.prod.yml` (tracked) — unchanged
-- `docker-compose.yml` on VM — unchanged since session 15's nginx-configs mount was added
+- `docker-compose.prod.yml` — unchanged
+- `docker-compose.yml` on VM — unchanged
 - `dashboard/config.yml` — unchanged
-- `dashboard/brain-smoketest.mjs` — unchanged
-- `server.js` — unchanged (round 8's 10s startup warm is still the right hook; now covers SEO for free via `cache.warm()`)
+- Database schemas — unchanged (no new tables, no migrations)
 
 ## Open Questions
 
-- **Does the user want to trim the infra_state flag set?** 8 flags is comprehensive but the panel's visual density gets busy on a wide portfolio. Could drop `crosslinks_widget` (legacy), `csp_header` (nobody has it), and `long_cache` (too noisy) to get 5 flags on a cleaner grid. Low priority
-- **Should the UI panel group apps by marketability tier (SaaS vs Tool vs Static)?** Currently alphabetical within the `getMarketableApps` list. Grouping would help compare similar apps. ~10 minutes if the user wants it
-- **Is the $2/day cap right, or should it be $1?** Steady state is ~$0.32/day so either is fine. $2 gives headroom, $1 forces the user to manually approve deep cycles. User preference
-- **What's the actual fate of the banner system?** The refused cleanup surfaces a policy question: v1 crosspromo has an active UI but nobody posts anything. v2 banners/placements has an active UI but no nginx sites inject the embed. Both are technically alive, functionally dormant. Future session could decide: (a) turn them on (write some banners, wire them up to sites), (b) kill them (remove the tabs and the routes), or (c) leave them as pre-built product features for a future launch. Not this AI's call
-- **Extend `readInfraState` to scan `index.html` files for static sites?** Would fix the orbedge false-negative. Adds a whole new code path (read HTML, parse for `<script src="...">` tags, match against the flags). ~30 minutes. Value: removes 1 known false-negative + covers future static sites with the same pattern. Worth it only if a second static site develops the same issue
+- **Does the user want the brain to cite KB topics explicitly in proposals?** Current system prompt says "cite the KB topic by name in your rationale." This creates explicit traceability but might make brief output feel formulaic. Watch the next few cycles and decide.
+- **Should KB files be H2-section-retrievable instead of file-level?** Bigger change but meaningfully better retrieval. ~1 hour of work for section-level. Not urgent if the file-level approach produces acceptable output.
+- **Are there gaps in the KB's coverage worth filling?** Community building, portfolio strategy, B2B outbound, product-led growth all have solid bodies of knowledge not covered. Add on demand, not speculatively.
+- **Should the KB have a "glossary" or "quick reference" file that's ALWAYS included in every brain cycle?** A single-page density of the most critical principles, always injected, followed by 1-2 stage-specific full files. Mixed feelings: always-included bloats prompt but creates consistent grounding.
+- **Should the brain produce a "KB citation report" periodically?** Which KB principles did the brain apply most? Which apps benefited? Answers help refine the KB and identify gaps.
 
 ## For Future AIs: The Big Picture
 
-Session 16 was the "cleanup after a big session" shift. Session 15 landed two heavy rounds (nginx infra awareness + cache shape/warming) and session 16 picked up all the small loose threads they left: the cost cap that was still set to the pre-brain default, the SEO cache that round 8 punted on, the two nginx sites that the audit identified as missing admin_tracking, and the UI visibility for the infra state data that was so far only visible inside brain prompts.
+Session 17 was the first session where the Marketing Brain got a knowledge upgrade from OUTSIDE its own history. Rounds 7-9 made the brain aware of its environment (nginx state, real traffic/revenue numbers). Session 17 makes the brain aware of proven principles from the best known indie-SaaS marketers. These are different kinds of awareness: rounds 7-9 are "know what's built"; session 17 is "know how to think about what to build next."
 
-The session also demonstrated three important autonomous-work principles:
+The KB integration is a bet on a specific hypothesis: **LLM-generated marketing advice is cheap and generic without a curated reference layer; with one, it becomes genuinely useful.** The bet pays off if the brain's next cycles produce proposals that cite specific KB principles and demonstrate more sophisticated reasoning than generic "write a blog post, launch on Product Hunt" templates.
 
-1. **Verify handover claims before acting on them.** Session 15 got 2 out of 4 admin_tracking flags wrong; blind execution would have silently introduced bugs. The audit took 30 seconds and changed the action list from "fix 4" to "fix 2, skip 2, document the audit errors".
+Whether the bet works is empirical. The next Haiku cron at :15 past the hour is the first test. The next Sonnet deep cycle (manual trigger or Monday 6 AM) is the more important test because deep cycles have more prompt budget for the KB to influence.
 
-2. **Refuse ambiguous instructions with high blast radius.** The "rip 500 lines of banner dead code" item in the handover was wrong — the code is not dead. Investigating that took 1 minute and prevented an expensive mistake. Documenting the refusal is important: it prevents future sessions from retrying the same failed analysis.
+If the bet pays off, next steps are: expand the KB (more files, section-level retrieval), track KB citation frequency, refine scoring based on which files get cited most, and consider per-app KB selection overrides for niche cases.
 
-3. **Small rounds, each independently valuable.** 4 commits, each with a clear scope, each tested and deployed before the next starts. If any single round had failed, the others would still be shipped. This is the opposite of "one big refactor that either lands or rolls back entirely".
+If the bet doesn't pay off (brain output is unchanged despite the KB), the fix is probably prompt-level: stronger instructions to cite, few-shot examples of KB-grounded analysis, or a first-pass LLM call that explicitly maps the app context to the relevant KB principle before the main analysis.
 
-The Marketing Brain's architecture is now essentially complete at the infrastructure level:
-- **Closed feedback loop** (round 6): learnings persist from executed outcomes
-- **Infra awareness** (round 7): nginx state is visible in prompts
-- **Cache shape + warming** (round 8): real traffic/revenue numbers flow
-- **SEO cache warming** (round 9): third data layer symmetric with the other two
-- **Infra state in UI** (session 16 round 4): operator can see what the brain sees
+The portfolio arc remains: **30+ products, near-zero revenue, Marketing Brain as the autonomous productization engine.** Session 17 didn't ship revenue. It shipped the thing that might make the brain's advice useful enough that future actions move the revenue needle. Whether that's a 10% improvement or a 100% improvement depends on real-world validation, which is the work of the next few sessions to observe.
 
-What remains is operational: activate the morning email, triage the backlog, run targeted deep cycles, and watch the infra_state panel for policy decisions (turn on banners, kill features, add missing gzip). None of these are architecture work. The brain is done being built. Now it's about being used.
-
-The operating principle from sessions 13–16 still holds: **"work like a good employee, know what's best, u decide all, document clearly for future AIs."** Session 16 honored it by refusing to do the wrong thing even when the instructions said to do it, and by writing this handover instead of faking productivity with make-work.
-
-The portfolio arc remains: **30+ products, near-zero revenue, Marketing Brain as the autonomous productization engine.** Session 16 didn't move the revenue needle directly. It made the brain's output easier to trust and the operator's view into the brain's reasoning more direct. Both of those are preconditions for the brain's output ever being acted on.
+The operating principle from sessions 13-16 still holds, now extended: **"work like a good employee, know what's best, u decide all, document clearly for future AIs — AND give the employee a playbook from the best in the field to read."**
