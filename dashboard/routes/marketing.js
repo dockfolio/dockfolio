@@ -537,6 +537,32 @@ export default function registerMarketingRoutes({
     return cachedRevenue;
   }
 
+  async function refreshSeoCache() {
+    const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
+    const results = {};
+    await Promise.all(marketableApps.map(async (appDef) => {
+      const audit = await auditSEO(appDef.domain, TIMEOUT_STANDARD, TIMEOUT_QUICK);
+      results[appDef.name] = { domain: appDef.domain, ...audit, marketing: appDef.marketing || null };
+    }));
+    const scores = Object.values(results).map(r => r.score);
+    const avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    const totalIssues = Object.values(results).reduce((sum, r) => sum + r.issues.length, 0);
+    cachedSEO = {
+      apps: results,
+      summary: { avgScore, totalIssues, appCount: scores.length },
+      timestamp: new Date().toISOString(),
+    };
+    lastSEOUpdate = Date.now();
+    const today = todayString();
+    try {
+      for (const [appName, data] of Object.entries(results)) {
+        upsertSEOAudit.run(slugify(appName), today, data.score, data.grade, JSON.stringify(data.checks));
+        upsertMetric.run(slugify(appName), today, 'seo_score', data.score, null);
+      }
+    } catch (err) { console.error('[METRICS] SEO snapshot failed:', err.message); }
+    return cachedSEO;
+  }
+
   async function refreshAnalyticsCache() {
     const trackableApps = config.apps.filter(a => (a.type === 'saas' || a.type === 'tool' || a.type === 'static') && a.domain);
     const results = {};
@@ -576,10 +602,15 @@ export default function registerMarketingRoutes({
       if (!force && cachedAnalytics && (Date.now() - lastAnalyticsUpdate) < ANALYTICS_TTL) return cachedAnalytics;
       return refreshAnalyticsCache();
     },
+    async refreshSeo(force = false) {
+      if (!force && cachedSEO && (Date.now() - lastSEOUpdate) < SEO_TTL) return cachedSEO;
+      return refreshSeoCache();
+    },
     async warm(force = false) {
       await Promise.all([
         this.refreshRevenue(force).catch(e => console.error('[CACHE] refreshRevenue failed:', e.message)),
         this.refreshAnalytics(force).catch(e => console.error('[CACHE] refreshAnalytics failed:', e.message)),
+        this.refreshSeo(force).catch(e => console.error('[CACHE] refreshSeo failed:', e.message)),
       ]);
       return { revenue: !!cachedRevenue, analytics: !!cachedAnalytics, seo: !!cachedSEO };
     },
@@ -742,34 +773,11 @@ export default function registerMarketingRoutes({
   // =============================================
 
   app.get('/api/marketing/seo', asyncRoute(async (req, res) => {
-    const now = Date.now();
     const force = req.query.force === 'true';
-    if (!force && cachedSEO && (now - lastSEOUpdate) < SEO_TTL) {
+    if (!force && cachedSEO && (Date.now() - lastSEOUpdate) < SEO_TTL) {
       return res.json(cachedSEO);
     }
-
-    const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
-    const results = {};
-
-    await Promise.all(marketableApps.map(async (appDef) => {
-      const audit = await auditSEO(appDef.domain, TIMEOUT_STANDARD, TIMEOUT_QUICK);
-      results[appDef.name] = {
-        domain: appDef.domain,
-        ...audit,
-        marketing: appDef.marketing || null,
-      };
-    }));
-
-    const scores = Object.values(results).map(r => r.score);
-    const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-    const totalIssues = Object.values(results).reduce((sum, r) => sum + r.issues.length, 0);
-
-    cachedSEO = {
-      apps: results,
-      summary: { avgScore, totalIssues, appCount: scores.length },
-      timestamp: new Date().toISOString(),
-    };
-    lastSEOUpdate = now;
+    await refreshSeoCache();
     res.json(cachedSEO);
   }));
 
@@ -2127,18 +2135,12 @@ export default function registerMarketingRoutes({
     catch (err) { cronFail('Analytics refresh', err); }
   });
 
-  // Daily at 1:30 AM: run SEO audits and store
+  // Daily at 1:30 AM: run SEO audits, warm cache, persist to DB
   cron.schedule('30 1 * * *', async () => {
     console.log('[CRON] Running daily SEO audits...');
     try {
-      const marketableApps = config.apps.filter(a => a.type === 'saas' || a.type === 'tool');
-      const today = todayString();
-      for (const appDef of marketableApps) {
-        const audit = await auditSEO(appDef.domain, TIMEOUT_STANDARD, TIMEOUT_QUICK);
-        upsertSEOAudit.run(slugify(appDef.name), today, audit.score, audit.grade, JSON.stringify(audit.checks));
-        upsertMetric.run(slugify(appDef.name), today, 'seo_score', audit.score, null);
-      }
-      console.log('[CRON] SEO audits stored');
+      await refreshSeoCache();
+      console.log('[CRON] SEO cache warmed + audits stored');
     } catch (err) {
       cronFail('SEO audit', err);
     }
