@@ -1,7 +1,9 @@
 // Standalone smoke test for Marketing Brain.
 // Loads minimal deps, initializes a db handle, loads config, and invokes
 // runBrainCycle for a specific app. Run inside the container.
-// Usage: node brain-smoketest.mjs <appSlug>
+// Usage: node brain-smoketest.mjs <appSlug> [--deep]
+//   --deep  Run a Sonnet strategic deep-dive (~$0.07, 90-150s) instead of
+//           the default Haiku tactical cycle (~$0.015, 30s)
 
 import Database from 'better-sqlite3';
 import { readFileSync, existsSync } from 'fs';
@@ -12,9 +14,11 @@ import { parseEnvFile, slugify } from './utils.js';
 const DB_PATH = process.env.MARKETING_DB_PATH || '/home/deploy/marketing/data.db';
 const CONFIG_PATH = process.env.CONFIG_PATH || '/app/config.yml';
 
-const appSlug = process.argv[2];
+const args = process.argv.slice(2);
+const deep = args.includes('--deep');
+const appSlug = args.find(a => !a.startsWith('--'));
 if (!appSlug) {
-  console.error('Usage: node brain-smoketest.mjs <appSlug>');
+  console.error('Usage: node brain-smoketest.mjs <appSlug> [--deep]');
   process.exit(1);
 }
 
@@ -66,9 +70,20 @@ const canonicalSlug = (() => {
   return match ? slugify(match.name) : appSlug;
 })();
 
-console.log(`[smoketest] Running brain cycle for ${canonicalSlug}...`);
+console.log(`[smoketest] Running ${deep ? 'DEEP ' : ''}brain cycle for ${canonicalSlug}...`);
+if (deep) {
+  try {
+    const ctx = brain.collectAppContextDeep(canonicalSlug);
+    console.log(`[smoketest] Deep context: ${ctx.prior_briefs?.length || 0} prior briefs, ${ctx.executed_actions?.length || 0} executed w/ outcomes, ${ctx.learnings?.length || 0} learnings`);
+  } catch (e) {
+    console.error('[smoketest] Context collection failed:', e.message);
+    process.exit(1);
+  }
+}
 try {
-  const result = await brain.runBrainCycle(canonicalSlug);
+  const result = await brain.runBrainCycle(canonicalSlug, deep
+    ? { model: 'claude-sonnet-4-5-20250929', deep: true }
+    : {});
   console.log('[smoketest] SUCCESS');
   console.log(JSON.stringify(result, null, 2));
 
