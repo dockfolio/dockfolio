@@ -1579,6 +1579,7 @@
     </div>
     <div class="mkt-tabs">
       <button class="mkt-tab active" onclick="switchMktTab('overview',this)">Overview</button>
+      <button class="mkt-tab" onclick="switchMktTab('brain',this)" style="background:linear-gradient(135deg,rgba(139,92,246,0.15),rgba(59,130,246,0.15));border:1px solid rgba(139,92,246,0.3)">🧠 Brain</button>
       <button class="mkt-tab" onclick="switchMktTab('revenue',this)">Revenue</button>
       <button class="mkt-tab" onclick="switchMktTab('traffic',this)">Traffic</button>
       <button class="mkt-tab" onclick="switchMktTab('seo',this)">SEO</button>
@@ -1591,6 +1592,98 @@
     </div>
     <div id="mkt-overview" class="mkt-tab-content active">
       <div id="mktOverviewContent"><span style="color:var(--text-muted);font-size:12px">Loading...</span></div>
+    </div>
+    <div id="mkt-brain" class="mkt-tab-content">
+      <!-- Marketing Brain — autonomous per-app marketing analyst -->
+      <div style="background:linear-gradient(135deg,rgba(139,92,246,0.08),rgba(59,130,246,0.08));border:1px solid rgba(139,92,246,0.25);border-radius:14px;padding:20px 22px;margin-bottom:16px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap">
+          <div style="flex:1;min-width:280px">
+            <div style="font-size:20px;font-weight:700;margin-bottom:6px;letter-spacing:-0.01em">🧠 Marketing Brain</div>
+            <div style="font-size:12px;color:var(--text-dim);line-height:1.5">Autonomous AI marketing manager. Analyzes every marketable app every few hours. Produces specific actionable briefs and auto-drafts content, social posts, and research notes across your entire portfolio.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button onclick="brainRunBatch(3)" id="brainRunBatchBtn" style="background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:white;border:none;padding:10px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(139,92,246,0.3)">▶ Run 3 stalest apps</button>
+            <button onclick="brainLoadAll(true)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 16px;border-radius:8px;font-size:12px;cursor:pointer">↻ Refresh</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats row -->
+      <div id="brainStatsRow" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Briefs today</div>
+          <div style="font-size:24px;font-weight:700" id="brainBriefsToday">—</div>
+          <div style="font-size:10px;color:var(--text-muted)" id="brainBriefsTotal">— total</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Proposed actions</div>
+          <div style="font-size:24px;font-weight:700" id="brainProposedCount">—</div>
+          <div style="font-size:10px;color:var(--text-muted)" id="brainActionBreakdown">—</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Cost today</div>
+          <div style="font-size:24px;font-weight:700" id="brainCostToday">—</div>
+          <div style="height:4px;background:var(--border);border-radius:2px;margin-top:8px;overflow:hidden"><div id="brainCostBar" style="height:100%;background:linear-gradient(90deg,#22c55e,#f59e0b,#ef4444);width:0%;transition:width .3s"></div></div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:4px" id="brainCostCap">— / $—.— cap</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
+          <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px">Stale apps</div>
+          <div style="font-size:24px;font-weight:700" id="brainStaleCount">—</div>
+          <div style="font-size:10px;color:var(--text-muted)">need analysis (&gt;48h)</div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em">Filter:</span>
+        <select id="brainFilterKind" onchange="brainRenderActions()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:11px">
+          <option value="">All kinds</option>
+          <option value="content.draft">Content drafts</option>
+          <option value="social.draft">Social drafts</option>
+          <option value="email.draft">Email drafts</option>
+          <option value="seo">SEO fixes</option>
+          <option value="outreach">Outreach</option>
+          <option value="landing">Landing</option>
+          <option value="research.note">Research</option>
+        </select>
+        <select id="brainFilterApp" onchange="brainRenderActions()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:11px">
+          <option value="">All apps</option>
+        </select>
+        <select id="brainFilterStatus" onchange="brainLoadAll()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:11px">
+          <option value="proposed">Proposed</option>
+          <option value="approved">Approved</option>
+          <option value="executed">Executed</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+
+      <!-- Action queue -->
+      <div style="display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start">
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em">Action queue</div>
+          <div id="brainActionQueue"><div style="color:var(--text-muted);font-size:12px;padding:20px 0">Loading...</div></div>
+        </div>
+        <div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em">Recent briefs</div>
+          <div id="brainRecentBriefs"><div style="color:var(--text-muted);font-size:12px;padding:20px 0">Loading...</div></div>
+          <div style="font-size:12px;font-weight:600;color:var(--text-dim);margin:20px 0 10px;text-transform:uppercase;letter-spacing:0.05em">Stale apps</div>
+          <div id="brainStaleList"><div style="color:var(--text-muted);font-size:12px">—</div></div>
+        </div>
+      </div>
+
+      <!-- Brief detail modal -->
+      <div id="brainBriefModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)" onclick="if(event.target===this)brainCloseBrief()">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;max-width:800px;max-height:85vh;overflow:auto;padding:24px;width:100%">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+            <div>
+              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em" id="brainBriefModalApp">—</div>
+              <div style="font-size:18px;font-weight:700;margin-top:4px" id="brainBriefModalTitle">Loading brief…</div>
+            </div>
+            <button onclick="brainCloseBrief()" style="background:transparent;border:none;color:var(--text-dim);font-size:20px;cursor:pointer">×</button>
+          </div>
+          <div id="brainBriefModalBody"></div>
+        </div>
+      </div>
     </div>
     <div id="mkt-revenue" class="mkt-tab-content">
       <div class="mkt-subtabs">
@@ -4519,6 +4612,8 @@
       // Lazy-load playbook tab data
       if (tabName === 'playbook') { initPlaybookFilter(); if (!playbookData) fetchPlaybook(); }
       if (tabName === 'social') socialRefresh();
+      // Lazy-load brain tab data
+      if (tabName === 'brain') brainLoadAll();
     }
 
     function switchRevenueSubtab(name, btn) {
@@ -5875,6 +5970,266 @@
         }
       }
       showToast(`Queued ${queued} posts across platforms`);
+    }
+
+    // --- Marketing Brain ---
+    let brainState = { stats: null, actions: [], briefs: [], missing: [], loading: false };
+
+    function brainEscape(s) {
+      return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function brainKindLabel(kind) {
+      const map = {
+        'content.draft': { label: 'Content', color: '#8b5cf6' },
+        'social.draft': { label: 'Social', color: '#3b82f6' },
+        'email.draft': { label: 'Email', color: '#06b6d4' },
+        'seo': { label: 'SEO', color: '#22c55e' },
+        'outreach': { label: 'Outreach', color: '#f59e0b' },
+        'landing': { label: 'Landing', color: '#ec4899' },
+        'research.note': { label: 'Research', color: '#64748b' },
+      };
+      return map[kind] || { label: kind, color: '#64748b' };
+    }
+
+    function brainImpactEffortBadge(impact, effort) {
+      const colors = { high: '#22c55e', medium: '#f59e0b', low: '#64748b' };
+      return `<span style="font-size:9px;color:${colors[impact] || '#64748b'};text-transform:uppercase">${impact || '—'}</span><span style="font-size:9px;color:var(--text-muted);margin:0 4px">·</span><span style="font-size:9px;color:${colors[effort] || '#64748b'};text-transform:uppercase">${effort || '—'} effort</span>`;
+    }
+
+    async function brainLoadAll(showLoading) {
+      if (brainState.loading && !showLoading) return;
+      brainState.loading = true;
+      try {
+        const statusEl = document.getElementById('brainFilterStatus');
+        const status = statusEl?.value || 'proposed';
+        const [statsRes, actionsRes, briefsRes, morningRes] = await Promise.allSettled([
+          apiFetch('/api/brain/stats'),
+          apiFetch(`/api/brain/actions?status=${encodeURIComponent(status)}&limit=100`),
+          apiFetch('/api/brain/briefs?limit=8'),
+          apiFetch('/api/brain/morning'),
+        ]);
+        if (statsRes.status === 'fulfilled' && statsRes.value.ok) brainState.stats = await statsRes.value.json();
+        if (actionsRes.status === 'fulfilled' && actionsRes.value.ok) brainState.actions = await actionsRes.value.json();
+        if (briefsRes.status === 'fulfilled' && briefsRes.value.ok) brainState.briefs = await briefsRes.value.json();
+        if (morningRes.status === 'fulfilled' && morningRes.value.ok) {
+          const m = await morningRes.value.json();
+          brainState.missing = m.missingBriefs || [];
+        }
+        brainRenderStats();
+        brainPopulateAppFilter();
+        brainRenderActions();
+        brainRenderBriefs();
+        brainRenderStale();
+      } catch (e) {
+        console.error('brain load error', e);
+      }
+      brainState.loading = false;
+    }
+
+    function brainRenderStats() {
+      const s = brainState.stats;
+      if (!s) return;
+      document.getElementById('brainBriefsToday').textContent = s.briefs_today || 0;
+      document.getElementById('brainBriefsTotal').textContent = `${s.briefs_total || 0} total`;
+      const byStatus = Object.fromEntries((s.actions_by_status || []).map(r => [r.status, r.n]));
+      document.getElementById('brainProposedCount').textContent = byStatus.proposed || 0;
+      const execCount = byStatus.executed || 0;
+      document.getElementById('brainActionBreakdown').textContent = `${execCount} executed`;
+      const costToday = s.cost_today || 0;
+      document.getElementById('brainCostToday').textContent = `$${costToday.toFixed(3)}`;
+      const pct = Math.min(100, s.cap_pct_used || 0);
+      document.getElementById('brainCostBar').style.width = pct + '%';
+      document.getElementById('brainCostCap').textContent = `$${costToday.toFixed(3)} / $${(s.daily_cap_usd || 0).toFixed(2)} cap (${pct}%)`;
+      document.getElementById('brainStaleCount').textContent = brainState.missing?.length || 0;
+    }
+
+    function brainPopulateAppFilter() {
+      const select = document.getElementById('brainFilterApp');
+      if (!select) return;
+      const current = select.value;
+      const apps = new Set((brainState.actions || []).map(a => a.app_slug));
+      const options = ['<option value="">All apps</option>'];
+      for (const slug of [...apps].sort()) {
+        options.push(`<option value="${brainEscape(slug)}"${slug === current ? ' selected' : ''}>${brainEscape(slug)}</option>`);
+      }
+      select.innerHTML = options.join('');
+    }
+
+    function brainRenderActions() {
+      const container = document.getElementById('brainActionQueue');
+      if (!container) return;
+      const kind = document.getElementById('brainFilterKind')?.value || '';
+      const appSlug = document.getElementById('brainFilterApp')?.value || '';
+      let filtered = brainState.actions || [];
+      if (kind) filtered = filtered.filter(a => a.kind === kind);
+      if (appSlug) filtered = filtered.filter(a => a.app_slug === appSlug);
+      if (!filtered.length) {
+        container.innerHTML = `<div style="color:var(--text-muted);font-size:12px;padding:40px 20px;text-align:center;background:var(--surface2);border:1px dashed var(--border);border-radius:12px">No actions match filter. Try running the brain to generate new proposals.</div>`;
+        return;
+      }
+      container.innerHTML = filtered.map(a => {
+        const kindInfo = brainKindLabel(a.kind);
+        const bodyPreview = (a.body || '').slice(0, 300);
+        const moreText = a.body && a.body.length > 300 ? '…' : '';
+        const autoBadge = a.auto_executable ? '<span style="font-size:9px;color:#22c55e;background:rgba(34,197,94,0.1);padding:2px 6px;border-radius:4px;margin-left:8px">AUTO</span>' : '';
+        const statusTag = a.status !== 'proposed' ? `<span style="font-size:9px;color:var(--text-muted);text-transform:uppercase;margin-left:8px">${a.status}</span>` : '';
+        return `
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px;transition:border-color .2s" onmouseover="this.style.borderColor='${kindInfo.color}'" onmouseout="this.style.borderColor='var(--border)'">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px">
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;flex-wrap:wrap">
+                <span style="font-size:9px;font-weight:700;color:${kindInfo.color};background:${kindInfo.color}22;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:0.05em">${kindInfo.label}</span>
+                <span style="font-size:10px;color:var(--text-muted)">${brainEscape(a.app_slug)}</span>
+                <span style="font-size:10px;color:var(--text-muted)">·</span>
+                <span style="font-size:10px;color:var(--text-dim);font-weight:600">p${a.priority}</span>
+                <span style="font-size:10px;color:var(--text-muted)">·</span>
+                ${brainImpactEffortBadge(a.impact, a.effort)}
+                ${autoBadge}${statusTag}
+              </div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:6px">${brainEscape(a.title)}</div>
+              <div style="font-size:11px;color:var(--text-dim);line-height:1.5;white-space:pre-wrap;word-wrap:break-word">${brainEscape(bodyPreview)}${moreText}</div>
+            </div>
+          </div>
+          ${a.status === 'proposed' ? `
+          <div style="display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+            <button onclick="brainUpdateAction(${a.id},'approved')" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:6px;font-size:11px;cursor:pointer">Approve</button>
+            <button onclick="brainUpdateAction(${a.id},'rejected')" style="background:var(--surface);border:1px solid var(--border);color:var(--text-muted);padding:5px 12px;border-radius:6px;font-size:11px;cursor:pointer">Reject</button>
+            <button onclick="brainUpdateAction(${a.id},'executed')" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:5px 12px;border-radius:6px;font-size:11px;cursor:pointer">Mark done</button>
+          </div>` : ''}
+        </div>`;
+      }).join('');
+    }
+
+    function brainRenderBriefs() {
+      const container = document.getElementById('brainRecentBriefs');
+      if (!container) return;
+      const briefs = brainState.briefs || [];
+      if (!briefs.length) {
+        container.innerHTML = `<div style="color:var(--text-muted);font-size:12px">No briefs yet.</div>`;
+        return;
+      }
+      container.innerHTML = briefs.map(b => {
+        const when = new Date(b.created_at + 'Z').toLocaleString();
+        const cost = (b.cost_usd || 0).toFixed(3);
+        return `
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer" onclick="brainOpenBrief(${b.id})">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px">
+            <span style="font-size:11px;font-weight:600">${brainEscape(b.app_slug)}</span>
+            <span style="font-size:9px;color:var(--text-muted)">$${cost}</span>
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);line-height:1.4">${brainEscape((b.analysis || '').slice(0, 130))}…</div>
+          <div style="font-size:9px;color:var(--text-muted);margin-top:4px">${when}</div>
+        </div>`;
+      }).join('');
+    }
+
+    function brainRenderStale() {
+      const container = document.getElementById('brainStaleList');
+      if (!container) return;
+      const stale = brainState.missing || [];
+      if (!stale.length) {
+        container.innerHTML = `<div style="color:#22c55e;font-size:11px">✓ All apps are fresh.</div>`;
+        return;
+      }
+      container.innerHTML = stale.slice(0, 8).map(s => {
+        const age = s.last ? Math.round((Date.now() - new Date(s.last + 'Z').getTime()) / 3600_000) + 'h' : 'never';
+        return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px"><span>${brainEscape(s.name || s.slug)}</span><span style="color:var(--text-muted);font-size:10px">${age}</span></div>`;
+      }).join('');
+    }
+
+    async function brainRunBatch(count) {
+      const btn = document.getElementById('brainRunBatchBtn');
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Running...'; }
+      try {
+        const res = await apiFetch('/api/brain/run-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count }) });
+        if (res.ok) {
+          const data = await res.json();
+          const succeeded = data.results.filter(r => !r.error).length;
+          const autoExec = data.results.reduce((sum, r) => sum + (r.autoExecuted || 0), 0);
+          showToast(`Brain cycle done: ${succeeded}/${data.count} apps, ${autoExec} auto-drafted`);
+          await brainLoadAll(true);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          showToast('Brain cycle failed: ' + (err.error || res.status));
+        }
+      } catch (e) {
+        showToast('Brain error: ' + e.message);
+      }
+      if (btn) { btn.disabled = false; btn.textContent = '▶ Run 3 stalest apps'; }
+    }
+
+    async function brainUpdateAction(id, status) {
+      try {
+        const res = await apiFetch(`/api/brain/actions/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+        if (res.ok) {
+          showToast(`Action ${status}`);
+          // Update local state without refetch
+          const i = brainState.actions.findIndex(a => a.id === id);
+          if (i >= 0) brainState.actions[i].status = status;
+          brainRenderActions();
+        } else {
+          showToast('Update failed');
+        }
+      } catch (e) {
+        showToast('Error: ' + e.message);
+      }
+    }
+
+    async function brainOpenBrief(id) {
+      const modal = document.getElementById('brainBriefModal');
+      const body = document.getElementById('brainBriefModalBody');
+      const title = document.getElementById('brainBriefModalTitle');
+      const app = document.getElementById('brainBriefModalApp');
+      if (modal) modal.style.display = 'flex';
+      body.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Loading…</div>';
+      try {
+        const res = await apiFetch(`/api/brain/briefs/${id}`);
+        if (!res.ok) { body.innerHTML = '<div style="color:#ef4444">Failed to load</div>'; return; }
+        const brief = await res.json();
+        app.textContent = brief.app_slug;
+        title.textContent = new Date(brief.created_at + 'Z').toLocaleString();
+        const actionsHtml = (brief.actions || []).map(a => {
+          const k = brainKindLabel(a.kind);
+          return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+              <span style="font-size:9px;font-weight:700;color:${k.color};background:${k.color}22;padding:2px 6px;border-radius:4px;text-transform:uppercase">${k.label}</span>
+              <span style="font-size:10px;color:var(--text-dim)">p${a.priority}</span>
+            </div>
+            <div style="font-size:12px;font-weight:600;margin-bottom:4px">${brainEscape(a.title)}</div>
+            <div style="font-size:11px;color:var(--text-dim);line-height:1.5;white-space:pre-wrap">${brainEscape(a.body)}</div>
+          </div>`;
+        }).join('');
+        const hypos = (brief.hypotheses || []).map(h =>
+          `<li style="margin-bottom:6px"><strong>${brainEscape(h.hypothesis)}</strong> <span style="color:var(--text-muted);font-size:10px">(${h.confidence || 'medium'})</span><br><span style="font-size:11px;color:var(--text-dim)">${brainEscape(h.rationale || '')}</span></li>`
+        ).join('');
+        body.innerHTML = `
+          <div style="margin-bottom:16px">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Analysis</div>
+            <div style="font-size:12px;color:var(--text-dim);line-height:1.6">${brainEscape(brief.analysis)}</div>
+          </div>
+          <div style="margin-bottom:16px">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Hypotheses</div>
+            <ul style="margin:0;padding-left:20px">${hypos}</ul>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px">Actions (${(brief.actions || []).length})</div>
+            ${actionsHtml}
+          </div>
+          <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:16px;font-size:10px;color:var(--text-muted)">
+            <span>Model: ${brainEscape(brief.model)}</span>
+            <span>Tokens: ${brief.tokens_in}→${brief.tokens_out}</span>
+            <span>Cost: $${(brief.cost_usd || 0).toFixed(4)}</span>
+            <span>Duration: ${brief.duration_ms}ms</span>
+          </div>`;
+      } catch (e) {
+        body.innerHTML = '<div style="color:#ef4444">Error: ' + brainEscape(e.message) + '</div>';
+      }
+    }
+
+    function brainCloseBrief() {
+      const modal = document.getElementById('brainBriefModal');
+      if (modal) modal.style.display = 'none';
     }
 
     // --- Social Autopilot ---

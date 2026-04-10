@@ -13,6 +13,10 @@ const SONNET_COST_OUT = 15.00 / 1_000_000;
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
 const DEEP_MODEL = 'claude-sonnet-4-5-20250929';
 
+// Hard cap: max $5/day across all brain cycles. Cron checks this before running.
+// Manual triggers via HTTP can override by passing ?force=1.
+const DAILY_COST_CAP_USD = 5.00;
+
 // Only kinds we can safely and meaningfully materialize into downstream queues.
 // email.draft stays advisory because email_queue is per-recipient-per-template, not a draft store.
 const AUTO_EXECUTABLE_KINDS = new Set(['content.draft', 'social.draft', 'research.note']);
@@ -409,9 +413,24 @@ Rules:
 
   // ---------- Core cycle ----------
 
-  async function runBrainCycle(appSlug, { model = DEFAULT_MODEL } = {}) {
+  function getTodayCostUsd() {
+    const row = db.prepare(
+      `SELECT COALESCE(SUM(cost_usd), 0) as total FROM marketing_briefs WHERE created_at >= datetime('now','-1 day')`
+    ).get();
+    return row.total || 0;
+  }
+
+  async function runBrainCycle(appSlug, { model = DEFAULT_MODEL, force = false } = {}) {
     const apiKey = getAnthropicKey();
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not found in any app .env');
+    if (!force) {
+      const todayCost = getTodayCostUsd();
+      if (todayCost >= DAILY_COST_CAP_USD) {
+        const err = new Error(`Daily cost cap reached: $${todayCost.toFixed(2)} >= $${DAILY_COST_CAP_USD.toFixed(2)}. Use ?force=1 to override.`);
+        err.code = 'COST_CAP';
+        throw err;
+      }
+    }
 
     const started = Date.now();
     const ctx = collectAppContext(appSlug);
@@ -496,22 +515,28 @@ Rules:
 
   app.post('/api/brain/run/:appSlug', asyncRoute(async (req, res) => {
     const deep = req.query.deep === '1' || req.body?.deep === true;
+    const force = req.query.force === '1' || req.body?.force === true;
     const model = deep ? DEEP_MODEL : DEFAULT_MODEL;
     try {
-      const result = await runBrainCycle(req.params.appSlug, { model });
+      const result = await runBrainCycle(req.params.appSlug, { model, force });
       res.json(result);
     } catch (e) {
-      res.status(500).json({ error: e.message });
+      const status = e.code === 'COST_CAP' ? 429 : 500;
+      res.status(status).json({ error: e.message, code: e.code });
     }
   }));
 
   app.post('/api/brain/run-batch', asyncRoute(async (req, res) => {
     const count = Math.min(8, parseInt(req.body?.count) || 3);
+    const force = req.query.force === '1' || req.body?.force === true;
     const slugs = pickNextAppsToAnalyze(count);
     const results = [];
     for (const slug of slugs) {
-      try { results.push(await runBrainCycle(slug)); }
-      catch (e) { results.push({ appSlug: slug, error: e.message }); }
+      try { results.push(await runBrainCycle(slug, { force })); }
+      catch (e) {
+        results.push({ appSlug: slug, error: e.message, code: e.code });
+        if (e.code === 'COST_CAP') break; // stop iterating if we hit the cap
+      }
     }
     res.json({ count: results.length, results });
   }));
@@ -572,10 +597,14 @@ Rules:
     const actionsByStatus = db.prepare(`SELECT status, COUNT(*) as n FROM marketing_actions GROUP BY status`).all();
     const actionsByKind = db.prepare(`SELECT kind, COUNT(*) as n FROM marketing_actions WHERE status = 'proposed' GROUP BY kind ORDER BY n DESC`).all();
     const totalBriefs = db.prepare(`SELECT COUNT(*) as n FROM marketing_briefs`).get();
+    const costToday = today.cost || 0;
     res.json({
-      briefs_today: today.n, cost_today: today.cost || 0,
+      briefs_today: today.n, cost_today: costToday,
       briefs_week: week.n, cost_week: week.cost || 0,
       briefs_total: totalBriefs.n,
+      daily_cap_usd: DAILY_COST_CAP_USD,
+      cap_remaining_usd: Math.max(0, DAILY_COST_CAP_USD - costToday),
+      cap_pct_used: Math.round((costToday / DAILY_COST_CAP_USD) * 100),
       actions_by_status: actionsByStatus,
       proposed_actions_by_kind: actionsByKind,
     });
@@ -587,13 +616,22 @@ Rules:
   cron.schedule('15 */4 * * *', async () => {
     const started = Date.now();
     try {
+      const todayCost = getTodayCostUsd();
+      if (todayCost >= DAILY_COST_CAP_USD) {
+        console.log(`[brain-cron] skipping cycle — daily cost cap reached ($${todayCost.toFixed(2)}/$${DAILY_COST_CAP_USD.toFixed(2)})`);
+        return;
+      }
       const slugs = pickNextAppsToAnalyze(3);
-      console.log(`[brain-cron] starting cycle for ${slugs.length} apps: ${slugs.join(', ')}`);
+      console.log(`[brain-cron] starting cycle for ${slugs.length} apps: ${slugs.join(', ')} (spent today: $${todayCost.toFixed(2)})`);
       for (const slug of slugs) {
         try {
           const r = await runBrainCycle(slug);
-          console.log(`[brain-cron] ${slug}: brief ${r.briefId}, ${r.actionsInserted} actions, $${r.cost_usd.toFixed(4)}, ${r.duration_ms}ms`);
+          console.log(`[brain-cron] ${slug}: brief ${r.briefId}, ${r.actionsInserted} actions (${r.autoExecuted} auto-exec), $${r.cost_usd.toFixed(4)}, ${r.duration_ms}ms`);
         } catch (e) {
+          if (e.code === 'COST_CAP') {
+            console.log(`[brain-cron] cost cap hit mid-cycle, stopping`);
+            break;
+          }
           console.error(`[brain-cron] ${slug} failed:`, e.message);
           cronFail?.('marketing-brain-cycle', e);
         }
