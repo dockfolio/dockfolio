@@ -1,170 +1,205 @@
 # Session Handover
 
-**Date:** 2026-04-09 (Session 12)
-**Duration:** ~45 minutes
-**Goal:** Read session 11 handover, remove all games from crelvo.dev and VM, remove all cross-promotion ads (crosslinks + banners) from all websites, update Orb to OrbEdge.
+**Date:** 2026-04-10 (Session 13)
+**Duration:** ~30 minutes
+**Goal:** Read session 12 handover, push pending commits, verify OrbEdge deployment, clarify OrbEdge vs Orb product split, add OrbEdge to monitoring, document deliberate tech-debt deferrals.
 
 ## Summary
 
-Session focused on three major cleanup operations across the entire portfolio.
+Session 13 was a **cleanup and continuation** pass working autonomously from session 12's next-steps list. User direction: "keep going, work like a good employee, find what needs doing yourself, document for future AIs."
 
-First, removed all 8 standalone browser games (Grimhollow, Diplomancy, Lufthafen, World Control, CreatureForge, Kettenreaktion, Hunting Dragons, Forgelands) plus urlGame from production. This meant: removing the games section from crelvo.dev, stopping 4 game containers on the VM, deleting 9 game nginx configs, removing 7 game entries from VM config.yml, deleting the Kettenreaktion backend API route, removing game entries from the social autopilot (app definitions + 5 subreddit monitors), and deleting crosslinks injection scripts. Games will now be developed locally only, with potential future Steam releases.
+Four things happened:
 
-Second, removed ALL cross-promotion advertising from every website (21+ sites). This included the "Also by Crelvo:" crosslinks widget bar and the BannerForge cross-promo banner ads. Both were injected via nginx `sub_filter` directives. Cleaned 23 nginx configs on the VM. Also removed the crosslinks widget.js endpoint from the dashboard code. Found 4 sites (abschlusscheck, promoforge, bewerbungsfotos-ai, bannerforge) had embed.js hardcoded in their app source code — fixed those in local repos and committed. The nginx proxy_pass blocks for banners were also removed, so even the hardcoded references 404 now.
+1. **Pushed all 5 pending repos to origin** — appManager, slebständig (→`konradreyhe/crelvo`), abschlusscheck, headshot-ai-pro, promoforge (→`videoCreator`). All clean, no conflicts. Note: several repos have been renamed on GitHub to lowercase org — pushes still work via redirect but the local remote URLs are stale (cosmetic only).
 
-Third, removed the "Client Work" section (AgoraHoch3) from crelvo.dev and renamed Orb to OrbEdge with the new domain orbedge.de.
+2. **Verified OrbEdge deployment is complete** — no deploy work needed. DNS (`orbedge.de` → `91.99.104.132`), nginx config (HTTPS + www→non-www + HTTP→HTTPS redirects), SSL cert, webroot `/home/deploy/orbedge.de/`, and `index.html` all in place. Local `orbedge-landing/index.html` matches remote byte-for-byte (md5 `c49bae3099df99e7e76d707af579ffe3`). Live HTTPS returns 200.
+
+3. **Discovered and resolved an important product/naming confusion** — "Orb" and "OrbEdge" are **DIFFERENT products**, not a rename. Session 12's handover description ("Orb renamed to OrbEdge") was misleading. See "Mental Model" below. Resolved by: keeping `orb.crelvo.dev` (betting bot) live internally, treating `orbedge.de` as a separate new product, adding OrbEdge to monitoring, and documenting the distinction in CLAUDE.md + this handover so no future session makes the same mistake.
+
+4. **Added OrbEdge to dashboard/config.yml on VM** and restarted `dockfolio-dashboard` container. OrbEdge now appears in the admin dashboard as a monitored static site.
+
+Also committed the `orbedge-landing/` directory to this repo (no better home existed; other landing pages live in separate repos, but this one had no owning repo).
 
 ## What Got Done
 
-- [x] **All games removed from crelvo.dev** — Games array + entire Games Section HTML removed from Projects.astro
-- [x] **All games removed from VM** — 4 containers stopped, 9 nginx configs deleted, 7 config.yml entries removed, game directories cleaned
-- [x] **Kettenreaktion backend removed** — Deleted `dashboard/routes/kettenreaktion.js`, removed import/registration/CSRF/public paths from server.js
-- [x] **Game entries removed from social autopilot** — 7 game app definitions + urlGame removed, 5 game subreddit monitors removed
-- [x] **Game crosslinks scripts deleted** — `inject-crosslinks-games.py` and `inject-crosslinks-proxy.py` both deleted
-- [x] **Client Work section removed from crelvo.dev** — clientWork array + HTML section removed
-- [x] **Orb renamed to OrbEdge** — Updated to `orbedge.de` on crelvo.dev
-- [x] **All crosslinks removed from all sites** — nginx sub_filter for `crosslinks/widget.js` removed from 23 configs
-- [x] **All banner ads removed from all sites** — nginx sub_filter for `banners/embed.js` removed from 23 configs, proxy_pass blocks removed
-- [x] **Crosslinks widget endpoint removed** — Deleted from `dashboard/routes/marketing.js`, removed from PUBLIC_PATHS
-- [x] **Hardcoded embed.js removed from 4 app repos** — abschlusscheck, headshot-ai-pro, promoforge, bannerforge (on VM)
-- [x] **CLAUDE.md nginx template updated** — Removed banner/crosslinks injection from the new-site template
-- [x] **Dashboard restarted** — Picked up new config.yml (no game apps, no crosslinks)
-- [x] **All changes deployed** — crelvo.dev rebuilt+deployed 3 times, nginx reloaded, all verified
+- [x] **Pushed appManager** — `e11131a..82057aa` (5 commits)
+- [x] **Pushed slebständig** — `7ab7844..b41164d` (7 commits). Note: GitHub moved the repo to `konradreyhe/crelvo` (lowercase)
+- [x] **Pushed abschlusscheck** — `9fb1847..ffedac2`. Note: repo moved to `konradreyhe/abschlusscheck`
+- [x] **Pushed headshot-ai-pro** — `d3c79d4..0e53dbd`. Note: repo moved to `konradreyhe/headshot-ai-pro`
+- [x] **Pushed promoforge** — `2d1b38c..77c64a4`. Note: repo on GitHub is named `videoCreator`, not `promoforge`
+- [x] **Verified OrbEdge live** — HTTPS 200, SSL valid, www redirect 301, HTTP→HTTPS redirect 301, local md5 === remote md5
+- [x] **Added OrbEdge to VM config.yml** — Inserted before `Dockfolio Demo` entry at line 311. Static type, orbedge.de domain, saas category
+- [x] **Restarted dockfolio-dashboard container** — Picked up new config.yml. `/health` returns 200
+- [x] **Clarified OrbEdge vs Orb** — Updated CLAUDE.md Apps table: kept Orb entry with note "still live internally, removed from crelvo.dev portfolio in session 12", added OrbEdge entry as distinct product
+- [x] **Committed orbedge-landing/ to this repo** — 35612 byte static HTML file now tracked
+- [x] **Documented deliberate skips** — Banner management code cleanup and BannerForge build fix both intentionally deferred with rationale in "What Didn't Get Done"
 
 ## What's In Progress
 
-Nothing in progress — all items completed and verified.
+Nothing. All session-13 work is complete, committed, and pushed.
 
 ## What Didn't Get Done (and Why)
 
-- **Git push** — appManager 4 commits ahead, slebständig 7+ commits ahead. Carried from session 11.
-- **AbschlussCheck redeploy** — embed.js fix committed locally but container not rebuilt. Moot: nginx proxy_pass gone so embed.js 404s.
-- **HeadshotAI redeploy** — Same as above. Source in `/opt/headshot-ai/` (root-owned). Fix committed locally.
-- **PromoForge redeploy** — Same. Source in `/opt/promoforge/` (root-owned). Fix committed locally.
-- **BannerForge redeploy** — Attempted rebuild but `npm run build` failed (pre-existing build error). Source fix applied on VM directly. Moot: nginx proxy_pass gone.
-- **Social platform credentials** — Carried from sessions 10, 11.
-- **Show HN post** — Carried from session 11.
+- **Banner management code cleanup** (handover step 6) — **DELIBERATELY SKIPPED**. The dead code spans ~500 lines in `dashboard/routes/marketing.js` alone (routes for `GET/POST/PUT/DELETE /api/marketing/banners`, `banner_placements`, `/api/banners/serve`, `/api/banners/embed.js`, `/api/banners/:id/view|click`, regenerate, injection-status, plus seed logic) with dependencies on SQLite tables (`banners`, `banner_placements`), rate limiters (`rlBannerServe`, `rlBannerTrack`), `getBannerForgeUrl`, and linkage to crosspromo campaigns that reference banner data. Removing it safely requires: dropping two schema tables, removing rate limiters, updating seed-banners.js, adjusting crosspromo to not depend on banner_data, and auditing public paths. Session 12 explicitly said "Could be cleaned up later." Value of removal: low (code is dead-but-harmless; nginx no longer injects embed.js). Risk of removal: medium (cross-cutting, potential for schema drift or test breakage). **Future sessions: treat this as documented tech debt, NOT a priority. Only touch if (a) you have a full hour and (b) you're going to write tests around it.**
+
+- **BannerForge container build fix** (handover step 3) — **DELIBERATELY SKIPPED**. `npm run build` fails on VM at `/home/deploy/bannerforge`. Session 12 attempted a rebuild and hit the error. Since nginx no longer injects banner embed.js anywhere, the broken build doesn't impact any user-facing site. The container is presumably still running its previous image and serving its own dashboard — but we don't need it. **Future sessions: only fix this if someone actually wants to use BannerForge as a tool again. Otherwise it can sit broken indefinitely.**
+
+- **abschlusscheck/headshot-ai-pro/promoforge container redeploys** — Not run. Nginx `proxy_pass` is already removed so the hardcoded `<script src="/api/banners/embed.js">` tags in these apps 404. Rebuilding just to remove 404'd script tags is cosmetic and has downtime cost. Future sessions can piggyback the embed.js removal onto the next natural deploy of each app.
+
+- **Social platform credentials** — Carried from sessions 10, 11, 12. User action required: Reddit (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`), YouTube (`YOUTUBE_API_KEY`), Bluesky (`BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`).
+
+- **Show HN post** — Still unpublished. Draft at `plans/show-hn-draft.md` (gitignored). Needs user to be online 6 hours.
+
+- **Grimhollow root-owned data dir** — `/home/deploy/grimhollow/data/` still has root-owned leftover files. Carried. Harmless.
+
+- **Dockfolio.dev dual paths** — `/home/deploy/dockfolio-landing/` (real) vs stale `/home/deploy/dockfolio.dev/`. Carried from session 11 → 12 → 13.
 
 ## Architecture & Design Decisions
 
 | Decision | Chosen Approach | Why | Alternatives Considered | Why Rejected |
 |----------|----------------|-----|------------------------|--------------|
-| Game removal scope | Full removal: containers, nginx, config, backend routes, social monitoring | User said "remove ALL games" — clean break for Steam pivot | Keep nginx configs as redirects | Unnecessary complexity, domains are subdomains anyway |
-| Ad removal method | Python script to regex-clean nginx configs | 23 configs with varied patterns, manual editing would be error-prone | Manual editing per file | Too many files, too many pattern variations |
-| Hardcoded embed.js in 4 apps | Fix source + rely on nginx 404 | nginx proxy_pass removed = embed.js requests 404 regardless | Rebuild all 4 containers | 2 are in /opt/ (root-owned), 1 has build errors. 404 is sufficient |
-| Crosslinks widget endpoint | Delete entirely from marketing.js | No sites inject it anymore, dead code | Keep endpoint, just empty response | YAGNI — no sites reference it |
+| Orb vs OrbEdge identity | Treat as two SEPARATE products that happen to share a name fragment | Evidence: orb.crelvo.dev is still live (200 OK), serves the betting bot from `Projekte/bot`; orbedge.de landing page title is "ORB Edge \| Algorithmic Opening Range Breakout Trading" which is a MT5 trading EA — different tech, different market, different purpose | Revert session 12's portfolio removal of Orb; treat OrbEdge as a literal rename of Orb | Session 12's commits are already pushed to origin and are internally consistent — reverting creates churn. Better to accept the split and document it clearly |
+| Add OrbEdge to dashboard/config.yml | Insert between BetPilot and Dockfolio Demo, category "saas" | New live public site should be monitored like all others | Skip monitoring | No reason to exclude it; this is the whole point of the dashboard |
+| Commit orbedge-landing/ to appManager repo | Add as-is | It's a single 36KB static file with no other home. Landing pages for other sites live in their own repos (dreiraum.studio, dockfolio-landing, etc.) but this one was born orphan. Better tracked than not | Create a dedicated orbedge-landing repo | YAGNI — a 1-file static page doesn't need its own repo. If it grows, migrate later |
+| Banner management cleanup | Defer, document as intentional skip with explicit rationale | Session 12 already deferred it. Removal is cross-cutting refactor with no user benefit. Risk > reward | Remove in this session | Too much surface area, too little time, no tests protecting the removal |
+| BannerForge build fix | Defer | Container not used for anything user-facing. Broken build doesn't matter | Investigate and fix | Wasted effort on a tool nobody's using |
+| Fix CLAUDE.md even though gitignored | Edit anyway | User's local Claude Code sessions read this file — the edit has value on this machine even if not pushed | Only update HANDOVER.md | CLAUDE.md is the authoritative context for future local sessions. Worth the write |
 
 ## Mental Model
 
-### How cross-promotion worked (now removed)
-Three layers of cross-promotion existed:
-1. **Crosslinks widget** — A fixed bottom bar showing "Also by Crelvo:" with random links to other sites. Served as JS from `/api/crosslinks/widget.js` by the dashboard, injected via nginx `sub_filter '</body>'` on every site.
-2. **Banner ads** — BannerForge-generated image ads served from `/api/banners/embed.js` + `/api/banners/serve`. Injected same way via nginx sub_filter. Some sites (abschlusscheck, headshot-ai, promoforge, bannerforge) also had it hardcoded in their Next.js/React source via `<Script>` tags.
-3. **Banner proxy** — Each site had a `location /api/banners/ { proxy_pass http://127.0.0.1:9091/api/banners/; }` block so the banner requests went to the dashboard.
+### The Orb / OrbEdge split (CRITICAL — read this before touching either)
 
-Removing nginx sub_filter + proxy_pass kills layers 1 and 3 completely. Layer 2 (hardcoded source) still generates `<script>` tags but they 404 since the proxy is gone. Local repos are fixed for next deploy.
+These are **two different products** with similar names:
 
-### Where games lived
-- **Containers**: grimhollow-server, forgelands, diplomancy-quick, diplomancy (4 running)
-- **Nginx configs**: 9 files in `/home/deploy/nginx-configs/sites/`
-- **VM directories**: `/home/deploy/{game-name}/` (grimhollow had root-owned Docker data files that couldn't be deleted without sudo password — harmless leftovers)
-- **Dashboard config**: entries in `/home/deploy/appmanager/dashboard/config.yml`
-- **Backend**: kettenreaktion.js had a full API (daily puzzle results, stats, heatmap, streaks)
-- **Social autopilot**: game app definitions + 5 game subreddit monitors in social-autopilot.js
+**Orb (the betting bot)**
+- **Domain:** `orb.crelvo.dev`
+- **What it is:** Automated sports betting bot platform — odds analysis and bet placement
+- **Source:** `Projekte/bot` (NOT in this repo)
+- **Status:** Still live on the VM (HTTP 200). Container exists (`orb-dashboard` seen in `docker ps`)
+- **Portfolio status:** REMOVED from crelvo.dev Projects.astro in session 12 (slebständig commit `b41164d`). Internally still running, externally no longer promoted
+- **Dashboard config.yml:** Still listed as "Orb" entry (type: static, domain: orb.crelvo.dev, category: tool)
 
-### Config.yml gotcha
-The VM's config.yml was rewritten by `yaml.dump()` in a previous session. This caused a Forgelands entry to become orphaned at the end of the file, outside the `apps` key. Had to use raw line removal, not YAML parsing, to clean it.
+**OrbEdge (the MT5 trading EA)**
+- **Domain:** `orbedge.de`
+- **What it is:** Static landing page for an Opening Range Breakout Expert Advisor on MT5 (DAX + NAS trading, NR4 filter)
+- **Source:** `orbedge-landing/index.html` in THIS repo (committed in session 13)
+- **Status:** Live. Full nginx config with HTTPS, SSL cert, www redirect. Webroot `/home/deploy/orbedge.de/`
+- **Portfolio status:** ADDED to crelvo.dev Projects.astro in session 12 as "OrbEdge" card
+- **Dashboard config.yml:** Added in session 13 as OrbEdge entry (type: static, domain: orbedge.de, category: saas)
+- **Related infrastructure:** The VM runs "MT5 Trading (internal) | Wine + MT5 + KasmVNC" per CLAUDE.md — presumably this is where the actual EA runs. orbedge.de is just the marketing page
+
+**Why the confusion:** Session 12's handover said "Orb renamed to OrbEdge with new domain orbedge.de". This phrasing was incorrect — it wasn't a rename, it was simultaneously (a) retiring the Orb betting bot card from the portfolio and (b) introducing OrbEdge as a NEW product. Both actions happened in one commit, and the handover conflated them.
+
+**For future sessions:**
+- If a user says "Orb" without qualifier, ASK which one they mean
+- Do NOT "rename" orb.crelvo.dev → orbedge.de or vice versa. They are independent
+- Do NOT delete orb.crelvo.dev assuming it was replaced. It wasn't
+- OrbEdge's landing page source is in `orbedge-landing/` in this repo. To update: edit, rsync to `/home/deploy/orbedge.de/`, no build step needed
+
+### Deploy flow for OrbEdge updates
+```bash
+rsync -avz --delete orbedge-landing/ deploy@91.99.104.132:/home/deploy/orbedge.de/
+# No nginx reload needed — static file change picked up immediately
+```
+
+### Dashboard monitoring
+After editing VM `/home/deploy/appmanager/dashboard/config.yml`, restart the container to pick it up:
+```bash
+ssh deploy@91.99.104.132 "docker restart dockfolio-dashboard"
+```
+Container is named `dockfolio-dashboard` (NOT `appmanager-dashboard`, which doesn't exist — I tried that first and wasted a call).
 
 ## Known Issues & Risks
 
-- **Grimhollow data dir** — `/home/deploy/grimhollow/data/` has root-owned files (created by Docker). Can't delete without sudo password. Harmless but messy.
-- **appManager 4 commits ahead of origin** — `142d127`, `12f0ee5`, plus 2 from session 11. Not pushed.
-- **slebständig 7+ commits ahead** — Multiple sessions of unpushed work.
-- **3 app repos have unpushed banner removal commits** — abschlusscheck (`ffedac2`), headshot-ai-pro (`0e53dbd`), promoforge (`77c64a4`)
-- **BannerForge build broken** — `npm run build` fails on VM. Pre-existing issue, not caused by our changes. embed.js fix was applied via sed on VM source directly.
-- **Banner management API still exists in dashboard** — Routes for creating/managing banners still in the codebase. Not injected anywhere, but the code is still there. Could be cleaned up later.
+- **GitHub repo renames (cosmetic)** — Multiple repos have been moved to lowercase `konradreyhe/*` on GitHub (`KonradReyhe/slebständig` → `konradreyhe/crelvo`, `KonradReyhe/abschlusscheck` → `konradreyhe/abschlusscheck`, `KonradReyhe/headshot-ai-pro` → `konradreyhe/headshot-ai-pro`, `KonradReyhe/videoCreator` is still the promoforge remote). Pushes still work via GitHub redirect but the local `.git/config` remote URLs are stale. To clean up: `git remote set-url origin <new-url>` in each. Low priority — redirect works indefinitely.
+- **Dead banner management code** — Documented above. ~500+ lines in `dashboard/routes/marketing.js` + schema tables + rate limiters + seed logic. Not harmful, just unused. See "What Didn't Get Done" for rationale on the deferral.
+- **BannerForge build broken** — `/home/deploy/bannerforge` `npm run build` fails. Container presumably running an older image. Not used anywhere user-facing.
+- **slebständig commit `b41164d` product semantics** — This commit removed Orb from the crelvo.dev portfolio AND added OrbEdge. If the user ever wants Orb back on the portfolio, it needs a new commit that re-adds the card (not a revert — that would also remove OrbEdge).
+- **orbedge-landing/ has no build step** — It's a single hand-written HTML file. If it grows to need assets/JS modules, reconsider giving it its own repo with a proper build pipeline.
+- **config.yml drift** — `dashboard/config.yml` is gitignored. Changes happen directly on the VM. This session added OrbEdge to the VM copy only. There is no canonical git-tracked version. Future sessions: remember that config.yml changes persist on the VM but are NOT in any repo.
 
 ## What Worked Well
 
-- **Python scripts via SSH for bulk nginx edits** — Regex-based cleanup of 23 configs was fast and reliable
-- **Two-pass nginx cleanup** — First pass got sub_filter lines, second pass caught remaining proxy_pass blocks with `^~` prefix that first regex missed
-- **Verifying via curl HTTP status** — `curl -o /dev/null -w '%{http_code}'` confirmed embed.js 404s on all affected sites without needing browser
-- **Parallel tool calls** — Running multiple SSH checks simultaneously saved significant time
+- **Verify-before-deploy saved an unnecessary action** — Before rsyncing `orbedge-landing/` I checked md5sum of local vs remote and found they were already identical. Saved a deploy call with zero value.
+- **Parallel `Bash` calls for independent pushes** — All 5 repo pushes ran concurrently, completing in one round-trip instead of five sequential ones.
+- **Python-on-VM for config.yml edit** — Used a heredoc-piped Python script over SSH to do the YAML-aware insertion without needing to scp a file. Single SSH call, atomic.
+- **Questioning session 12's framing** — The "renamed Orb to OrbEdge" description was clean and plausible, but checking the actual live state revealed two distinct products. Worth flagging and documenting. Future sessions will thank us.
 
 ## What Didn't Work (Traps to Avoid)
 
-- **Single regex for all nginx patterns** — The banner `location` blocks used different prefixes (`location /api/banners/` vs `location ^~ /api/banners/`). First cleanup script missed the `^~` variant. Always account for nginx location modifiers.
-- **yaml.dump creates orphans** — Previous session's yaml.dump left Forgelands orphaned at EOF. When using Python yaml to edit config.yml, verify the output structure matches input.
-- **Can't sudo rm on VM** — deploy user has no sudo for rm. Docker-created files in bind mounts may be root-owned. Can only clean deploy-owned files.
-- **Can't rebuild /opt/ apps** — headshot-ai and promoforge live in `/opt/` which is root-owned. Can't rebuild without sudo or the original deploy pipeline.
+- **Assumed container name** — First tried `docker restart appmanager-dashboard` (matching the repo name). Container is actually named `dockfolio-dashboard`. Always `docker ps --format '{{.Names}}'` first.
+- **`dashboard/config.yml` doesn't exist locally** — It's gitignored AND not present in the local working copy. Only lives on the VM. Grep'ing for it locally returns nothing. Don't confuse yourself looking.
+- **Ambiguous handover summaries** — Session 12's "Orb renamed to OrbEdge" one-liner was technically false and led to investigation time. Moral: when describing product changes, be explicit about which products are added/removed/kept.
+- **Assuming gitignored files are untracked** — `HANDOVER.md` is in `.gitignore` but ALSO in `git ls-files`. It was committed before the gitignore entry was added (or was force-added) so git continues to track it. Always `git ls-files | grep <name>` to check actual tracking state, not just `.gitignore`.
 
 ## Next Steps (Priority Order)
 
-1. **Push all repos to origin:**
-   - `cd Projekte/appManager && git push` (4 ahead)
-   - `cd Projekte/slebständig && git push` (7+ ahead)
-   - `cd Projekte/abschlusscheck && git push`
-   - `cd Projekte/headshot-ai-pro && git push`
-   - `cd Projekte/promoforge && git push`
+1. **Fix stale GitHub remote URLs** — Low priority, cosmetic. For each of slebständig, abschlusscheck, headshot-ai-pro, promoforge: `git remote set-url origin <lowercase-url>`. Not urgent since redirects work.
 
-2. **Deploy abschlusscheck to remove hardcoded embed.js from running container:**
-   - `cd Projekte/abschlusscheck && bash scripts/deploy.sh`
-   - This is the only one with a deploy script. Others need their pipelines.
+2. **Social platform credentials** (user action needed) — Still blocked on Reddit/YouTube/Bluesky API keys. Carried since session 10.
 
-3. **Fix BannerForge build** — `npm run build` fails on VM at `/home/deploy/bannerforge`. Investigate and fix so the container can be rebuilt with the embed.js removal.
+3. **Show HN post** — Draft at `plans/show-hn-draft.md`. User must block 6 hours online.
 
-4. **Configure social platform credentials** (user action needed):
-   - Reddit: `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET`
-   - YouTube: `YOUTUBE_API_KEY`
-   - Bluesky: `BLUESKY_HANDLE` + `BLUESKY_APP_PASSWORD`
+4. **When next touching abschlusscheck / headshot-ai-pro / promoforge for unrelated reasons** — Piggyback the embed.js source removal (already committed locally, already pushed) by rebuilding the container. No rush.
 
-5. **Show HN post** — Draft at `plans/show-hn-draft.md`. User must be online 6 hours.
+5. **Decide on orb.crelvo.dev's fate** — Is the betting bot still being worked on? If not, consider retiring it cleanly (stop container, remove nginx config, remove from dashboard config.yml). Currently it's live but un-promoted — a half-state.
 
-6. **Clean up dead banner management code** — Banner routes still exist in `dashboard/routes/marketing.js` (create/update/delete/serve banners). Could be removed since no sites use them anymore.
+6. **Banner management code cleanup** — Only if you have a dedicated slot for it. See "What Didn't Get Done" for scope. Write tests first.
 
-7. **OrbEdge setup** — New domain orbedge.de exists but may need full nginx config, SSL cert, DNS setup. Check if it's already configured on the VM.
+7. **BannerForge build fix** — Only if someone actually wants BannerForge back. Otherwise leave broken.
+
+8. **orbedge-landing/ content polish** — The landing page exists but hasn't been iterated on. If OrbEdge gets customer interest, consider conversion copy, analytics, email capture, etc. Currently has Plausible analytics proxy ready in nginx but no `<script data-domain>` injection (check if page has it inline).
+
+9. **Untracked files in appManager working copy:**
+   - `KNOWLEDGEBASEhreejs.md` — 7888 lines (~82K tokens) Three.js reference. Too large to commit without polluting repo. Recommendation: keep local, add to .gitignore explicitly so it doesn't show in git status noise.
+   - `gsc-properties.md` — 185 lines. Appears to be a Playwright MCP page snapshot, not actual Google Search Console data. Probably leftover debugging output. Safe to delete, but check with user first.
+   - `.playwright-mcp/` — Playwright MCP session cache. Already covered by generic ignore patterns? Verify.
 
 ## Rollback Plan
 
-- **appManager pre-session:** `83bcefb`. Revert games: `git revert 142d127`. Revert ads: `git revert 12f0ee5`.
-- **slebständig pre-session:** `2755817`. Revert all 3 commits: `git revert b41164d b4ae631 e5c7687`
-- **Nginx configs** — No git backup. Would need to manually re-add sub_filter lines and proxy_pass blocks per the CLAUDE.md template (but template was also updated, so check git history for old version).
-- **VM config.yml** — No git backup. Would need to manually re-add game entries.
-- **Kettenreaktion DB table** — `kr_daily_results` table still exists in data.db even though the route is deleted. Data is preserved.
+- **Session 13 appManager commit:** pre-session = `82057aa`. Revert the session 13 commit if needed: `git revert <session-13-hash>`. This will un-commit OrbEdge landing page and the HANDOVER.md update.
+- **VM config.yml OrbEdge addition:** Not in git. To roll back: ssh to VM, edit `/home/deploy/appmanager/dashboard/config.yml`, remove the 10-line OrbEdge block (lines ~311-320), restart `dockfolio-dashboard`.
+- **CLAUDE.md edit:** Not in git (gitignored). Just edit again to revert.
 
 ## Files Changed This Session
 
-### appManager repo (this repo)
-- `dashboard/routes/kettenreaktion.js` — **Deleted**. Kettenreaktion backend API (submit results, stats, heatmap, streaks).
-- `dashboard/routes/social-autopilot.js` — Removed 7 game app definitions, removed urlGame, removed 5 game subreddit monitors.
-- `dashboard/routes/marketing.js` — Removed crosslinks widget.js endpoint (~55 lines).
-- `dashboard/server.js` — Removed kettenreaktion import/registration, removed `/api/kr` from CSRF_EXEMPT and PUBLIC_PATHS, removed `/api/crosslinks/widget.js` from PUBLIC_PATHS.
-- `scripts/inject-crosslinks-games.py` — **Deleted**. Game site crosslinks injection script.
-- `scripts/inject-crosslinks-proxy.py` — **Deleted**. Proxy site crosslinks injection script.
-- `CLAUDE.md` — Removed Games table, updated nginx template (removed banner/crosslinks injection).
-- `HANDOVER.md` — This file.
+### appManager repo (this repo, tracked)
+- `HANDOVER.md` — Replaced with this session 13 handover
+- `orbedge-landing/index.html` — **Added**. 35612-byte static HTML landing page for OrbEdge MT5 EA. Identical copy already live at https://orbedge.de
 
-### slebständig repo (Projekte/slebständig)
-- `src/components/Projects.astro` — Removed games array (8 entries), Games Section HTML, clientWork array, Client Work Section HTML. Renamed Orb to OrbEdge with orbedge.de.
-
-### Other local repos (committed, not deployed)
-- `Projekte/abschlusscheck/app/layout.tsx` — Removed `<Script src="/api/banners/embed.js">` tag.
-- `Projekte/headshot-ai-pro/app/layout.tsx` — Removed `<Script src="/api/banners/embed.js">` tag.
-- `Projekte/promoforge/web/index.html` — Removed `<script src="/api/banners/embed.js">` tag.
+### appManager repo (local-only, gitignored)
+- `CLAUDE.md` — Updated Apps table to split Orb (betting bot, retained internally) from OrbEdge (new MT5 landing page, this repo). Addition under Content & Brands section
 
 ### VM (not in git)
-- `/home/deploy/nginx-configs/sites/*` — 23 configs cleaned: removed crosslinks sub_filter, banner embed.js sub_filter, banner proxy_pass blocks.
-- `/home/deploy/appmanager/dashboard/config.yml` — Removed 7 game entries + orphaned Forgelands block.
-- `/home/deploy/bannerforge/src/app/layout.tsx` — Removed embed.js Script tag.
-- Game containers stopped and removed (grimhollow-server, forgelands, diplomancy-quick, diplomancy).
-- 9 game nginx configs deleted.
-- Game directories removed (except grimhollow root-owned data files).
+- `/home/deploy/appmanager/dashboard/config.yml` — Added OrbEdge entry (10 lines) before Dockfolio Demo. Container `dockfolio-dashboard` restarted to apply
 
-## Open Questions
+### Remote pushes (no local file changes)
+- appManager: `e11131a..82057aa` pushed to origin/master
+- slebständig: `7ab7844..b41164d` pushed to origin/master (GitHub name: `konradreyhe/crelvo`)
+- abschlusscheck: `9fb1847..ffedac2` pushed to origin/main
+- headshot-ai-pro: `d3c79d4..0e53dbd` pushed to origin/main
+- promoforge: `2d1b38c..77c64a4` pushed to origin/main (GitHub name: `videoCreator`)
 
-- **OrbEdge (orbedge.de)** — Is the nginx config, SSL cert, and DNS already set up? Or does it need the full new-site deployment process?
-- **Banner management code cleanup** — Should the banner API routes be fully removed from the dashboard, or kept for potential future use?
-- **DeepResearch** — Still on crelvo.dev but unclear if active. No nginx sub_filter was present for it.
-- **KNOWLEDGEBASEhreejs.md** — 82K token Three.js reference, untracked. Commit or keep local?
-- **orbedge-landing/** — Untracked directory in appManager. What is it?
-- **Dockfolio.dev dual paths** — `/home/deploy/dockfolio-landing/` is the real root, but stale `/home/deploy/dockfolio.dev/` still exists. Carried from session 11.
+## Open Questions (carried or new)
+
+- **Should orb.crelvo.dev (betting bot) stay live, or be retired?** Currently live but off the portfolio. Half-state.
+- **Should BannerForge stay in the stack?** Broken build + no usage = delete candidate.
+- **Does OrbEdge landing page have Plausible analytics actually injected in HTML?** Nginx proxies the script but I didn't verify the HTML has the `<script data-domain="orbedge.de">` tag. Check next session.
+- **Is the MT5 Trading internal container (Wine + MT5 + KasmVNC) running the actual OrbEdge ORB EA?** Likely yes given the naming, but not verified in this session.
+- **Should `KNOWLEDGEBASEhreejs.md` be added to .gitignore explicitly?** It's been untracked noise for 2+ sessions.
+- **`gsc-properties.md`** — delete or keep? Looks like leftover debug output.
+- **Dockfolio.dev dual paths** — `/home/deploy/dockfolio-landing/` vs `/home/deploy/dockfolio.dev/`. Carried since session 11.
+- **`orbedge-landing/` — right home?** Committed to appManager for now because no better option existed. Reconsider if it grows.
+
+---
+
+## For Future AIs: The Big Picture
+
+Sessions 11-13 have been doing cleanup and productization work on a ~30-app portfolio running on a single Hetzner VM. The dominant themes have been:
+
+1. **Removing cruft** — games, ads, crosslinks, cross-promotion, orphaned game containers, dead backend routes
+2. **Reducing coupling between sites** — nginx sub_filters removed, so sites no longer inject shared scripts from the dashboard
+3. **Productization pivot** — session 12 signaled that games are moving off the web and toward Steam; the portfolio is narrowing to SaaS + tools + content
+4. **Documenting decisions explicitly** — handover files are getting more detailed, more architectural, more about "why" than "what"
+
+The user runs many projects in parallel and has explicitly asked Claude to be autonomous: "work like a good employee, know what's best, only ask for big real stuff, document clearly for future AIs." Honor that. Verify state before acting, prefer low-risk high-value changes, defer risky cleanup with clear rationale, and write handovers that your future self will actually want to read.
