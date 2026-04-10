@@ -123,7 +123,7 @@ if (dry) {
     prior_briefs_count: ctx.prior_briefs?.length ?? 0,
     open_actions_count: ctx.open_actions?.length ?? 0,
     learnings_count: ctx.learnings?.length ?? 0,
-    kb_snippets: (ctx.kb_snippets || []).map(s => ({ topic: s.topic, title: s.title, signals: s.signals, excerpt_length: s.excerpt?.length })),
+    kb_snippets: (ctx.kb_snippets || []).map(s => ({ topic: s.topic, title: s.title, section_title: s.section_title, signals: s.signals, excerpt_length: s.excerpt?.length })),
   }, null, 2));
   process.exit(0);
 }

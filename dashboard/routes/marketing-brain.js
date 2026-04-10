@@ -74,12 +74,48 @@ function readInfraState(appDef) {
 // Dense, opinionated marketing reference material (positioning, launch,
 // content/SEO, pricing, conversion, growth loops, distribution, email,
 // metrics, kill criteria, copywriting) stored as markdown in marketing-kb/.
-// Loaded once at boot; each brain cycle picks 1-2 most relevant sections
-// based on keyword matching against the app's stage/context/learnings.
+// Loaded once at boot. Each file is parsed into H2 sections so the brain
+// can retrieve the most relevant SECTION of the most relevant file per
+// cycle instead of always the first 1400 chars of a whole file.
 
 const MARKETING_KB_DIR = process.env.MARKETING_KB_DIR ||
   path.join(process.cwd(), 'marketing-kb');
 let marketingKB = null;
+
+// Split a KB file's markdown content into H2-bounded sections. The text
+// before the first H2 is captured as the "(intro)" section. Very short
+// sections (< 200 chars of body) are dropped as noise — they're usually
+// section headers with no content yet, or tiny transitions.
+function parseKBSections(content) {
+  const lines = content.split('\n');
+  const sections = [];
+  let current = { title: '(intro)', body: [] };
+  for (const line of lines) {
+    const m = line.match(/^##\s+(.+?)\s*$/);
+    if (m) {
+      const bodyText = current.body.join('\n').trim();
+      if (bodyText.length >= 200) {
+        sections.push({
+          title: current.title,
+          body: bodyText,
+          bag: bodyText.toLowerCase(),
+        });
+      }
+      current = { title: m[1].trim(), body: [] };
+    } else {
+      current.body.push(line);
+    }
+  }
+  const tailBody = current.body.join('\n').trim();
+  if (tailBody.length >= 200) {
+    sections.push({
+      title: current.title,
+      body: tailBody,
+      bag: tailBody.toLowerCase(),
+    });
+  }
+  return sections;
+}
 
 function loadMarketingKB() {
   if (marketingKB) return marketingKB;
@@ -96,6 +132,7 @@ function loadMarketingKB() {
     // Extract title from first H1, topic from filename (01-positioning -> positioning)
     const h1 = content.match(/^#\s+(.+)$/m);
     const topic = f.replace(/^\d+-/, '').replace(/\.md$/, '');
+    const sections = parseKBSections(content);
     kb.push({
       file: f,
       topic,
@@ -103,23 +140,66 @@ function loadMarketingKB() {
       content,
       // Pre-compute lowercased keyword bag for fast matching
       bag: content.toLowerCase(),
+      sections,
     });
   }
   marketingKB = kb;
-  console.log(`[brain-kb] loaded ${kb.length} knowledge base files from ${MARKETING_KB_DIR}`);
+  const totalSections = kb.reduce((n, f) => n + (f.sections?.length || 0), 0);
+  console.log(`[brain-kb] loaded ${kb.length} knowledge base files (${totalSections} sections) from ${MARKETING_KB_DIR}`);
   return marketingKB;
 }
 
-// Score a KB file's relevance to an app context. Returns a number >= 0;
-// higher is more relevant. Uses keyword scoring against the app's stage
-// signals (revenue, traffic, open action kinds, recent learnings).
+// Per-topic keyword bag used for both file-level stage scoring and
+// section-level relevance scoring. Hoisted to module scope so the section
+// scorer can reuse it without duplicating the list.
+const KB_TOPIC_KEYWORDS = {
+  'positioning': ['positioning', 'messaging', 'category', 'who it', 'unique value', 'target'],
+  'pre-traction': ['zero', 'no customers', 'first customer', 'cold outreach', 'pre-traction'],
+  'launch-playbook': ['launch', 'product hunt', 'hacker news', 'show hn', 'reddit launch'],
+  'content-and-seo': ['seo', 'blog', 'content', 'keyword', 'ranking', 'google'],
+  'conversion-and-landing-pages': ['landing page', 'conversion', 'bounce', 'trial', 'signup rate'],
+  'pricing': ['pricing', 'price', 'tier', 'free trial', 'freemium', 'underpricing'],
+  'growth-loops': ['viral', 'referral', 'loop', 'network effect', 'share'],
+  'distribution-channels': ['channel', 'distribution', 'paid ads', 'partnership', 'community'],
+  'email-and-lifecycle': ['email', 'newsletter', 'welcome', 'activation email', 'drip'],
+  'metrics-and-analytics': ['metric', 'mrr', 'churn', 'retention', 'activation', 'cohort'],
+  'kill-criteria-and-pivots': ['kill', 'pivot', 'dead', 'sunset', 'quit', 'churn'],
+  'copywriting': ['copy', 'headline', 'cta', 'button', 'subject line', 'hero copy'],
+};
+
+// Build a single lowercased blob of app-specific text the brain has
+// accumulated — recent learnings, prior brief summaries, open action
+// titles, SEO issues. Used for keyword scoring at both file and section
+// level. Kept short (<5000 chars) to bound scoring cost.
+function extractKBCtxText(ctx) {
+  const parts = [];
+  for (const l of (ctx.recent_learnings || [])) {
+    if (l.learning) parts.push(String(l.learning).slice(0, 300));
+  }
+  for (const l of (ctx.learnings || [])) {
+    if (l.learning) parts.push(String(l.learning).slice(0, 300));
+  }
+  for (const b of (ctx.prior_briefs || [])) {
+    if (b.analysis_summary) parts.push(String(b.analysis_summary).slice(0, 300));
+  }
+  for (const a of (ctx.open_actions || [])) {
+    if (a.title) parts.push(String(a.title).slice(0, 200));
+  }
+  if (ctx.seo?.issues) {
+    try { parts.push(JSON.stringify(ctx.seo.issues).slice(0, 300)); } catch {}
+  }
+  return parts.join(' ').toLowerCase().slice(0, 5000);
+}
+
+// Score a KB file's relevance to an app context based on stage signals
+// (MRR bucket, traffic, active subs) and what's already in the action
+// queue. Returns a number >= 0; this is the file's base score that every
+// section in the file inherits before section-level keyword scoring.
 function scoreKBRelevance(kbFile, ctx) {
-  const bag = kbFile.bag;
   let score = 0;
   const signals = [];
 
-  // Stage signals — pick a few files strongly based on MRR bucket
-  const mrr30 = Number(ctx.revenue?.revenue30d || 0) / 100; // cents to EUR
+  const mrr30 = Number(ctx.revenue?.revenue30d || 0) / 100;
   const visitors30 = Number(ctx.traffic?.visitors_30d || 0);
   const activeSubs = Number(ctx.revenue?.activeSubscriptions || 0);
   const isPreTraction = activeSubs < 10 && mrr30 < 500;
@@ -147,58 +227,102 @@ function scoreKBRelevance(kbFile, ctx) {
   if (actionKinds.has('landing') && kbFile.topic === 'conversion-and-landing-pages') { score += 10; signals.push('landing actions in queue'); }
   if (actionKinds.has('landing') && kbFile.topic === 'copywriting') { score += 8; signals.push('landing actions in queue'); }
 
-  // Keyword signals — scan learnings and recent analysis text for keywords
-  const keywordsFromCtx = [];
-  for (const l of (ctx.recent_learnings || [])) {
-    if (l.learning) keywordsFromCtx.push(String(l.learning).toLowerCase().slice(0, 300));
-  }
-  if (ctx.prior_briefs?.length) {
-    for (const b of ctx.prior_briefs) {
-      if (b.analysis_summary) keywordsFromCtx.push(String(b.analysis_summary).toLowerCase().slice(0, 300));
-    }
-  }
-  const ctxText = keywordsFromCtx.join(' ');
-  const topicKeywords = {
-    'positioning': ['positioning', 'messaging', 'category', 'who it', 'unique value', 'target'],
-    'pre-traction': ['zero', 'no customers', 'first customer', 'cold outreach', 'pre-traction'],
-    'launch-playbook': ['launch', 'product hunt', 'hacker news', 'show hn', 'reddit launch'],
-    'content-and-seo': ['seo', 'blog', 'content', 'keyword', 'ranking', 'google'],
-    'conversion-and-landing-pages': ['landing page', 'conversion', 'bounce', 'trial', 'signup rate'],
-    'pricing': ['pricing', 'price', 'tier', 'free trial', 'freemium', 'underpricing'],
-    'growth-loops': ['viral', 'referral', 'loop', 'network effect', 'share'],
-    'distribution-channels': ['channel', 'distribution', 'paid ads', 'partnership', 'community'],
-    'email-and-lifecycle': ['email', 'newsletter', 'welcome', 'activation email', 'drip'],
-    'metrics-and-analytics': ['metric', 'mrr', 'churn', 'retention', 'activation', 'cohort'],
-    'kill-criteria-and-pivots': ['kill', 'pivot', 'dead', 'sunset', 'quit', 'churn'],
-    'copywriting': ['copy', 'headline', 'cta', 'button', 'subject line', 'hero copy'],
-  };
-  const kw = topicKeywords[kbFile.topic] || [];
-  for (const k of kw) {
-    if (ctxText.includes(k)) { score += 4; }
-  }
-
   return { score, signals };
 }
 
-// Given an app context, pick the 1-2 most relevant KB files and return a
-// compact snippet (title + first ~1200 chars of each) suitable for injection
-// into the prompt. Returns null if no KB is loaded or no matches.
+// Score one section's keyword relevance against the app's ctx text.
+// Counts hits for the section's parent-topic keywords that appear in
+// BOTH the ctx text and the section body. Title hits count double
+// (if the section explicitly addresses a topic the ctx is discussing,
+// that's a strong signal). Returns {score, hits} where score is the
+// raw keyword points to ADD to the file-level score.
+function scoreKBSection(section, topic, ctxText) {
+  const kw = KB_TOPIC_KEYWORDS[topic] || [];
+  if (!kw.length || !ctxText) return { score: 0, hits: 0 };
+  const bag = section.bag;
+  const titleLower = section.title.toLowerCase();
+  let hits = 0;
+  for (const k of kw) {
+    if (!ctxText.includes(k)) continue;
+    if (titleLower.includes(k)) hits += 2;
+    else if (bag.includes(k)) hits += 1;
+  }
+  return { score: hits * 3, hits };
+}
+
+// Given an app context, pick the most relevant KB SECTIONS (not whole
+// files) and return compact snippets for prompt injection. For each
+// file: compute its stage-based score, then pick its best-scoring
+// section (file_score + section_keyword_score). Dedupe across files
+// so at most one section per file can land in the final result. This
+// lets the brain see the actually-relevant part of a file instead of
+// always the first 1400 chars.
 function pickKBSnippets(ctx, max = 2) {
   const kb = loadMarketingKB();
   if (!kb.length) return null;
-  const scored = kb.map(f => ({ file: f, ...scoreKBRelevance(f, ctx) }));
-  scored.sort((a, b) => b.score - a.score);
-  const picked = scored.filter(s => s.score > 0).slice(0, max);
-  if (!picked.length) {
-    // Fallback: always include positioning (the foundation) if nothing scored
-    const positioning = kb.find(f => f.topic === 'positioning');
-    if (positioning) return [{ topic: positioning.topic, title: positioning.title, excerpt: positioning.content.slice(0, 1200), signals: ['fallback: positioning is always relevant'] }];
-    return null;
+
+  const ctxText = extractKBCtxText(ctx);
+  const candidates = [];
+
+  for (const file of kb) {
+    const { score: fileScore, signals: fileSignals } = scoreKBRelevance(file, ctx);
+    const sections = file.sections?.length ? file.sections : null;
+    if (!sections) {
+      // Fallback for files with no parsable sections: use the whole file.
+      if (fileScore > 0) {
+        candidates.push({
+          file,
+          section: { title: '(full file)', body: file.content },
+          total: fileScore,
+          signals: fileSignals,
+        });
+      }
+      continue;
+    }
+
+    // Score each section; keep the best one for this file.
+    let best = null;
+    for (const section of sections) {
+      const { score: kwScore, hits } = scoreKBSection(section, file.topic, ctxText);
+      const total = fileScore + kwScore;
+      if (!best || total > best.total) best = { section, total, hits };
+    }
+    if (!best || best.total <= 0) continue;
+
+    const signals = [...fileSignals];
+    if (best.hits > 0) {
+      signals.push(`section match: "${best.section.title}" (${best.hits} keyword hits)`);
+    }
+    candidates.push({
+      file,
+      section: best.section,
+      total: best.total,
+      signals,
+    });
   }
+
+  candidates.sort((a, b) => b.total - a.total);
+  const picked = candidates.slice(0, max);
+
+  if (!picked.length) {
+    // Fallback: always inject the positioning foundation section
+    const positioning = kb.find(f => f.topic === 'positioning');
+    if (!positioning) return null;
+    const sec = positioning.sections?.[0] || { title: '(intro)', body: positioning.content };
+    return [{
+      topic: positioning.topic,
+      title: positioning.title,
+      section_title: sec.title,
+      excerpt: sec.body.slice(0, 1400),
+      signals: ['fallback: positioning is always relevant'],
+    }];
+  }
+
   return picked.map(p => ({
     topic: p.file.topic,
     title: p.file.title,
-    excerpt: p.file.content.slice(0, 1400),
+    section_title: p.section.title,
+    excerpt: p.section.body.slice(0, 1400),
     signals: p.signals,
   }));
 }
@@ -517,7 +641,8 @@ Rules:
     if (ctx.kb_snippets?.length) {
       lines.push('## Marketing knowledge base (relevant to this app — ground your analysis in these principles)');
       for (const s of ctx.kb_snippets) {
-        lines.push(`### KB: ${s.title} [${s.topic}]`);
+        const secLabel = s.section_title && s.section_title !== '(intro)' ? ` › ${s.section_title}` : '';
+        lines.push(`### KB: ${s.title} [${s.topic}]${secLabel}`);
         if (s.signals?.length) lines.push(`(selected because: ${s.signals.join('; ')})`);
         lines.push(s.excerpt);
         lines.push('');
@@ -593,7 +718,8 @@ Rules:
     if (ctx.kb_snippets?.length) {
       lines.push('## Marketing knowledge base (relevant to this app — ground your analysis in these principles)');
       for (const s of ctx.kb_snippets) {
-        lines.push(`### KB: ${s.title} [${s.topic}]`);
+        const secLabel = s.section_title && s.section_title !== '(intro)' ? ` › ${s.section_title}` : '';
+        lines.push(`### KB: ${s.title} [${s.topic}]${secLabel}`);
         if (s.signals?.length) lines.push(`(selected because: ${s.signals.join('; ')})`);
         lines.push(s.excerpt);
         lines.push('');
