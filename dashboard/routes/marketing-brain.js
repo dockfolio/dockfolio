@@ -169,6 +169,7 @@ const KB_TOPIC_KEYWORDS = {
   'b2b-outbound': ['cold email', 'outbound', 'icp', 'sequence', 'prospect', 'sdr', 'reply rate'],
   'plg-motions': ['self-serve', 'free trial', 'freemium', 'reverse trial', 'activation', 'time to value', 'plg'],
   'category-design': ['category', 'chasm', 'early adopter', 'pragmatist', 'narrative', 'pov', 'bowling alley'],
+  'portfolio-and-public-ai': ['portfolio', 'cross-sell', 'cross-promo', 'brand', 'founder brand', 'public', 'autonomy', 'autonomous', 'bluesky', 'farcaster', 'flywheel', 'levelsio', 'multiple products', 'sister app', 'meta-marketing', 'build in public', 'transparency'],
 };
 
 // Short stopword list used by detectKBCitation to filter topic+section
@@ -285,6 +286,19 @@ function scoreKBRelevance(kbFile, ctx) {
   // category-design: stuck pre-traction with content in the queue but no
   // traction — usually signals "positioned into an existing crowded category"
   if (isPreTraction && visitors30 > 100 && mrr30 === 0 && kbFile.topic === 'category-design') { score += 20; signals.push('traffic without conversion → category confusion'); }
+
+  // portfolio-and-public-ai: fires for portfolio founders. Crelvo runs 30+
+  // marketable apps on shared infra so every Dockfolio brain cycle qualifies
+  // as "Archetype A" from the file. Score is always additive (base +20) so
+  // it consistently earns a meta-slot alongside stage-specific files.
+  if (kbFile.topic === 'portfolio-and-public-ai') {
+    score += 20;
+    signals.push('portfolio founder → meta-brand + Public Brain plays apply');
+    if (isPreTraction) { score += 8; signals.push('pre-traction → cross-sell before fresh acquisition'); }
+    if (hasTrafficNoPaying) { score += 18; signals.push('traffic not converting → portfolio brand may unlock latent distribution'); }
+    if (isEarlyTraction) { score += 15; signals.push('early traction → formalize the portfolio flywheel'); }
+    if (hasPayingNoGrowth) { score += 18; signals.push('paying users but no growth → leverage portfolio brand for distribution'); }
+  }
 
   // Open-action-kind signals — match KB topic to what's already in the queue
   const actionKinds = new Set((ctx.open_actions_summary_kinds || []).map(k => String(k).toLowerCase()));
@@ -602,7 +616,7 @@ export default function registerMarketingBrainRoutes({
     // from marketing-kb/*.md based on the app's stage, open actions, learnings.
     // Injected into the prompt so the brain can ground proposals in proven
     // indie-SaaS marketing principles instead of generic advice.
-    ctx.kb_snippets = pickKBSnippets(ctx, 2);
+    ctx.kb_snippets = pickKBSnippets(ctx, 3);
 
     return ctx;
   }

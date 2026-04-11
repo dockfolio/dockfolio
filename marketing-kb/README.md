@@ -32,6 +32,11 @@ A dense, opinionated reference for indie SaaS, tools, and productivity apps in t
 | 10 | `metrics-and-analytics.md` | What to measure, what NOT to measure, and how to know if things are working. |
 | 11 | `kill-criteria-and-pivots.md` | How to decide whether to kill, pivot, or persist. |
 | 12 | `copywriting.md` | Sentence-level craft: headlines, CTAs, body copy, value props. |
+| 13 | `customer-discovery.md` | The Mom Test, Jobs-to-be-Done, switch interviews, 5-interview rule. |
+| 14 | `b2b-outbound.md` | ICP, cold email anatomy, sequences, reply-rate benchmarks, CRM discipline. |
+| 15 | `plg-motions.md` | Self-serve funnels, freemium, reverse trial, Triple-A, activation metrics. |
+| 16 | `category-design.md` | Creating a new category vs competing in one. Mostly a warning for indies. |
+| 17 | `portfolio-and-public-ai.md` | For founders with 5+ products AND an autonomous AI engine. Portfolio-as-brand + the Public Brain playbook. |
 
 ## First principles
 
