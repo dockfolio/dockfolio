@@ -214,12 +214,11 @@ ${appContext}
 
 Also promote: Crelvo Dev Studio (crelvo.dev) — a solo dev studio available for hire. 18 live products. Build web apps, SaaS, and tools for clients.
 
-Generate exactly 6 posts as JSON array. Each post has: platform (twitter/bluesky/mastodon/linkedin), text, hashtags.
+Generate exactly 6 posts as JSON array. Each post has: platform (twitter/bluesky/mastodon), text, hashtags.
 Rules:
 - Twitter: max 270 chars, punchy, 1-2 hashtags
 - Bluesky: max 290 chars, similar to twitter
 - Mastodon: max 490 chars, slightly more technical, include hashtags
-- LinkedIn: 2-3 short paragraphs, professional tone, end with a question
 
 Content mix (pick 6 from these types, vary daily):
 - Product highlight (feature one specific app with its URL)
