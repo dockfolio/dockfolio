@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Selfcheck. Krypto Selbstanzeige Risiko Scanner. Fiscanto.</title>
+  <meta name="description" content="Kostenloser Risiko Scanner fuer Krypto Selbstanzeigen. In zwei Minuten eine erste Einschaetzung ob eine Selbstanzeige aktuell sinnvoll ist. BMF konforme Heuristik, keine Steuerberatung.">
+  <meta name="theme-color" content="#0a0e1a">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://fiscanto.de/selfcheck">
+  <meta property="og:title" content="Fiscanto Selfcheck. Krypto Selbstanzeige Risiko Scanner.">
+  <meta property="og:description" content="In zwei Minuten eine erste Einschaetzung ob eine Krypto Selbstanzeige aktuell sinnvoll ist. Kostenlos, ohne Anmeldung.">
+  <meta property="og:url" content="https://fiscanto.de/selfcheck">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230a0e1a'/><path d='M28 28h44v8H38v14h26v8H38v22h-10z' fill='%230d9488'/><circle cx='72' cy='30' r='5' fill='%23d4af37'/></svg>">
+
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #06080f;
+      --bg-2: #0b1020;
+      --surface: rgba(14, 20, 36, 0.62);
+      --surface-card: rgba(18, 26, 44, 0.72);
+      --surface-strong: rgba(14, 20, 36, 0.88);
+      --border: rgba(148, 163, 184, 0.12);
+      --border-strong: rgba(148, 163, 184, 0.26);
+      --border-accent: rgba(20, 184, 166, 0.34);
+      --text: #ecf0f8;
+      --text-dim: #9aa6bd;
+      --text-muted: #6b7794;
+      --teal: #0d9488;
+      --teal-soft: #14b8a6;
+      --teal-bright: #2dd4bf;
+      --gold: #b08d57;
+      --gold-soft: #d4af37;
+      --gold-bright: #f0c674;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --safe: #10b981;
+    }
+    html { scroll-behavior: smooth; }
+    html, body { background: var(--bg); color: var(--text); overflow-x: hidden; }
+    body {
+      font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-feature-settings: 'cv11', 'ss01';
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      letter-spacing: -0.005em;
+      min-height: 100vh;
+    }
+    a { color: var(--teal-bright); text-decoration: none; transition: color 0.15s ease; }
+    a:hover { color: var(--text); }
+
+    nav.top {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(6, 8, 15, 0.78);
+      backdrop-filter: blur(18px) saturate(140%);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-row {
+      max-width: 1100px; margin: 0 auto;
+      padding: 14px 28px;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 24px;
+    }
+    .brand {
+      font-weight: 700; font-size: 18px; letter-spacing: -0.02em;
+      color: var(--text);
+      display: flex; align-items: center; gap: 11px;
+    }
+    .brand-mark {
+      width: 30px; height: 30px;
+      background: linear-gradient(135deg, var(--teal) 0%, var(--gold) 130%);
+      border-radius: 8px;
+      display: grid; place-items: center;
+      color: #02110f; font-weight: 800; font-size: 14px;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset, 0 8px 22px rgba(13,148,136,0.30);
+    }
+    .nav-links { display: flex; gap: 22px; align-items: center; }
+    .nav-links a { color: var(--text-dim); font-size: 14px; font-weight: 500; }
+    .nav-cta {
+      padding: 10px 18px; border-radius: 9px;
+      background: var(--teal); color: #02110f !important;
+      font-weight: 600; font-size: 14px;
+      transition: all 0.18s ease;
+    }
+    .nav-cta:hover { background: var(--teal-soft); transform: translateY(-1px); }
+
+    main {
+      max-width: 920px; margin: 0 auto;
+      padding: 60px 24px 110px;
+      position: relative;
+    }
+    .hero-glow {
+      position: absolute;
+      top: 30px; left: 50%;
+      transform: translateX(-50%);
+      width: 700px; height: 320px;
+      background: radial-gradient(ellipse, rgba(20, 184, 166, 0.14) 0%, transparent 60%);
+      filter: blur(40px);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 9px;
+      padding: 7px 16px;
+      background: rgba(20, 184, 166, 0.10);
+      border: 1px solid rgba(20, 184, 166, 0.30);
+      border-radius: 999px;
+      font-size: 12px; font-weight: 600;
+      color: var(--teal-bright);
+      letter-spacing: 0.10em;
+      text-transform: uppercase;
+      margin-bottom: 24px;
+      position: relative; z-index: 1;
+    }
+    .eyebrow::before {
+      content: '';
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--teal-bright);
+      box-shadow: 0 0 10px var(--teal-bright);
+    }
+
+    h1 {
+      font-size: clamp(32px, 5vw, 52px);
+      font-weight: 800;
+      letter-spacing: -0.030em;
+      line-height: 1.05;
+      margin-bottom: 20px;
+      background: linear-gradient(180deg, #ffffff 0%, #b8c2d6 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      position: relative; z-index: 1;
+    }
+    h1 .accent {
+      background: linear-gradient(120deg, var(--teal-bright) 0%, var(--gold-bright) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .lead {
+      font-size: 18px;
+      color: var(--text-dim);
+      max-width: 680px;
+      line-height: 1.65;
+      margin-bottom: 40px;
+      position: relative; z-index: 1;
+    }
+    h2 {
+      font-size: clamp(22px, 3vw, 28px);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-top: 56px; margin-bottom: 14px;
+      color: var(--text);
+      line-height: 1.2;
+    }
+    h2 .em {
+      background: linear-gradient(120deg, var(--teal-bright), var(--gold-bright));
+      -webkit-background-clip: text; background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    p { color: var(--text-dim); font-size: 16px; line-height: 1.7; margin-bottom: 14px; }
+
+    /* Form */
+    .form-card {
+      margin-top: 12px;
+      padding: 36px 32px;
+      background: var(--surface-card);
+      border: 1px solid var(--border-strong);
+      border-radius: 18px;
+      backdrop-filter: blur(14px);
+      position: relative; z-index: 1;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px 24px;
+    }
+    @media (max-width: 640px) {
+      .form-grid { grid-template-columns: 1fr; }
+      main { padding: 40px 18px 80px; }
+      .form-card { padding: 24px 20px; }
+    }
+    .field { display: flex; flex-direction: column; gap: 8px; }
+    .field.full { grid-column: 1 / -1; }
+    label {
+      font-size: 13px; font-weight: 600; color: var(--text);
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    label .hint { font-size: 12px; font-weight: 400; color: var(--text-muted); line-height: 1.5; }
+    input[type=number], select {
+      padding: 12px 14px;
+      background: rgba(6, 8, 15, 0.62);
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 15px; font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    input[type=number]:focus, select:focus {
+      outline: none;
+      border-color: var(--teal-bright);
+      box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12);
+    }
+    .toggle-row {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      margin-top: 4px;
+    }
+    .toggle {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 9px 14px;
+      background: rgba(6, 8, 15, 0.62);
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 13.5px; color: var(--text-dim);
+      transition: all 0.16s ease;
+      user-select: none;
+    }
+    .toggle input { display: none; }
+    .toggle.active {
+      background: rgba(20, 184, 166, 0.16);
+      border-color: var(--teal-bright);
+      color: var(--text);
+    }
+    .toggle .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--text-muted);
+      transition: all 0.16s ease;
+    }
+    .toggle.active .dot {
+      background: var(--teal-bright);
+      box-shadow: 0 0 8px var(--teal-bright);
+    }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 14px 26px;
+      border-radius: 11px;
+      font-weight: 600; font-size: 15px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: 1px solid transparent;
+      letter-spacing: -0.005em;
+      font-family: inherit;
+    }
+    .btn-primary {
+      background: var(--teal);
+      color: #02110f;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset, 0 10px 28px rgba(13,148,136,0.35);
+    }
+    .btn-primary:hover { background: var(--teal-soft); transform: translateY(-1px); }
+    .btn-ghost {
+      background: rgba(255,255,255,0.03);
+      border-color: var(--border-strong);
+      color: var(--text);
+    }
+    .btn-ghost:hover { background: rgba(255,255,255,0.06); border-color: rgba(148,163,184,0.45); }
+    .form-actions {
+      grid-column: 1 / -1;
+      display: flex; flex-wrap: wrap; gap: 12px;
+      margin-top: 14px;
+    }
+
+    /* Result */
+    .result { display: none; margin-top: 32px; }
+    .result.show { display: block; animation: fadeIn 0.4s ease; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .score-card {
+      padding: 36px 32px;
+      background:
+        radial-gradient(ellipse at top right, rgba(20, 184, 166, 0.10), transparent 60%),
+        linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(15, 23, 42, 0.6));
+      border: 1px solid var(--border-strong);
+      border-radius: 20px;
+      backdrop-filter: blur(14px);
+    }
+    .score-head {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 26px;
+      align-items: center;
+    }
+    @media (max-width: 540px) {
+      .score-head { grid-template-columns: 1fr; text-align: center; gap: 16px; }
+    }
+    .gauge {
+      width: 130px; height: 130px;
+      position: relative;
+      display: grid; place-items: center;
+    }
+    @media (max-width: 540px) { .gauge { margin: 0 auto; } }
+    .gauge svg { transform: rotate(-90deg); }
+    .gauge .ring-bg { stroke: rgba(255,255,255,0.06); }
+    .gauge .ring-fg {
+      transition: stroke-dashoffset 0.7s cubic-bezier(.4,0,.2,1), stroke 0.3s ease;
+    }
+    .gauge .score-num {
+      position: absolute;
+      font-size: 36px; font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.03em;
+    }
+    .score-meta .tier-label {
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .score-meta h3 {
+      font-size: 24px; font-weight: 700;
+      color: var(--text); margin-bottom: 8px;
+      letter-spacing: -0.01em; line-height: 1.2;
+    }
+    .score-meta p { font-size: 15px; margin-bottom: 0; }
+
+    .tier-act_now .ring-fg, .tier-act_now .tier-label { stroke: var(--danger); color: var(--danger); }
+    .tier-consult_advisor .ring-fg, .tier-consult_advisor .tier-label { stroke: var(--warn); color: var(--warn); }
+    .tier-monitor .ring-fg, .tier-monitor .tier-label { stroke: var(--safe); color: var(--safe); }
+
+    .estimate-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-top: 28px;
+    }
+    .estimate {
+      padding: 18px 20px;
+      background: rgba(255,255,255,0.025);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .estimate .label {
+      font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--gold-soft);
+      margin-bottom: 6px; font-weight: 700;
+    }
+    .estimate .value {
+      font-size: 19px; color: var(--text);
+      font-weight: 600; letter-spacing: -0.01em;
+    }
+    .estimate .sub { font-size: 12.5px; color: var(--text-muted); margin-top: 4px; }
+
+    .reason-block {
+      margin-top: 30px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .reason-card {
+      padding: 22px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+    }
+    .reason-card .label {
+      font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--teal-bright);
+      font-weight: 700; margin-bottom: 12px;
+    }
+    .reason-card.urgent .label { color: var(--warn); }
+    .reason-card ul { list-style: none; display: grid; gap: 10px; }
+    .reason-card li {
+      font-size: 14px;
+      color: var(--text-dim);
+      padding-left: 22px;
+      position: relative;
+      line-height: 1.6;
+    }
+    .reason-card li::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 8px;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--teal-bright);
+    }
+    .reason-card.urgent li::before { background: var(--warn); }
+
+    .next-steps {
+      margin-top: 30px;
+      padding: 28px 26px;
+      background: linear-gradient(180deg, rgba(20, 184, 166, 0.08), var(--surface-card));
+      border: 1px solid var(--border-accent);
+      border-left: 3px solid var(--teal);
+      border-radius: 16px;
+    }
+    .next-steps h3 {
+      font-size: 18px; font-weight: 700;
+      color: var(--text); margin-bottom: 14px;
+      letter-spacing: -0.01em;
+    }
+    .next-steps ol {
+      list-style: none;
+      counter-reset: step;
+      display: grid; gap: 12px;
+    }
+    .next-steps ol li {
+      counter-increment: step;
+      padding-left: 38px;
+      position: relative;
+      color: var(--text-dim);
+      font-size: 14.5px; line-height: 1.6;
+    }
+    .next-steps ol li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0; top: 0;
+      width: 26px; height: 26px;
+      border-radius: 7px;
+      background: linear-gradient(135deg, rgba(13,148,136,0.22), rgba(176,141,87,0.10));
+      border: 1px solid rgba(20,184,166,0.32);
+      display: grid; place-items: center;
+      font-weight: 700;
+      color: var(--teal-bright);
+      font-size: 12px;
+    }
+
+    .followup {
+      margin-top: 28px;
+      padding: 28px 26px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      text-align: center;
+    }
+    .followup h3 {
+      font-size: 19px; font-weight: 700;
+      color: var(--text); margin-bottom: 10px;
+    }
+    .followup p { max-width: 540px; margin: 0 auto 20px; }
+    .followup .actions {
+      display: inline-flex; flex-wrap: wrap; gap: 12px; justify-content: center;
+    }
+
+    .disclaimer {
+      margin-top: 30px;
+      padding: 18px 22px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-size: 13px; color: var(--text-muted);
+      line-height: 1.65;
+    }
+    .disclaimer strong { color: var(--text-dim); }
+
+    .reset-row {
+      margin-top: 18px;
+      text-align: center;
+    }
+    .reset-row a {
+      font-size: 13.5px;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 40px 28px;
+      background: rgba(6, 8, 15, 0.92);
+      text-align: center;
+    }
+    footer .footer-row {
+      max-width: 980px; margin: 0 auto;
+      display: flex; flex-wrap: wrap; gap: 16px;
+      justify-content: space-between;
+      font-size: 13.5px; color: var(--text-muted);
+    }
+    footer a { color: var(--text-dim); margin-right: 14px; }
+    footer a:hover { color: var(--text); }
+
+    .legal-note {
+      margin-top: 18px; padding: 16px 18px;
+      background: rgba(20, 184, 166, 0.04);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--teal);
+      border-radius: 10px;
+      font-size: 13px; color: var(--text-dim);
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="top">
+    <div class="nav-row">
+      <a href="/" class="brand">
+        <span class="brand-mark">F</span>
+        <span>Fiscanto</span>
+      </a>
+      <div class="nav-links">
+        <a href="/">Startseite</a>
+        <a href="/#leistung">Engine</a>
+        <a href="/#preise">Preise</a>
+        <a href="/anwalt">Anwaltspilot</a>
+        <a href="mailto:kontakt@fiscanto.de?subject=Selfcheck%20Ergebnis%20Folgegespraech" class="nav-cta">Erstgespraech</a>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <div class="hero-glow" aria-hidden="true"></div>
+
+    <div class="eyebrow">Kostenloser Risiko Scanner &middot; Zwei Minuten &middot; Ohne Anmeldung</div>
+    <h1>Wie dringend ist eine <span class="accent">Krypto Selbstanzeige</span> in Ihrem Fall?</h1>
+    <p class="lead">Beantworten Sie zehn Fragen zu Ihrer Krypto Aktivitaet. Sie bekommen sofort eine Risiko Einschaetzung mit konkreten naechsten Schritten. Alle Eingaben bleiben ausschliesslich in Ihrem Browser. Es werden keine Daten an unsere Server uebertragen.</p>
+
+    <div class="form-card" id="form-card">
+      <form id="selfcheck-form" class="form-grid">
+
+        <div class="field">
+          <label>
+            Aktueller Krypto Bestand in EUR
+            <span class="hint">Ungefaehrer Wert aller aktuellen Krypto Bestaende ueber alle Wallets plus Boersen.</span>
+          </label>
+          <input type="number" name="holdings_eur" min="0" step="100" value="0" required>
+        </div>
+
+        <div class="field">
+          <label>
+            Kumuliertes Handelsvolumen in EUR
+            <span class="hint">Geschaetzte Summe aller Trades ueber alle Jahre. Sie kennen den Wert nicht? Schaetzen Sie grob.</span>
+          </label>
+          <input type="number" name="traded_volume_eur" min="0" step="100" value="0" required>
+        </div>
+
+        <div class="field">
+          <label>
+            Anzahl Jahre aktiv
+            <span class="hint">Seit wann handeln Sie Krypto?</span>
+          </label>
+          <input type="number" name="years_active" min="0" max="20" step="1" value="0" required>
+        </div>
+
+        <div class="field">
+          <label>
+            Anzahl Trades insgesamt (Schaetzung)
+            <span class="hint">Alle Kaeufe plus Verkaeufe plus Tauschvorgaenge ueber alle Jahre.</span>
+          </label>
+          <input type="number" name="trade_count" min="0" step="10" value="0" required>
+        </div>
+
+        <div class="field">
+          <label>
+            Anteil zentrale Boersen in Prozent
+            <span class="hint">Wieviel Prozent Ihrer Aktivitaet lief auf Binance, Coinbase, Bitcoin.de, Kraken etc. (DAC8 meldepflichtig ab 01.01.2026).</span>
+          </label>
+          <input type="number" name="cex_share_pct" min="0" max="100" step="5" value="50" required>
+        </div>
+
+        <div class="field">
+          <label>
+            Anzahl Wallets plus Boersen
+            <span class="hint">Wie viele verschiedene Wallets, Boersenkonten oder Hardware Wallets nutzen oder nutzten Sie?</span>
+          </label>
+          <input type="number" name="wallet_count" min="1" max="50" step="1" value="1" required>
+        </div>
+
+        <div class="field full">
+          <label>
+            Welche Aktivitaeten treffen zu?
+            <span class="hint">Mehrfachauswahl. Klicken Sie alles an was zutrifft.</span>
+          </label>
+          <div class="toggle-row">
+            <label class="toggle"><input type="checkbox" name="has_defi"><span class="dot"></span>DeFi (Staking, Yield Farming, Liquidity Pools)</label>
+            <label class="toggle"><input type="checkbox" name="has_nft"><span class="dot"></span>NFT Trades</label>
+            <label class="toggle"><input type="checkbox" name="has_data_gaps"><span class="dot"></span>Datenluecken aus alten oder geschlossenen Boersen</label>
+            <label class="toggle"><input type="checkbox" name="declared_in_past"><span class="dot"></span>In frueherer Steuererklaerung bereits angegeben</label>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">
+            Risiko jetzt pruefen
+            <span class="arrow">&rarr;</span>
+          </button>
+          <button type="reset" class="btn btn-ghost">Felder zuruecksetzen</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="result" id="result">
+      <div class="score-card" id="score-card">
+        <div class="score-head">
+          <div class="gauge">
+            <svg width="130" height="130" viewBox="0 0 130 130">
+              <circle class="ring-bg" cx="65" cy="65" r="55" fill="none" stroke-width="11" />
+              <circle class="ring-fg" id="ring-fg" cx="65" cy="65" r="55" fill="none" stroke-width="11" stroke-linecap="round"
+                      stroke-dasharray="345.6" stroke-dashoffset="345.6" />
+            </svg>
+            <div class="score-num" id="score-num">0</div>
+          </div>
+          <div class="score-meta">
+            <div class="tier-label" id="tier-label">Ergebnis</div>
+            <h3 id="headline">Ihre Risiko Einschaetzung</h3>
+            <p id="summary"></p>
+          </div>
+        </div>
+
+        <div class="estimate-grid">
+          <div class="estimate">
+            <div class="label">Steuerpflichtige Gewinne (Schaetzung)</div>
+            <div class="value" id="taxable-value"></div>
+            <div class="sub">Trades innerhalb 1 Jahres Frist plus Income aus DeFi.</div>
+          </div>
+          <div class="estimate">
+            <div class="label">Steuerfreie Gewinne (Schaetzung)</div>
+            <div class="value" id="taxfree-value"></div>
+            <div class="sub">Bestaende ueber 1 Jahr gehalten nach § 23 EStG.</div>
+          </div>
+        </div>
+
+        <div class="reason-block" id="reason-block">
+          <div class="reason-card urgent" id="urgency-card" style="display:none;">
+            <div class="label">Dringlichkeit Treiber</div>
+            <ul id="urgency-list"></ul>
+          </div>
+          <div class="reason-card" id="reason-card" style="display:none;">
+            <div class="label">Weitere Faktoren</div>
+            <ul id="reason-list"></ul>
+          </div>
+        </div>
+
+        <div class="next-steps">
+          <h3>Empfohlene naechste Schritte</h3>
+          <ol id="next-steps-list"></ol>
+        </div>
+
+        <div class="legal-note">
+          <strong>Rechtlicher Hinweis.</strong> Dieser Selfcheck ist eine heuristische Risiko Einschaetzung, keine Steuerberatung im Sinne § 1 StBerG und keine Rechtsdienstleistung im Sinne § 2 RDG. Eine konkrete Selbstanzeige Berechnung erfolgt ausschliesslich durch einen Steuerberater oder Steueranwalt unter Hinzuziehung von Fiscanto als Berechnungs Subkontraktor nach § 6 StBerG.
+        </div>
+      </div>
+
+      <div class="followup">
+        <h3>Soll Fiscanto Ihren Fall genauer pruefen?</h3>
+        <p>Im 30 Minuten Erstgespraech klaeren wir Ihre Datenlage konkret und besprechen die Optionen mit oder ohne Anwalt. Kostenfrei, vertraulich, ohne Folgeverpflichtung.</p>
+        <div class="actions">
+          <a href="#" id="contact-cta" class="btn btn-primary">
+            Erstgespraech anfragen
+            <span class="arrow">&rarr;</span>
+          </a>
+          <a href="/" class="btn btn-ghost">Zur Engine Beschreibung</a>
+        </div>
+      </div>
+
+      <div class="disclaimer">
+        <strong>Datenschutz.</strong> Die Berechnung laeuft vollstaendig in Ihrem Browser. Es werden keine Eingaben an Server uebertragen, gespeichert oder protokolliert. Wenn Sie das Ergebnis fuer ein Erstgespraech teilen moechten, senden Sie es bitte selbst per E Mail an kontakt@fiscanto.de.
+      </div>
+
+      <div class="reset-row">
+        <a id="reset-link">Andere Werte eingeben</a>
+      </div>
+    </div>
+
+  </main>
+
+  <footer>
+    <div class="footer-row">
+      <span>&copy; 2026 Fiscanto. Alle Rechte vorbehalten.</span>
+      <div>
+        <a href="/">Startseite</a>
+        <a href="/anwalt">Anwaltspilot</a>
+        <a href="/impressum.html">Impressum</a>
+        <a href="/datenschutz.html">Datenschutz</a>
+        <a href="mailto:kontakt@fiscanto.de">Kontakt</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Selfcheck Heuristik. Port aus tax_engine/selfcheck.py.
+    // Sicherzustellen: identisches Verhalten zur Python Version.
+
+    const TIER_HEADLINES = {
+      act_now: "Selbstanzeige zeitnah pruefen",
+      consult_advisor: "Erstgespraech mit Spezialist sinnvoll",
+      monitor: "Aktuell unkritisch, beobachten"
+    };
+
+    const TIER_NEXT_STEPS = {
+      act_now: [
+        "Daten aller Wallets plus Boersen vollstaendig sichern (CSV Export)",
+        "Erstgespraech mit Fachanwalt fuer Steuerstrafrecht buchen",
+        "Berechnung wallet bezogen nach BMF Schreiben 06.03.2025 beauftragen",
+        "Selbstanzeige vor naechster Aussenpruefung oder DAC8 Meldung einreichen"
+      ],
+      consult_advisor: [
+        "Daten der letzten 5 bis 10 Jahre aus allen Boersen sichern",
+        "Erstgespraech mit Steueranwalt oder spezialisiertem Steuerberater",
+        "Berechnung beauftragen wenn Anwalt Selbstanzeige empfiehlt",
+        "Ergebnisse fuer naechste Steuererklaerung archivieren"
+      ],
+      monitor: [
+        "Daten Backup einrichten (alle CSV Exports jahresweise sichern)",
+        "Bei Aenderung der Lage (groesserer Verkauf, neue Wallet) erneut pruefen",
+        "DAC8 Meldungen ab 2027 abwarten plus Steuererklaerung dokumentieren",
+        "Optional Continuous Compliance Service erwaegen"
+      ]
+    };
+
+    const TIER_SUMMARY = {
+      act_now: "Mehrere Risikofaktoren treffen gleichzeitig zu. Eine Selbstanzeige sollte in den naechsten Wochen vorbereitet werden, bevor DAC8 Meldungen oder Aussenpruefungen die Initiative aus der Hand nehmen.",
+      consult_advisor: "Ihr Profil hat relevante Anhaltspunkte fuer eine Pruefung. Ein Erstgespraech mit einem Steueranwalt oder spezialisierten Steuerberater ist sinnvoll, um die genaue Lage sauber einzuschaetzen.",
+      monitor: "Das Profil zeigt aktuell kein konkretes Selbstanzeige Risiko. Weiter dokumentieren und bei groesseren Aenderungen erneut pruefen."
+    };
+
+    function evaluate(input) {
+      let score = 30;
+      const reasoning = [];
+      const urgency = [];
+
+      if (!input.declared_in_past) {
+        if (input.cex_share_pct >= 50) {
+          score += 30;
+          urgency.push(
+            `Hohe DAC8 Detektierbarkeit: rund ${input.cex_share_pct} ` +
+            "Prozent Aktivitaet lief auf zentralen Boersen, die ab " +
+            "01.01.2026 an deutsche Steuerbehoerden melden"
+          );
+        } else if (input.cex_share_pct >= 20) {
+          score += 15;
+          urgency.push(
+            `Teilweise DAC8 Detektierbarkeit: rund ${input.cex_share_pct} ` +
+            "Prozent Aktivitaet auf zentralen Boersen, partielle Meldung " +
+            "ab 2026 wahrscheinlich"
+          );
+        } else {
+          reasoning.push(
+            "Geringe CEX Quote reduziert DAC8 Detektionsrisiko, " +
+            "verschwindet aber nicht (Kettenanalyse plus Bankzufluesse)"
+          );
+        }
+      } else {
+        score -= 25;
+        reasoning.push(
+          "Krypto wurde in vergangenen Steuererklaerungen bereits " +
+          "angegeben, damit reduziert sich das Strafrechtsrisiko deutlich"
+        );
+      }
+
+      const h = input.holdings_eur;
+      if (h > 1000000) { score += 30; urgency.push("Bestand ueber 1 Mio EUR loest Aussenpruefung Risiko aus"); }
+      else if (h > 200000) { score += 20; urgency.push("Bestand ueber 200k EUR ist signifikantes Volumen"); }
+      else if (h > 50000) { score += 10; reasoning.push("Bestand ueber 50k EUR ist relevantes Volumen"); }
+      else if (h > 10000) { score += 5; }
+
+      const v = input.traded_volume_eur;
+      if (v > 500000) { score += 15; urgency.push("Handelsvolumen ueber 500k EUR macht relevante Gewinne wahrscheinlich"); }
+      else if (v > 100000) { score += 10; reasoning.push("Handelsvolumen ueber 100k EUR ist nicht trivial"); }
+      else if (v > 20000) { score += 5; }
+
+      if (input.has_data_gaps) {
+        score += 15;
+        urgency.push("Datenluecken aus alten oder geschlossenen Boersen erhoehen Schaetzungsrisiko zum Nachteil bei Pruefung");
+      }
+
+      if (input.wallet_count >= 5) {
+        score += 10;
+        reasoning.push(`${input.wallet_count} Wallets erschweren Internal Transfer Matching, BMF konforme Berechnung wird notwendig`);
+      } else if (input.wallet_count >= 3) {
+        score += 5;
+      }
+
+      if (input.has_defi) {
+        score += 10;
+        reasoning.push("DeFi Aktivitaet (Staking, Liquid Staking, LP Token) ist klassifikationsintensiv und braucht spezialisierte Berechnung");
+      }
+
+      if (input.has_nft) {
+        score += 5;
+        reasoning.push("NFT Trades sind bewertungsintensiv und werden bei Pruefung regelmaessig hinterfragt");
+      }
+
+      if (input.years_active >= 5 && input.trade_count <= 50) {
+        score -= 10;
+        reasoning.push("Lange Haltedauer bei wenigen Trades macht 1 Jahres Frist fuer Grossteil des Bestands wirksam");
+      }
+
+      score = Math.max(0, Math.min(100, score));
+
+      let tier;
+      if (score >= 70) tier = "act_now";
+      else if (score >= 35) tier = "consult_advisor";
+      else tier = "monitor";
+
+      return {
+        risk_score: score,
+        tier: tier,
+        headline: TIER_HEADLINES[tier],
+        summary: TIER_SUMMARY[tier],
+        estimated_taxable_range_eur: estimateTaxable(input),
+        estimated_taxfree_range_eur: estimateTaxFree(input),
+        reasoning: reasoning.length ? reasoning : (tier === "monitor" ? ["Keine kritischen Risikofaktoren erkannt, dokumentiere weiter fuer den Fall einer Aussenpruefung"] : []),
+        urgency_factors: urgency,
+        next_steps: TIER_NEXT_STEPS[tier]
+      };
+    }
+
+    function estimateTaxable(i) {
+      const v = i.traded_volume_eur;
+      const h = i.holdings_eur;
+      let shortLow = 0.10;
+      let shortHigh = 0.30;
+      if (i.has_defi) { shortLow += 0.05; shortHigh += 0.10; }
+      const marginLow = 0.10;
+      const marginHigh = 0.40;
+      const low = v * shortLow * marginLow + h * 0.02;
+      const high = v * shortHigh * marginHigh + h * 0.10;
+      return [roundEur(low), roundEur(high)];
+    }
+
+    function estimateTaxFree(i) {
+      const h = i.holdings_eur;
+      let share = i.years_active >= 3 ? 0.40 : 0.20;
+      if (i.years_active >= 5) share = 0.60;
+      return [roundEur(h * share * 0.20), roundEur(h * share * 0.80)];
+    }
+
+    function roundEur(v) {
+      if (v < 100) return Math.round(v);
+      if (v < 10000) return Math.round(v / 100) * 100;
+      return Math.round(v / 1000) * 1000;
+    }
+
+    const fmtEur = (n) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
+    const fmtRange = ([lo, hi]) => lo === hi ? fmtEur(lo) : `${fmtEur(lo)} bis ${fmtEur(hi)}`;
+
+    // UI Wiring
+    document.querySelectorAll('.toggle input').forEach(cb => {
+      const wrap = cb.closest('.toggle');
+      cb.addEventListener('change', () => {
+        wrap.classList.toggle('active', cb.checked);
+      });
+    });
+
+    const form = document.getElementById('selfcheck-form');
+    const result = document.getElementById('result');
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const data = new FormData(form);
+      const input = {
+        holdings_eur: Number(data.get('holdings_eur') || 0),
+        traded_volume_eur: Number(data.get('traded_volume_eur') || 0),
+        years_active: Number(data.get('years_active') || 0),
+        trade_count: Number(data.get('trade_count') || 0),
+        cex_share_pct: Number(data.get('cex_share_pct') || 0),
+        wallet_count: Number(data.get('wallet_count') || 1),
+        has_defi: data.get('has_defi') === 'on',
+        has_nft: data.get('has_nft') === 'on',
+        has_data_gaps: data.get('has_data_gaps') === 'on',
+        declared_in_past: data.get('declared_in_past') === 'on'
+      };
+
+      const res = evaluate(input);
+      renderResult(res, input);
+      result.classList.add('show');
+      result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    form.addEventListener('reset', () => {
+      document.querySelectorAll('.toggle').forEach(t => t.classList.remove('active'));
+      result.classList.remove('show');
+    });
+
+    document.getElementById('reset-link').addEventListener('click', (e) => {
+      e.preventDefault();
+      result.classList.remove('show');
+      form.reset();
+      document.querySelectorAll('.toggle').forEach(t => t.classList.remove('active'));
+      document.getElementById('form-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    function renderResult(res, input) {
+      const card = document.getElementById('score-card');
+      card.className = 'score-card tier-' + res.tier;
+
+      // Animate gauge
+      const ring = document.getElementById('ring-fg');
+      const circumference = 2 * Math.PI * 55;
+      const offset = circumference - (res.risk_score / 100) * circumference;
+      requestAnimationFrame(() => {
+        ring.style.strokeDashoffset = offset;
+      });
+
+      animateNumber(document.getElementById('score-num'), 0, res.risk_score, 700);
+
+      document.getElementById('tier-label').textContent =
+        res.tier === 'act_now' ? 'Risiko hoch' :
+        res.tier === 'consult_advisor' ? 'Risiko mittel' : 'Risiko gering';
+      document.getElementById('headline').textContent = res.headline;
+      document.getElementById('summary').textContent = res.summary;
+
+      document.getElementById('taxable-value').textContent = fmtRange(res.estimated_taxable_range_eur);
+      document.getElementById('taxfree-value').textContent = fmtRange(res.estimated_taxfree_range_eur);
+
+      const urgencyCard = document.getElementById('urgency-card');
+      const urgencyList = document.getElementById('urgency-list');
+      urgencyList.innerHTML = '';
+      if (res.urgency_factors.length) {
+        res.urgency_factors.forEach(t => {
+          const li = document.createElement('li');
+          li.textContent = t;
+          urgencyList.appendChild(li);
+        });
+        urgencyCard.style.display = '';
+      } else {
+        urgencyCard.style.display = 'none';
+      }
+
+      const reasonCard = document.getElementById('reason-card');
+      const reasonList = document.getElementById('reason-list');
+      reasonList.innerHTML = '';
+      if (res.reasoning.length) {
+        res.reasoning.forEach(t => {
+          const li = document.createElement('li');
+          li.textContent = t;
+          reasonList.appendChild(li);
+        });
+        reasonCard.style.display = '';
+      } else {
+        reasonCard.style.display = 'none';
+      }
+
+      const stepsList = document.getElementById('next-steps-list');
+      stepsList.innerHTML = '';
+      res.next_steps.forEach(s => {
+        const li = document.createElement('li');
+        li.textContent = s;
+        stepsList.appendChild(li);
+      });
+
+      // Build mailto with sanitized summary (no PII echo)
+      const subject = encodeURIComponent(`Selfcheck Ergebnis Folgegespraech (Risiko ${res.risk_score}/100)`);
+      const body = encodeURIComponent(
+        `Sehr geehrtes Fiscanto Team,\n\n` +
+        `der Selfcheck hat fuer mich folgendes ergeben:\n\n` +
+        `Risk Score: ${res.risk_score} von 100 (${res.headline})\n` +
+        `Geschaetzte steuerpflichtige Gewinne: ${fmtRange(res.estimated_taxable_range_eur)}\n` +
+        `Geschaetzte steuerfreie Gewinne: ${fmtRange(res.estimated_taxfree_range_eur)}\n\n` +
+        `Bitte melden Sie sich fuer ein Erstgespraech.\n\n` +
+        `Mit freundlichen Gruessen\n[Ihr Name]`
+      );
+      document.getElementById('contact-cta').href = `mailto:kontakt@fiscanto.de?subject=${subject}&body=${body}`;
+    }
+
+    function animateNumber(el, from, to, duration) {
+      const start = performance.now();
+      function frame(now) {
+        const t = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = Math.round(from + (to - from) * eased);
+        if (t < 1) requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+    }
+  </script>
+</body>
+</html>
