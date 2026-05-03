@@ -489,6 +489,42 @@
       cursor: pointer;
     }
 
+    /* Print Layout fuer PDF Export */
+    @media print {
+      body { background: white; color: black; }
+      nav.top, footer, .followup, .reset-row, .form-card { display: none !important; }
+      main { padding: 0; max-width: 100%; }
+      .hero-glow, .eyebrow { display: none; }
+      h1 { color: black; -webkit-text-fill-color: black; font-size: 24pt; }
+      h1 .accent { -webkit-text-fill-color: black; color: black; }
+      h2 { color: black; }
+      h2 .em { -webkit-text-fill-color: black; color: black; }
+      .lead { color: #444; }
+      .result { display: block !important; }
+      .score-card { background: white; border: 2px solid #0d9488; box-shadow: none; backdrop-filter: none; }
+      .reason-card, .estimate, .next-steps { background: #f5f7fa; color: black; border: 1px solid #ccc; backdrop-filter: none; }
+      .reason-card .label, .estimate .label, .next-steps h3 { color: #0d9488; }
+      .reason-card li, .estimate .value, .next-steps ol li { color: black; }
+      .next-steps ol li::before { background: #0d9488; color: white; border: none; }
+      .reason-card.urgent .label { color: #c2410c; }
+      .reason-card.urgent li::before { background: #c2410c; }
+      .legal-note { background: #fffbf0; border-color: #d4af37; color: #444; }
+      .disclaimer { background: #f5f7fa; color: #555; }
+      .score-meta h3, .score-meta p { color: black; }
+      .gauge .ring-bg { stroke: #ccc; }
+      .score-num { color: black; }
+      .print-footer {
+        display: block !important;
+        margin-top: 40pt;
+        padding-top: 20pt;
+        border-top: 1px solid #999;
+        font-size: 9pt;
+        color: #666;
+        text-align: center;
+      }
+    }
+    .print-footer { display: none; }
+
     footer {
       border-top: 1px solid var(--border);
       padding: 40px 28px;
@@ -682,8 +718,17 @@
             Erstgespraech anfragen
             <span class="arrow">&rarr;</span>
           </a>
+          <button type="button" id="print-cta" class="btn btn-ghost">
+            Ergebnis als PDF speichern
+          </button>
           <a href="/" class="btn btn-ghost">Zur Engine Beschreibung</a>
         </div>
+      </div>
+
+      <div class="print-footer">
+        Fiscanto Selfcheck Ergebnis &middot; <span id="print-date"></span><br>
+        Generiert auf https://fiscanto.de/selfcheck &middot; Crelvo, c/o MDC Management#6099, Welserstrasse 3, 87463 Dietmannsried &middot; kontakt@fiscanto.de<br>
+        Heuristische Risiko Einschaetzung. Keine Steuerberatung im Sinne § 1 StBerG. Keine Rechtsdienstleistung im Sinne § 2 RDG.
       </div>
 
       <div class="disclaimer">
@@ -912,6 +957,14 @@
       form.reset();
       document.querySelectorAll('.toggle').forEach(t => t.classList.remove('active'));
       document.getElementById('form-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    document.getElementById('print-cta').addEventListener('click', () => {
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('de-DE', { day: '2-digit', month: 'long', year: 'numeric' });
+      const timeStr = now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+      document.getElementById('print-date').textContent = dateStr + ', ' + timeStr;
+      window.print();
     });
 
     function renderResult(res, input) {
