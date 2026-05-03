@@ -53,7 +53,7 @@ server {
     sub_filter_once on;
     sub_filter_types text/html;
 
-    location / { try_files $uri $uri/ /index.html; }
+    location / { try_files $uri $uri.html $uri/ /index.html; }
     location ~ /\. { deny all; }
 
     access_log /var/log/nginx/fiscanto.de.access.log;
