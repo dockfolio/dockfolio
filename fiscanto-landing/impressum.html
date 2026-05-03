@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Impressum. Fiscanto.</title>
+  <meta name="description" content="Impressum nach § 5 TMG und § 18 MStV.">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%230a0e1a'/><path d='M28 28h44v8H38v14h26v8H38v22h-10z' fill='%230d9488'/><circle cx='72' cy='30' r='5' fill='%23d4af37'/></svg>">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #06080f;
+      --text: #ecf0f8;
+      --text-dim: #9aa6bd;
+      --text-muted: #6b7794;
+      --teal: #0d9488;
+      --teal-soft: #14b8a6;
+      --teal-bright: #2dd4bf;
+      --gold: #b08d57;
+      --gold-soft: #d4af37;
+      --border: rgba(148, 163, 184, 0.12);
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+    a { color: var(--teal-bright); text-decoration: none; }
+    a:hover { color: var(--text); }
+    nav.top {
+      border-bottom: 1px solid var(--border);
+      padding: 18px 28px;
+      background: rgba(6, 8, 15, 0.78);
+      backdrop-filter: blur(14px);
+      position: sticky; top: 0;
+    }
+    .nav-row {
+      max-width: 1180px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .brand {
+      font-weight: 700; font-size: 18px;
+      color: var(--text);
+      display: flex; align-items: center; gap: 11px;
+      letter-spacing: -0.02em;
+    }
+    .brand-mark {
+      width: 30px; height: 30px;
+      background: linear-gradient(135deg, var(--teal) 0%, var(--gold) 130%);
+      border-radius: 8px;
+      display: grid; place-items: center;
+      color: #02110f; font-weight: 800; font-size: 14px;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset, 0 8px 22px rgba(13,148,136,0.30);
+    }
+    main {
+      max-width: 760px; margin: 0 auto;
+      padding: 80px 28px 100px;
+    }
+    h1 {
+      font-size: clamp(34px, 4.6vw, 44px);
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      margin-bottom: 14px;
+      line-height: 1.1;
+    }
+    .lead {
+      color: var(--text-dim);
+      margin-bottom: 44px;
+      font-size: 16px;
+    }
+    h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-top: 36px;
+      margin-bottom: 12px;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+    p { color: var(--text-dim); font-size: 15px; margin-bottom: 12px; }
+    .placeholder {
+      display: inline-block;
+      padding: 2px 9px;
+      background: rgba(176, 141, 87, 0.12);
+      border: 1px solid rgba(176, 141, 87, 0.30);
+      border-radius: 6px;
+      color: #d4af37;
+      font-family: ui-monospace, 'JetBrains Mono', Consolas, monospace;
+      font-size: 13px;
+    }
+    .notice {
+      margin-top: 32px;
+      padding: 20px 24px;
+      background: rgba(13, 148, 136, 0.08);
+      border: 1px solid rgba(13, 148, 136, 0.25);
+      border-radius: 14px;
+      color: var(--text-dim);
+      font-size: 14.5px;
+      line-height: 1.65;
+    }
+    .back {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin-top: 44px;
+      color: var(--text-dim);
+      font-size: 14px;
+    }
+    .back:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+  <nav class="top">
+    <div class="nav-row">
+      <a href="/" class="brand">
+        <span class="brand-mark">F</span>
+        <span>Fiscanto</span>
+      </a>
+      <a href="/" style="color: var(--text-dim); font-size: 14px;">Zurück zur Startseite</a>
+    </div>
+  </nav>
+
+  <main>
+    <h1>Impressum</h1>
+    <p class="lead">Angaben gemäß § 5 TMG und § 18 MStV.</p>
+
+    <h2>Diensteanbieter</h2>
+    <p>
+      <span class="placeholder">Vorname Nachname</span><br>
+      <span class="placeholder">Straße und Hausnummer</span><br>
+      <span class="placeholder">PLZ Ort</span><br>
+      Deutschland
+    </p>
+
+    <h2>Kontakt</h2>
+    <p>
+      E Mail: <a href="mailto:kontakt@fiscanto.de">kontakt@fiscanto.de</a><br>
+      Telefon: <span class="placeholder">noch nicht eingerichtet</span>
+    </p>
+
+    <h2>Umsatzsteuer Identifikationsnummer</h2>
+    <p>
+      Gemäß § 27a Umsatzsteuergesetz: <span class="placeholder">wird beantragt</span>
+    </p>
+
+    <h2>Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2>
+    <p>
+      <span class="placeholder">Vorname Nachname</span>, Anschrift wie oben.
+    </p>
+
+    <h2>Berufsrechtliche Hinweise</h2>
+    <p>
+      Fiscanto erbringt keine Steuerberatung im Sinne des § 1 Steuerberatungsgesetz. Die angebotenen Leistungen sind Datenaufbereitung im Sinne des § 6 StBerG. Die steuerliche Beurteilung der aufbereiteten Daten obliegt ausschließlich Ihrem Steuerberater oder Anwalt.
+    </p>
+
+    <h2>Streitschlichtung</h2>
+    <p>
+      Die Europäische Kommission stellt eine Plattform zur Online Streitbeilegung bereit: <a href="https://ec.europa.eu/consumers/odr" target="_blank" rel="noopener">ec.europa.eu/consumers/odr</a>. Wir sind weder verpflichtet noch bereit, an einem Streitbeilegungsverfahren vor einer Verbraucherschlichtungsstelle teilzunehmen.
+    </p>
+
+    <h2>Haftung für Inhalte</h2>
+    <p>
+      Als Diensteanbieter sind wir gemäß § 7 Abs. 1 TMG für eigene Inhalte auf diesen Seiten nach den allgemeinen Gesetzen verantwortlich. Nach §§ 8 bis 10 TMG sind wir als Diensteanbieter jedoch nicht verpflichtet, übermittelte oder gespeicherte fremde Informationen zu überwachen oder nach Umständen zu forschen, die auf eine rechtswidrige Tätigkeit hinweisen.
+    </p>
+
+    <h2>Haftung für Links</h2>
+    <p>
+      Unser Angebot enthält Links zu externen Websites Dritter, auf deren Inhalte wir keinen Einfluss haben. Deshalb können wir für diese fremden Inhalte auch keine Gewähr übernehmen. Für die Inhalte der verlinkten Seiten ist stets der jeweilige Anbieter oder Betreiber der Seiten verantwortlich.
+    </p>
+
+    <h2>Urheberrecht</h2>
+    <p>
+      Die durch die Seitenbetreiber erstellten Inhalte und Werke auf diesen Seiten unterliegen dem deutschen Urheberrecht. Die Vervielfältigung, Bearbeitung, Verbreitung und jede Art der Verwertung außerhalb der Grenzen des Urheberrechtes bedürfen der schriftlichen Zustimmung des jeweiligen Autors beziehungsweise Erstellers.
+    </p>
+
+    <div class="notice">
+      Diese Fassung ist eine Erstversion. Der Diensteanbieter wird vor der ersten Mandatsanfrage durch konkrete Personendaten ergänzt und durch einen Fachanwalt für IT Recht geprüft.
+    </div>
+
+    <a href="/" class="back">← Zurück zur Startseite</a>
+  </main>
+</body>
+</html>

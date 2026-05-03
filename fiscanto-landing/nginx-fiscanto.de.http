@@ -1,0 +1,16 @@
+# fiscanto.de - HTTP only (SSL validation phase)
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name fiscanto.de www.fiscanto.de;
+
+    location ^~ /.well-known/acme-challenge/ { root /var/www/certbot; }
+
+    root /home/deploy/fiscanto.de;
+    index index.html;
+    location / { try_files $uri $uri/ =404; }
+
+    access_log /var/log/nginx/fiscanto.de.access.log;
+    error_log /var/log/nginx/fiscanto.de.error.log;
+}

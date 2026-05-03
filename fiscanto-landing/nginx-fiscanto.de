@@ -1,0 +1,61 @@
+# fiscanto.de - Static landing page
+
+# HTTP -> HTTPS redirect
+server {
+    listen 80;
+    listen [::]:80;
+    server_name fiscanto.de www.fiscanto.de;
+    location ^~ /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://fiscanto.de$request_uri; }
+}
+
+# www -> non-www redirect
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name www.fiscanto.de;
+    ssl_certificate /etc/letsencrypt/live/fiscanto.de/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/fiscanto.de/privkey.pem;
+    return 301 https://fiscanto.de$request_uri;
+}
+
+# Main HTTPS server
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name fiscanto.de;
+    root /home/deploy/fiscanto.de;
+    index index.html;
+
+    ssl_certificate /etc/letsencrypt/live/fiscanto.de/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/fiscanto.de/privkey.pem;
+    include /home/deploy/nginx-configs/security-headers-no-csp.conf;
+
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/javascript application/json application/xml image/svg+xml;
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|pdf)$ {
+        include /home/deploy/nginx-configs/security-headers-no-csp.conf;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    # Plausible Analytics proxy
+    location = /js/script.js { proxy_pass http://127.0.0.1:8000/js/script.js; proxy_set_header Host $host; }
+    location = /api/event { proxy_pass http://127.0.0.1:8000/api/event; proxy_set_header Host $host; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }
+
+    # Analytics injection
+    proxy_set_header Accept-Encoding "";
+    sub_filter '</head>' '<script defer data-domain="fiscanto.de" src="/js/script.js"></script><script defer src="https://admin.crelvo.dev/api/analytics/track.js" data-app="fiscanto"></script></head>';
+    sub_filter_once on;
+    sub_filter_types text/html;
+
+    location / { try_files $uri $uri/ /index.html; }
+    location ~ /\. { deny all; }
+
+    access_log /var/log/nginx/fiscanto.de.access.log;
+    error_log /var/log/nginx/fiscanto.de.error.log;
+}

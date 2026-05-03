@@ -1,0 +1,13 @@
+# kryptoaudit.de - HTTP only (SSL validation phase)
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name kryptoaudit.de www.kryptoaudit.de;
+
+    location ^~ /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://fiscanto.de$request_uri; }
+
+    access_log /var/log/nginx/kryptoaudit.de.access.log;
+    error_log /var/log/nginx/kryptoaudit.de.error.log;
+}
