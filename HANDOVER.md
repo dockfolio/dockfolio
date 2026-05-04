@@ -1,201 +1,233 @@
 # Session Handover
 
-**Date:** 2026-04-26 (Session 22)
-**Duration:** ~1 hour, single multi-step task split across two repos
-**Goal:** Started by `/read-handover`-ing session 21's queue (Public Brain Play 1 was the keystone next step), but the user immediately pivoted to a fresh portfolio task. Session 22 ended up being a cross-repo content update with zero work in this repo (`appManager`).
+**Date:** 2026-05-04 (Session 23)
+**Duration:** ~30 minutes, three small unrelated tasks
+**Goal:** Started by `/read-handover`-ing session 22, but the user pivoted twice — first to "check if lohncheck has any affiliate sales," then to "add the new website on the VM (crypto-tax-engine related) to crelvo.dev and index it on Google via Playwright MCP." Session 23 ended up being a portfolio-and-marketing-ops session with zero work in this `appManager` repo.
 
 ## Summary
 
-Session 22 was almost entirely about marketing surface area, not the dashboard backend. The user opened with two adjacent asks: (1) "we have a new website on the VM, theforgottensystem, add it to crelvo.dev" plus the meta-question "or should I do it via the slebständig repo so git is ok?" and (2) "add my two TTS-phase games (SidewalkSimulator and tabletop-siege, uploaded on itch.io) as games made by Crelvo on the website in testphase." Both asks were one repo away from this one — the crelvo.dev source lives at `Projekte/slebständig`, not in `appManager`.
+Session 23 was three short, sequential asks. First, the user asked whether lohncheck (lohnpruefung.de) has any affiliate sales. The smartsteuer/Awin banner was seeded back in session 18 (commit history shows the script `scripts/seed-smartsteuer-banners.js`), and four placements went active on 2026-03-31 across abfindungsoptimizer, schenkungsplaner, lohncheck, and abschlusscheck. Querying the production data.db at `/home/deploy/marketing/data.db` (mounted into `dockfolio-dashboard`) gave the answer: lohncheck has **63 views, 1 click** — by far the best of the four placements (abschlusscheck: 15v/1c, schenkungsplaner: 1v/0c, abfindungsoptimizer: 0v/0c). **Critical caveat:** our DB tracks the click-to-Awin redirect only. Whether that 1 click became a paying sale is **only visible in the Awin publisher dashboard** (advertiser ID 15043, awinaffid 2820526). Surfaced as a user action item — there's no code-side way to know.
 
-The first half landed cleanly. I added three entries to `slebständig/src/components/Projects.astro` (a flat array of project cards), built with `npm run build`, deployed via `scp ./dist/* deploy@.../var/www/crelvo/`, and pushed `0d7fc0c` to `konradreyhe/crelvo`. Verified the EN and DE pages both serve the new entries (count went 20 → 23 cards, all three names + URLs + badges render correctly), and a Playwright JPEG confirmed the visual layout. One real finding surfaced during verification: **both itch.io URLs return HTTP 403 even with a real Chrome user-agent, in both -L follow-redirect mode and HEAD requests.** This is not a curl artifact. Both games are still set to Draft (or Restricted) on itch.io, so the new links from crelvo.dev hit a "this game is not public" wall. Surfaced as a user action item — no code fix possible.
+Second ask was a portfolio addition: "we have a new website on the VM at `C:\Users\kreyh\Projekte\crypto-tax-engine`, add it to crelvo.dev and index it on Google using MCP Playwright." The user's path pointed at the Python tax engine backend, not a website — but the *associated* website is fiscanto.de (with kryptoaudit.de as a 301 redirect alias). Recent commits in this repo confirm: 7 commits between sessions 22 and 23 are all about fiscanto.de (impressum, datenschutz, selfcheck PDF export, /anwalt landing). I added a `Fiscanto` card to `slebständig/src/components/Projects.astro` (teal/cyan gradient, "Tax Brand" badge, BMF-themed description), built (24 pages, 3.75s), deployed via `scp dist/* deploy@.../var/www/crelvo/`, and pushed `1b86711` to `konradreyhe/crelvo`. Card count went 23 → 24, Fiscanto sits as the last card. Then for Google indexing, I added `https://fiscanto.de` as a URL-prefix property in Search Console, verified via HTML file (created `google3961c4e5a481bc42.html` directly on the VM with deterministic content — no download needed because Google's verification file content is `google-site-verification: <filename>`), requested URL indexing via URL Inspection, and submitted `sitemap.xml`. fiscanto.de was already indexed — so the request was effectively a recrawl prompt for the latest version.
 
-The second half was the antenna footer cross-link task. I located `Projekte/antenna/site/index.html` (the source for `theforgottensystem.org`), found the `<footer>` at line 1718, and audited for placement. The user wanted three outbound links: oldworldlogos.com, the OWL Telegram channel, and crelvo.dev. I had the first and third confidently; the Telegram URL was nowhere — not in `Projekte/LOGOS`, not in `Projekte/Logosnews`, not on the live oldworldlogos.com page. Per the no-guessing-URLs rule I asked the user, who replied `https://t.me/oldworldlogos`. I then added a new `.related-links` row in the footer (between the existing big-links nav and the build-info line) with a small "RELATED WORK" label and the three external links carrying `target="_blank" rel="noopener"`. Deployed surgically via single-file `scp` (the documented tar-pipe deploy is for full-site rebuilds; for one-file changes scp is faster and atomic). Committed `b257ee7` to `konradreyhe/antenna` `main`, pushed, and Playwright-screenshotted the footer to confirm visual rendering. All three links live, all attributes correct.
+Third ask was "verify 10000%." Ran an 8-layer verification: curl HTML truth (Fiscanto + fiscanto.de strings present), grep card count (27 grep hits → 24 actual cards), Playwright DOM query (totalCards: 24, fiscanto found, href correct, target=_blank, rel=noopener noreferrer, badge "Tax Brand", description starts with BMF), JPEG screenshot (visual confirmation of teal gradient + correct typography), HTTP status (fiscanto.de 200, GSC verification file 200), sitemap content (3 URLs: /, /selfcheck, /anwalt), git push state (1b86711 pushed to origin), working tree state (appManager clean except 3 pre-existing untracked files unrelated to this session). All passed. Test screenshot cleaned up per global session-hygiene rule.
 
-Net session impact: 2 commits across 2 OTHER repos, zero in this `appManager` repo. Session 21's priority queue (Public Brain Play 1, etc.) is **completely untouched** and remains the next-session backlog. The Marketing Brain has continued running its 4-hour cron cycles in the background autonomously this session — I did not query the post-cron briefs to validate file 17 grounding (session 21 priority #2). That hourly check is still pending.
+Net session impact: **1 commit in `slebständig`, 1 file deployed to two VM webroots (crelvo.dev and fiscanto.de's GSC verification), 1 new GSC property created with sitemap submitted. Zero commits in this `appManager` repo** apart from this handover. Session 22's queue and session 21's deeper queue (Public Brain Play 1, file-17 grounding, ~95 brain actions) remain untouched.
 
 ## What Got Done
 
-- [x] **Added 3 entries to crelvo.dev /projects** (`slebständig` `0d7fc0c` on `konradreyhe/crelvo` `master`)
-  - The Forgotten System → `https://theforgottensystem.org` (badge: "Visual Essay")
-  - Commuter Chaos → `https://crelvo.itch.io/commuter-chaos` (badge: "Game · Testphase")
-  - Tabletop Siege → `https://crelvo.itch.io/tabletopsiege` (badge: "Game · Testphase")
-  - All three follow the existing `Projects.astro` schema (name, url, description, tags, gradient, border, languages). Descriptions written without hyphens per the global no-dashes rule for player-facing text.
-  - Built (`npm run build`, 6.4s, 24 pages) and deployed via `scp ./dist/* deploy@.../var/www/crelvo/`. Card count went 20 → 23. Both EN and DE pages render the new entries (verified via curl HTML extraction + Playwright DOM query).
+- [x] **Answered: LohnCheck affiliate sales status** — Queried production `data.db` for smartsteuer banner placement stats. Lohncheck: 63 views, 1 click since 2026-03-31. Three other sites also have placements (smartsteuer affiliate). Sale conversion data is not in our system; user must check the Awin dashboard. Side finding: abfindungsoptimizer placement is "active" but has 0 views — embed.js injection not firing on that site.
 
-- [x] **Cross-link footer added to theforgottensystem.org** (`antenna` `b257ee7` on `konradreyhe/antenna` `main`)
-  - New `<div class="related-links">` row in `<footer>` between big-links nav and build-info line.
-  - Three outbound links: `oldworldlogos.com`, `t.me/oldworldlogos`, `crelvo.dev`.
-  - All carry `target="_blank" rel="noopener"`.
-  - New CSS class `.related-links` added (smaller font than `.big-links`, with a small uppercase "RELATED WORK" label) so the internal nav stays visually primary.
-  - Deployed via single-file `scp site/index.html deploy@.../home/deploy/theforgottensystem.org/index.html`. No nginx reload needed (content-only change).
-  - Verified live via curl + Playwright screenshot.
+- [x] **Added Fiscanto to crelvo.dev portfolio** (`slebständig` `1b86711` on `konradreyhe/crelvo` `master`)
+  - New entry appended to `projects` array in `src/components/Projects.astro`.
+  - URL: `https://fiscanto.de`, badge "Tax Brand", gradient teal-500/20 → cyan-600/20, border hover:teal-500/50.
+  - Description in German (matches site's audience) noting BMF compliance, wallet-level FIFO per BMF Schreiben 06.03.2025, DStV S 06 24 immutable data path, Anlage SO output.
+  - Tags: Static, Three.js, Krypto Steuer, BMF.
+  - Built (`npm run build`, 3.75s, 24 pages) and deployed via `scp ./dist/. deploy@.../var/www/crelvo/`. Card count went 23 → 24.
 
-- [x] **Identified itch.io 403 blocker** — Both Commuter Chaos and Tabletop Siege return HTTP 403 to public visitors. Re-tested with Chrome user-agent and follow-redirect to rule out curl artifacts. Confirmed real visibility lock on itch.io. Surfaced as a user action item — see Outstanding User Actions below.
+- [x] **Verified fiscanto.de in Google Search Console** — Added as URL-prefix property `https://fiscanto.de`. Verified via HTML file method by creating `/home/deploy/fiscanto.de/google3961c4e5a481bc42.html` on the VM with deterministic content (`google-site-verification: google3961c4e5a481bc42.html`). No download from Google needed.
 
-- [x] **Cleaned up 2 verification screenshots** from `appManager/` root per the global session-hygiene rule.
+- [x] **Submitted fiscanto.de for indexing on Google** — Used URL Inspection on the homepage; "Indexierung wurde beantragt" confirmed. Page was already indexed before the request, so this was effectively a recrawl prompt. Submitted `sitemap.xml` separately ("Sitemap wurde eingereicht") for the 3 sitemap URLs (/, /selfcheck, /anwalt).
+
+- [x] **Verified everything 10000%** — 8-layer verification (curl, grep, DOM query, screenshot, HTTP status, sitemap content, git push, working tree). All passed. Test screenshot `verify-fiscanto-card.jpg` cleaned up per global rule.
 
 ## What's In Progress
 
-Nothing. Working tree clean across all three repos touched. All commits pushed to their remotes.
+Nothing. All 3 asks closed. Working tree clean (modulo 3 pre-existing untracked files: `.mcp.json`, `KNOWLEDGEBASE.md`, `PLAYWRIGHT-MCP-GUIDE.md` — same set flagged in session 22, not from this session).
 
 ## What Didn't Get Done (and Why)
 
-- **Session 21's entire priority queue** — Not touched this session because the user pivoted to portfolio work the moment I finished `/read-handover`. The full session-21 queue still applies:
-  1. Build Public Brain Play 1: `brain.dockfolio.dev` live feed (the keystone, ~60-90 min)
-  2. Watch next 2-3 cron cycles for file-17 grounding in production briefs
-  3. Run one Haiku smoketest on a portfolio-biased app
-  4. (User action) Register social platform credentials
-  5. Add `/api/brain/kb/usage` route ordering test
-  6. Update Orb source repo with python3 healthcheck
-  7. Triage ~95+ open brain actions
+- **Session 22's entire backlog plus session 21's deeper queue** — Not touched. The session-22 handover described 7 priorities (itch.io toggle, Public Brain Play 1, file-17 grounding query, Haiku smoketest, hyphen-sweep, push 6 commits, route ordering test, Orb update, ~95 brain actions). The user pivoted to portfolio/marketing ops the moment I finished `/read-handover`. The full list still applies.
 
-- **Cosmetic sweep of existing crelvo.dev project descriptions for the no-dashes rule** — Flagged to the user as out of scope. The 20 pre-existing entries in `Projects.astro` use phrases like "AI-powered", "browser-based", "cross-promo" with hyphens. My 3 new entries comply with the no-dashes rule, but the existing entries don't. A fast `rg` + edit pass would clean it up if the user confirms.
+- **Update of session 22's stale HANDOVER.md** — That handover was authored 2026-04-26 and in the 8 days since, 7 fiscanto.de commits landed (`11b598f`, `d8891d5`, `47d6e30`, `f94d1cf`, `de1d96d`, `37052a0`, `788cc52`). All of them were pushed at some point — `git status` says `up to date with origin/master`, contradicting session 22's claim that "6 commits sit unpushed." That was true on 2026-04-26 and is no longer true today. Session 23 replaces session 22's HANDOVER.md with this one, so the staleness is now resolved.
 
-- **Push of session 21's 6 local-only commits to origin** — Session 21 left 5 commits unpushed to `appManager`'s origin. After session 21's handover commit (`dfbb73f`) the count is now 6 commits ahead of `origin/master`. **Session 22 also did not push these.** They sit on local `master`, ready when appropriate.
+- **Investigation of abfindungsoptimizer banner injection** — Found the symptom (0 views despite "active" placement) but did not investigate. Likely the embed.js script tag is missing from the abfindungsoptimizer.de site, OR the banner injection nginx sub_filter is not firing, OR the placement priority is wrong.
+
+- **Awin sales lookup** — User-side action only (Awin dashboard login required). I cannot answer the actual sales question; only the click count.
 
 ## Architecture & Design Decisions
 
 | Decision | Chosen Approach | Why | Alternatives Considered | Why Rejected |
 |----------|----------------|-----|------------------------|--------------|
-| Where to make the crelvo.dev edit (source repo vs VM) | `Projekte/slebständig` (the Astro source) | The VM has built `dist/` output at `/var/www/crelvo/` but `./deploy.sh` overwrites it from source on every deploy. Editing on VM = changes vanish next deploy. | Edit `/var/www/crelvo/index.html` on the VM directly | Self-erasing within one deploy cycle. The user explicitly asked the meta-question and the answer is unambiguous. |
-| How to add the three crelvo.dev entries | Append to the `projects` array at the end of `Projects.astro` | Existing pattern. Order roughly approximates "newest last." Avoids reordering 20 existing entries (touches more of the diff for no benefit). | Insert after Dockfolio (flagship); insert as a new "Games & Research" sub-section above the grid | Inserting near top would push down 20 entries' position; sub-sections require new component logic and break the uniform card grid. |
-| Game metadata representation | Single "Game · Testphase" badge in the `languages` field plus "Currently in open playtest on itch.io" in the description | Compact, signals testphase to visitors at a glance, doesn't require new fields or template changes. | New `status: 'testphase'` field with a colored ribbon overlay; separate "Games" grid section | Premature schema change for two entries; ribbon overlay would clash with the existing hover-gradient effect. |
-| How to deploy the antenna single-file change | `scp site/index.html deploy@.../home/deploy/theforgottensystem.org/` | Surgical, atomic, ~1 second. The DEPLOY.md tar pipe is for full-site refreshes (30 MB across 164 files). | Run the full DEPLOY.md tar-pipe; rebuild a CI workflow | Tar pipe is overkill for a one-file content change; CI is YAGNI for a static site with infrequent updates. |
-| Telegram URL handling | Asked the user, did NOT guess | The system prompt forbids generating URLs. Searched `Projekte/LOGOS`, `Projekte/Logosnews`, live oldworldlogos.com HTML — zero hits on `t.me/`. | Guess `t.me/oldworldlogos` as the obvious handle | Even if the obvious guess would have been right (it was), guessing violates the explicit rule and risks a dead link in production. |
-| Footer styling for new links | New `.related-links` class with smaller font + uppercase label, sibling to existing `.big-links` | Keeps the internal nav (Browse the corpus, etc.) visually primary; outbound links sit clearly in their own row labeled "Related work" so visitors understand the context shift. | Add to existing `.big-links` row inline; create a separate "Friends" section higher in the page; modal | Inline mixing of internal + external links is confusing UX; separate higher section is heavyweight; modal is overkill for three links. |
-| Where this HANDOVER.md lives | `appManager/HANDOVER.md` (this repo) | Continuity with session 21 (and 20, 19, etc.) — they all live here. The next `/read-handover` session opens in `appManager` by default. | Write three handovers, one per repo touched | Triplication; the next session won't read three handovers; and slebständig/antenna had only one focused commit each, fully described by the commit message. |
+| Mapping "the new website on VM at C:\Users\kreyh\Projekte\crypto-tax-engine" | fiscanto.de (the Python project's marketing site) | The Python repo at `crypto-tax-engine/` contains zero website source code. The website associated with that project is fiscanto.de, deployed at `/home/deploy/fiscanto.de/`, with source at `appManager/fiscanto-landing/`. 7 recent commits in this repo all reference fiscanto.de (BMF, Krypto Steuer, Selfcheck). | Ask the user to clarify; treat the typo as kryptoaudit.de | Ask was an option (low-stakes), but the inference was unambiguous given the commit pattern. kryptoaudit.de is just a 301 redirect to fiscanto.de — same destination either way. |
+| Where to add the crelvo.dev portfolio entry | `Projekte/slebständig/src/components/Projects.astro` (Astro source) | Same as session 22's `0d7fc0c`: editing the VM webroot directly is self-erasing on the next deploy. The Astro source at `slebständig` is canonical truth. | Edit `/var/www/crelvo/index.html` on the VM | Self-erasing within one deploy cycle. |
+| Position of new Fiscanto card | Append to end of `projects` array | Same convention as session 22's three additions. Avoids reordering 23 existing entries. | Insert after Dockfolio (flagship) for prominence | Reordering creates noisy diffs; visitors scroll the full grid anyway. |
+| Fiscanto card visual style | Teal-500/20 → cyan-600/20 gradient, hover:border-teal-500/50, badge "Tax Brand" | Matches fiscanto.de's actual brand palette (teal + gold). The teal/cyan range was unused by neighbors (Tabletop Siege is amber/orange, Commuter Chaos is red/rose), avoiding adjacent-color clash. | Gold gradient (matches fiscanto.de gold accent); slate (neutral); deep blue | Gold collides with Tabletop Siege; slate looks dead next to other vibrant cards; deep blue is too close to existing emerald/blue cards. |
+| Fiscanto description language | German (matches site's audience) | The fiscanto.de site is German-only and targets Steuerberater/Anwälte. The portfolio reader is multilingual — but the Astro `[lang]/index.astro` does NOT translate the projects array (these strings are static). Using German is honest about the destination's language. | English description like the other entries | Most other entries also describe English-language sites. fiscanto.de is the first German-language destination; honesty about language matters more than uniformity. |
+| GSC verification method | HTML file upload | Deterministic file content (`google-site-verification: <filename>`) means no download step needed — just `ssh deploy@... 'echo ... > /home/deploy/fiscanto.de/<filename>'`. Fully automatable. | DNS TXT record (Domain property); HTML meta tag; Google Analytics; GTM | DNS requires INWX API call + propagation wait; meta tag requires editing fiscanto.de source + redeploy; GA/GTM aren't installed on fiscanto.de. HTML file is fastest. |
+| Property type in GSC | URL Prefix (`https://fiscanto.de`) | Allows multiple verification methods including the HTML file path. Domain property requires DNS, which is slower. | Domain property (covers www. + http + https + subdomains) | We don't have www.fiscanto.de or any subdomains anyway; URL prefix is sufficient. |
+| Where this HANDOVER.md lives | `appManager/HANDOVER.md` (this repo) | Continuity with sessions 21, 22, etc. The next `/read-handover` opens in `appManager` by default. | Per-repo handovers (slebständig + appManager) | Triplication; the next session won't read multiple handovers. |
 
 ## Mental Model
 
-### The 3-repo portfolio system
+### The 4-repo + 1-marketing-stack mental model
 
-This was the conceptual unlock for session 22. The user runs three visible web properties out of three separate local repos, all deploying to the same VM at `91.99.104.132`:
+Session 22 described the 3-repo portfolio system (appManager + slebständig + antenna). Session 23 extends that with **a fourth repo and a clarifying point about marketing operations:**
 
 | Repo (local) | Domain | What it is | Deploy method |
 |---|---|---|---|
-| `Projekte/appManager` | `admin.crelvo.dev` | Dockfolio dashboard (Node + SQLite + Docker, this repo) | `bash deploy.sh --rebuild` (rsync + docker compose) |
-| `Projekte/slebständig` | `crelvo.dev` | Crelvo agency / portfolio site (Astro static) | `npm run build && scp dist/* deploy@.../var/www/crelvo/` |
-| `Projekte/antenna` | `theforgottensystem.org` | Victorian rooftop research microsite (vanilla HTML + vendored Three.js, no build step) | `tar | ssh tar` (full) or `scp site/<file>` (surgical) |
+| `Projekte/appManager` | `admin.crelvo.dev` | Dockfolio dashboard (this repo) + landing pages for various Crelvo apps in subdirs (`fiscanto-landing/`, `dockfolio-landing/`, etc.) | `bash deploy.sh --rebuild` for the dashboard; `scp` for the static landing subdirs |
+| `Projekte/slebständig` | `crelvo.dev` | Crelvo agency portfolio (Astro static) | `npm run build && scp dist/* deploy@.../var/www/crelvo/` |
+| `Projekte/antenna` | `theforgottensystem.org` | Victorian rooftop research microsite (vanilla HTML) | `tar | ssh tar` (full) or `scp site/<file>` (surgical) |
+| `Projekte/crypto-tax-engine` | (no public site) | Python backend tax engine for Krypto Selbstanzeigen. **The website associated with this project is fiscanto.de, but its source is in `appManager/fiscanto-landing/`, NOT in `crypto-tax-engine/`.** | N/A (backend tool) — landing deploys via appManager/scripts |
 
-Plus the games at `Projekte/SidewalkSimulator` (Commuter Chaos) and `Projekte/tabletop-siege` (Tabletop Siege), which deploy to itch.io via `butler push`, not to the VM.
+**The trick: when the user says "the website for X project" or "the website on VM at PATH", they're pointing at the *associated marketing site*, not the source code path.** Sometimes the path they give is the backend/internal repo and the website lives elsewhere. Always check `appManager/<project>-landing/` and the recent commit history for clues. This session's user message ("we have a new website on vm C:\Users\kreyh\Projekte\crypto-tax-engine") was a perfect example: the path was the Python project, but the website was fiscanto.de (deployed weeks ago, not "new" on the VM in any technical sense — just newly added to the portfolio).
 
-**Critical implication:** when the user says "add X to the crelvo.dev website," they mean the Astro source in `slebständig`. NOT the VM webroot, NOT this `appManager` repo. The Astro source is the canonical truth; the VM is built output that gets overwritten on every deploy. This is the pattern for ALL three repos: edit the source, run the deploy, never touch the VM directly. The exception is "VM-only" infra (nginx configs at `/home/deploy/nginx-configs/sites/`, healthchecks in compose files for containers without local source) — those have to be edited on the VM because they have no source repo here.
+### Production data.db lives at /home/deploy/marketing/, not in the container
 
-### Adding a project card to crelvo.dev is a one-line schema mental model
+Critical detail that took me 3 SQL attempts to figure out: the `dockfolio-dashboard` container has `/app/data.db` (empty, 0 bytes) AND `/home/deploy/marketing/data.db` (the real one, 68 MB, 60+ tables). The real DB is bind-mounted into the container at the same path as the host. To query it: `docker exec dockfolio-dashboard node -e "const db = require('better-sqlite3')('/home/deploy/marketing/data.db'); ..."`. NOT `/app/data.db`. The local `appManager/dashboard/data.db` is also empty (it's just a dev-local placeholder).
 
-The whole crelvo.dev portfolio grid is driven by a single flat array in `Projects.astro` (lines 7-188 pre-edit, 7-225 post-edit). Each entry is `{ name, url, description, tags[], gradient, border, languages }`. The `gradient` and `border` are Tailwind utility classes (`from-X-500/20 to-Y-600/20` and `hover:border-X-500/50` respectively). `languages` is a freeform short-string badge that shows above the description (used as a category label, not an actual language list). To add a project: append to the array, pick gradient + border colors that don't clash with adjacent entries, write a description without hyphens (no-dashes rule for player-facing copy), and ship. Total mental cost: ~2 minutes per entry. No DB, no API, no template change.
+The container does NOT have the `sqlite3` binary in PATH. Always use node + better-sqlite3 for ad-hoc queries. The `dashboard/server.js` connects to `/home/deploy/marketing/data.db` via the env var or hardcoded path; check `server.js` if you need to confirm.
 
-### The antenna site is intentionally build-step-free
+### How the Awin affiliate banner system actually flows
 
-`Projekte/antenna/site/index.html` is 1754 lines of hand-written HTML + inline CSS + vendored Three.js modules. The DEPLOY.md note "Runs from `file://`, no build step" is load-bearing — it means you can open `site/index.html` in a browser locally with no server and it works exactly like the deployed version. This implies: never introduce a build step, never reference a CDN (the CSP is tight per DEPLOY.md), and edit `site/index.html` directly rather than through any framework abstraction. The vendored Three.js lives at `site/explainer/vendor/`. Any new content goes in the same file inline.
+The flow when a visitor on lohncheck (lohnpruefung.de) clicks the smartsteuer banner:
 
-### The "verify 100%" pattern: curl for HTML truth, DOM query for attribute truth, screenshot for visual truth
+1. Banner is injected via nginx `sub_filter` adding `<script src="https://admin.crelvo.dev/api/banners/embed.js" data-app="lohncheck">` into the page HTML.
+2. embed.js fetches `/api/banners/serve?app=lohncheck`, which returns a JSON object with the banner HTML (custom_html in this case) and a `placement_id` of 61 for the active smartsteuer placement.
+3. embed.js injects the banner HTML into the page and registers click + view trackers.
+4. On view, embed.js POSTs to `/api/banners/61/view` (increments `banner_placements.views`).
+5. On click, browser navigates to `GET /api/banners/61/click`, which increments `banner_placements.clicks`, then 302-redirects to the click_url.
+6. The click_url is `https://www.awin1.com/cread.php?awinmid=15043&awinaffid=2820526&ued=https%3A%2F%2Fwww.smartsteuer.de` — Awin's tracking redirect.
+7. Awin's server registers the click against the publisher (awinaffid 2820526) and 302-redirects to smartsteuer.de with cookies/params for attribution.
+8. If the visitor signs up + pays at smartsteuer within the cookie window (typically 30-90 days for Awin), Awin records the sale and credits the publisher.
+9. **Sale data flows back to Awin's publisher dashboard. It does NOT flow to our DB.** We see clicks at step 5; everything after is opaque to us.
 
-The verification round used three layers:
-1. **curl** confirmed the deployed HTML contains the expected strings + element counts.
-2. **Playwright DOM query** confirmed the `<a>` elements have correct `href`, `target`, `rel` attributes and the parent grid contains exactly 23 cards.
-3. **Playwright JPEG screenshot** confirmed the visual rendering matches the design intent (gradient, badge position, card spacing, no overflow).
+This is why "any sales?" is unanswerable from our side. We can only say "1 person clicked through to Awin." The user must log into Awin to see whether that 1 click became a sale.
 
-Each layer catches different bugs. curl alone wouldn't catch a layout regression; screenshot alone wouldn't catch a wrong `href`; DOM query alone wouldn't catch CSS pixel-pushing issues. Use all three when you need 100% confidence on a UI change.
+**Why abfindungsoptimizer has 0 views:** likely the nginx sub_filter for embed.js injection is not firing. Three things to check next time: (a) `/etc/nginx/sites-enabled/abfindungsoptimizer.de` (or `/home/deploy/nginx-configs/sites/abfindungsoptimizer.de`) — does it have the `sub_filter '</body>' '<script src="https://admin.crelvo.dev/api/banners/embed.js" data-app="abfindungsoptimizer"></script></body>';` line? (b) Is the abfindungsoptimizer.de page closing tag exactly `</body>` (sub_filter is literal)? (c) Is `proxy_set_header Accept-Encoding ""` set so sub_filter can rewrite the response?
 
-### Why itch.io 403s are not negotiable
+### Google Search Console verification: the deterministic-content trick
 
-itch.io's project visibility flag has three states: Public, Restricted (link-only), and Draft (owner-only). When a project is Draft or Restricted, every public URL returns 403 regardless of user-agent, regardless of follow-redirect — the page genuinely doesn't exist for non-owners. This means the link from crelvo.dev/projects to `crelvo.itch.io/commuter-chaos` is technically valid but functionally broken: visitors will see itch's "this game is not public" page, which damages the perception that Crelvo's portfolio is real. **The fix is exclusively on the user side** (toggle visibility on itch.io) and has no code component. Worth re-checking on the next session — if visibility hasn't been toggled, consider whether to remove the entries temporarily or add a "soft launch" disclaimer.
+The standard GSC HTML file verification flow asks you to download a file like `google3961c4e5a481bc42.html` and upload it to your webroot. **The file content is fully deterministic from the filename:** it's literally one line, `google-site-verification: <filename>`. So you don't need to download anything from Google — just `echo "google-site-verification: google3961c4e5a481bc42.html" > /home/deploy/fiscanto.de/google3961c4e5a481bc42.html` and Google's verification check passes.
+
+This makes the entire add-property → verify flow takes ~30 seconds with Playwright + SSH. The same trick works for other projects: just read the filename Google offers, build the file directly on the server, click Bestätigen.
+
+### "Already indexed" vs "Indexing requested" distinction
+
+When I ran URL Inspection on fiscanto.de, the response was "URL ist auf Google" / "Seite ist indexiert" — meaning Google had already discovered and indexed the homepage (likely via the `<a href="https://fiscanto.de">` link from crelvo.dev/projects, or via the cross-promo banners on other Crelvo sites that include affiliate-style backlinks, or via direct organic discovery). My "Indexierung beantragen" click was a **recrawl prompt** for the latest version, not a fresh index request. The sitemap submission additionally tells Google about /selfcheck and /anwalt, which were not in the existing index. Effective time-to-recrawl is hours-to-days, not instant.
+
+If a future site needs to be indexed and is NOT yet known to Google, the same flow works — but the inspection page will show "URL ist nicht auf Google" instead, and the indexing button means "discover this URL for the first time."
+
+### The "verify 10000%" verification stack
+
+The user's "verify 10000%" command got a 8-layer response. The layers, from cheap to expensive:
+
+1. **curl HTML grep** for keywords ("Fiscanto", "fiscanto.de", "BMF konforme") — cheapest, confirms HTML body contains expected strings.
+2. **grep -o pattern count** ("group relative rounded-2xl") — confirms element count went up.
+3. **HTTP status** for fiscanto.de + GSC verification file — confirms 200, not 404.
+4. **Sitemap content** via curl — confirms sitemap.xml is well-formed and contains expected URLs.
+5. **robots.txt** — confirms indexing is not disallowed.
+6. **Playwright DOM query** — confirms `<a>` element has correct href, target, rel, h3 text, span text, p text, position-from-end. This catches bugs that text-grep can't (wrong attribute, wrong nesting).
+7. **Playwright JPEG screenshot** of just the Fiscanto card — confirms visual rendering: teal gradient visible, badge "Tax Brand" visible, no text overflow, no broken layout.
+8. **git status** + **git log** + **git push state** for both repos — confirms work is committed and pushed.
+
+Each layer catches different bugs. Stack them when the user asks for high confidence.
 
 ## Known Issues & Risks
 
-- **itch.io 403 Forbidden on both game URLs.** Impact: visitors clicking Commuter Chaos or Tabletop Siege from crelvo.dev/projects hit itch's "not public" page. Workaround: none, code-side. **Fix: user toggles both projects to Public (or at minimum Restricted with link-sharing) on itch.io.** Until then, the entries on crelvo.dev are aspirational pointers, not working links. If this isn't fixed within a few days, consider either removing the entries or adding a "Coming soon to itch.io" wording change to the descriptions.
+- **Awin sales for the lohncheck smartsteuer click are unknown.** Impact: low (1 click is statistically meaningless even if it converted). Mitigation: user logs into Awin publisher dashboard and checks the smartsteuer (advertiser ID 15043) program report.
 
-- **Pre-existing crelvo.dev project descriptions violate the no-dashes rule.** Impact: the AI-tell hyphens ("AI-powered", "browser-based", etc.) sit on a public-facing page that contradicts the user's own writing-style policy. Risk: low (visitors won't notice this consciously, but the global CLAUDE.md is explicit). Mitigation: a 5-minute `rg "[a-z]-[a-z]"` sweep + manual hyphenless rewrites of ~20 descriptions. Out of scope for session 22.
+- **abfindungsoptimizer smartsteuer banner has 0 views** despite 5+ weeks of "active" status. Impact: medium (we're losing a tax-adjacent affiliate placement on what should be a high-fit site for "Abfindung Steueroptimierung"). Likely cause: embed.js injection not firing (missing nginx sub_filter or wrong placement of closing `</body>` tag). Mitigation: investigate next session, ~15 minutes.
 
-- **6 local-only commits in `appManager`** (sessions 21 + this handover commit). Impact: a context crash or machine reboot loses session-21's work. Mitigation: `git push` when appropriate. The user has not asked to push and prior sessions kept them local per "standard practice" but the global "do all" contract step 3 says push immediately. Worth resolving on the next session.
+- **Session 21's queue is doubly-stale.** Session 22 didn't touch it; session 23 didn't touch it. The Marketing Brain has been running 4-hour cron cycles autonomously for ~14 days now without anyone validating that file 17 (the portfolio-and-public-ai KB file from `3881665`) is being grounded into Haiku briefs. Could be working perfectly, could be silently degrading. Session 21's HANDOVER.md priority #2 SQL query is still the way to find out.
 
-- **slebständig has 3 untracked files** (`.mcp.json`, `KNOWLEDGEBASE.md`, `PLAYWRIGHT-MCP-GUIDE.md`) that pre-existed this session. Likely should be either committed or `.gitignore`d. Not from session-22 work, so left untouched.
+- **fiscanto.de subpages /impressum.html and /datenschutz.html are explicitly Disallowed in robots.txt** — confirmed via curl. This is intentional (they shouldn't appear in search results), but it does mean the sitemap doesn't reference them either. Sitemap only lists /, /selfcheck, /anwalt.
 
-- **Session 21 carryover unchanged.** The orb-dashboard fix is still VM-only (Orb source repo not found in `Projekte/`); social autopilot still credential-gated; the 3 underperforming session-19 KB files (b2b-outbound, plg-motions, category-design) still need post-cron-cycle measurement; ~95 brain actions still in the queue. None of these were touched this session.
+- **3 untracked files in appManager** (`.mcp.json`, `KNOWLEDGEBASE.md`, `PLAYWRIGHT-MCP-GUIDE.md`) — pre-existed this session, called out in session 22 too. Likely should be either committed or `.gitignore`d. Not session-23 work.
 
-- **Marketing Brain ran several cron cycles autonomously during this session and was NOT measured.** Session 21 priority #2 (file 17 grounding query) is unverified. Could be running fine, could be silently degrading. Run the SQL query from session 21's HANDOVER.md priority #2 next session.
+- **HANDOVER.md staleness pattern.** Sessions 21 → 22 → 23 each replaced the prior handover without reading the gap between. The 7 fiscanto.de commits from 2026-04-26 to 2026-05-04 (the Selfcheck PDF export, the impressum updates, the /anwalt landing) have no entry in any handover. If the next session needs to understand what happened during that gap, they'll need to read the git log.
+
+- **Session 22's itch.io 403 carryover.** Both Commuter Chaos and Tabletop Siege still return 403 to public visitors. crelvo.dev/projects has dead links to them. Same status as session 22.
 
 ## What Worked Well
 
-- **Asking for the Telegram URL instead of guessing.** Even though `t.me/oldworldlogos` is the obvious guess and turned out to be correct, asking enforced the no-guessing-URLs rule and took ~30 seconds. The cost of guessing wrong (a dead link in a deployed footer) far exceeds the cost of asking.
+- **Querying production data.db via node + better-sqlite3 in the running container.** Bypasses the missing `sqlite3` binary and uses the already-loaded better-sqlite3 module. One SSH call, one ad-hoc query, all the affiliate stats in 5 seconds.
 
-- **Three-layer verification (curl + DOM query + screenshot).** Each layer caught a different class of potential bug. The screenshot revealed that Tabletop Siege sits alone on the bottom row (23 cards = 11 pairs + 1 lone) — looks fine but worth knowing for future ordering decisions.
+- **GSC HTML file verification via deterministic content + SSH.** The "download file from Google then upload to your webroot" flow becomes "echo expected content into webroot" — total time ~5 seconds.
 
-- **Surgical scp for single-file deploys.** Both deploys this session were content-only single-file changes. `scp` was ~1 second each vs the documented tar-pipe (~30 MB transfer). For full-site changes, the tar pipe is still the right choice.
+- **8-layer verification when user asks for high confidence.** Curl + grep + HTTP status + sitemap + robots + DOM query + screenshot + git push state. Each layer is cheap; together they catch every class of bug.
 
-- **Per-repo commit boundaries.** Each repo got exactly one focused commit with a descriptive message. No mixing concerns across repos. Granular rollback is trivial.
+- **Loading Playwright MCP tools mid-session via ToolSearch.** Tools are deferred by default. ToolSearch with `select:<name1>,<name2>,...` loads multiple at once. Don't load tools until you need them — keeps the prompt schema small.
 
-- **Surfacing the itch.io 403 finding clearly.** Could have been buried in a "verified, all good" report. Calling it out as a real blocker (with re-test using browser UA to rule out curl artifacts) made the user-side action obvious.
+- **Reusing session 22's portfolio-card pattern.** Append to array, pick a non-clashing gradient, write description matching site's tone. ~3 minutes total per addition.
+
+- **Confirming the user's intent inference inline** ("Proceeding with assumption: 'the new website' = fiscanto.de. If that's wrong, stop me.") instead of asking. The user-mapping was unambiguous from the commit log; asking would have wasted time.
 
 ## What Didn't Work (Traps to Avoid)
 
-- **The first `/handover` flow lost the in-flight verification context.** When the user said "verify u did all" mid-stream, then interrupted with the antenna task before I finished the verify, then said "verify u did all" again, I had to disambiguate which verify scope they meant. Lesson: when a verify task gets interrupted, drop a one-line "paused mid-verify, current state is X" before pivoting, so the next "verify" command is unambiguous.
+- **Initial SQL query targeting /app/data.db inside the container.** The container has TWO data.db paths and the `/app/` one is empty. **Always use `/home/deploy/marketing/data.db` for production queries.**
 
-- **Initially missed that crelvo.dev's no-dashes-rule violation predates this session.** I followed the rule for my new entries but didn't note it as a known issue until the user could have read it as inconsistency on my part. Lesson: when a project policy is partially violated by pre-existing code, flag it in the first response, not the second.
+- **Trying `sqlite3 /app/data.db ...` directly in the container.** The `sqlite3` binary is not installed. Use node + better-sqlite3.
 
-- **The nginx -s reload "invalid PID number" warning during the crelvo.dev deploy looks scary.** It's harmless — this VM uses a custom nginx config at `/home/deploy/nginx-configs/nginx.conf` so the default reload command (`sudo nginx -s reload`) can't find the PID file. The actual reload would need `-c /home/deploy/nginx-configs/nginx.conf`. But for static-file changes (no nginx config change), reload is unnecessary anyway — the static files serve the next request directly. The deploy.sh in slebständig does try a reload it doesn't actually need, fails harmlessly, and the deploy still works. Worth noting: future sessions may want to fix slebständig/deploy.sh to either use the right `-c` path or skip the reload entirely for static changes.
+- **Direct navigation to `/search-console/inspect?...` URL.** Returned 404. The correct flow is to land on the property overview page (`?resource_id=...`), then use the search box at the top. Direct inspect URLs require an `id` parameter that's regenerated each session.
 
-- **Don't assume Glob with absolute Windows paths returns reliably.** Grepping `Projekte/**/*.{md,astro,html,ts,js,mdx}` for the Telegram URL via Grep tool returned "No matches found" instantly — but the grep pattern was scoped to a glob that didn't actually match the LOGOS structure. A scoped Grep into a specific directory (`Projekte/LOGOS`) was more reliable. Session 21 also flagged Glob unreliability with absolute Windows paths. Pattern is consistent.
+- **Using Playwright `browser_take_screenshot` with `target` selector for an element that doesn't have an ID.** First attempt failed with "does not match any elements." Workaround: assign an ID via `browser_evaluate`, then screenshot by `#that-id`. Works reliably.
+
+- **Trusting the session 22 HANDOVER.md's claim of "6 unpushed commits."** That was true on 2026-04-26 but is no longer true today. Always run `git log origin/master..HEAD` to verify push state, don't trust handover claims.
 
 ## Next Steps (Priority Order)
 
-The highest priorities are session 21's untouched queue plus two new items from this session.
+1. **(USER ACTION, no code) Check Awin publisher dashboard for smartsteuer sales.** Login at awin.com → publisher → reports → filter by advertiser 15043 (smartsteuer DE). Time period: 2026-03-31 to today. The 1 click from lohncheck is the only data point on our side; whether it converted is only visible there. Estimated effort: 5 minutes.
 
-1. **(USER ACTION, no code) Toggle both itch.io games to Public.** The crelvo.dev entries shipped this session link to `crelvo.itch.io/commuter-chaos` and `crelvo.itch.io/tabletopsiege`, both of which return 403 to the public. Until the user logs into itch.io and flips visibility, these are dead links on a public portfolio. Estimated effort: 60 seconds per game, owner action only. Verify with `curl -sI -A "Mozilla/5.0 ..." https://crelvo.itch.io/commuter-chaos` after — should return 200 instead of 403.
+2. **(USER ACTION, no code) Toggle Commuter Chaos + Tabletop Siege to Public on itch.io.** Carryover from session 22. Both return 403 to crelvo.dev/projects visitors. Owner action only. Verify with `curl -sI -A "Mozilla/5.0 ..." https://crelvo.itch.io/commuter-chaos` after — should return 200 instead of 403.
 
-2. **Build Public Brain Play 1: `brain.dockfolio.dev` live feed.** Carryover from session 21 — full implementation plan in session 21's HANDOVER.md "Next Steps" #1 (9-step recipe: cron hook + public API endpoint + nginx auth_basic exemption + HTML feed + DNS + certbot + nginx site + config.yml). Estimated 60-90 minutes. The KB file 17 was written session 21 and the Marketing Brain has been cycling without the infrastructure existing — proposals are piling up unactionable.
+3. **Investigate abfindungsoptimizer banner injection.** 0 views in 5+ weeks despite "active" placement. Check `/home/deploy/nginx-configs/sites/abfindungsoptimizer.de` for the sub_filter line. Compare with `/home/deploy/nginx-configs/sites/lohnpruefung` (working — 63 views). Fix the diff. Estimated effort: 15 minutes. After fix, confirm via incognito visit + `SELECT views FROM banner_placements WHERE id=59` increment.
 
-3. **Run the file-17 grounding query** to see if the Marketing Brain has been citing `portfolio-and-public-ai` in real Haiku briefs since `3881665` shipped. SQL command is in session 21's HANDOVER.md priority #2 (one-liner SSH + docker exec + better-sqlite3 query). Threshold: file 17 should hit ≥50% of briefs; b2b/plg/cat should start hitting occasionally now that `max=3` opened a third slot. If file 17 is under 30% or b2b/plg/cat are still at zero, deeper scoring tuning is needed.
+4. **Watch Google indexing for fiscanto.de subpages over the next 24-48h.** The sitemap was submitted today; /selfcheck and /anwalt should appear in `site:fiscanto.de` results within a few days. If after 7 days /selfcheck or /anwalt are still not indexed, run URL Inspection on each subpage individually and request indexing explicitly. Subpage indexing is slower than homepage.
 
-4. **Run one Haiku smoketest on a portfolio-biased app** (likely `headshot-ai` or `promoforge`, `docker exec dockfolio-dashboard node /app/brain-smoketest.mjs <slug>` — no `--dry`). Cost ~$0.028, 55s. Confirms whether the LLM actually cites file 17, not just receives it. If LLM ignores it, the file's content voice needs rewriting.
+5. **Build Public Brain Play 1: `brain.dockfolio.dev` live feed.** Long-running carryover from session 21 — full implementation plan in session 21's HANDOVER.md "Next Steps" #1 (9-step recipe). Estimated 60-90 minutes. KB file 17 was written ~15 days ago and the Marketing Brain has been cycling without the public-feed infrastructure existing — proposals are accumulating unactionable.
 
-5. **(Optional, low-risk) Sweep crelvo.dev project descriptions for hyphens.** All 20 pre-existing entries in `slebständig/src/components/Projects.astro` violate the no-dashes-in-player-text rule from global CLAUDE.md. ~5 minutes of `rg "[a-z]-[a-z]"` + manual hyphenless rewrites. Worth confirming with the user first since this changes 20+ public-facing strings.
+6. **Run the file-17 grounding query from session 21 priority #2.** SQL one-liner via SSH + docker exec + better-sqlite3. Threshold: file 17 should hit ≥50% of briefs. If under 30%, the file's content voice needs rewriting. ~14 days of cron data is now available for the analysis.
 
-6. **Push 6 local-only commits in `appManager` to `origin/master`.** Six commits sit unpushed (5 from session 21 + the session-21 handover + this session-22 handover). The global "do all" contract step 3 says always push after every commit. Trade-off: pushing exposes the work history on GitHub; not pushing risks loss to a context crash. User has declined push in prior sessions.
+7. **(Optional) Hyphen sweep of pre-existing crelvo.dev project descriptions.** All ~20 pre-session-22 entries violate the no-dashes rule. ~5 minutes of `rg "[a-z]-[a-z]"` + manual rewrites.
 
-7. **Carryover from session 21: route ordering test, Orb source repo update, ~95 brain actions triage.** All untouched. Same priority and detail as session 21's HANDOVER.md.
+8. **Carryover from sessions 21+22:** route ordering test, Orb source repo update with python3 healthcheck, ~95 brain actions triage. Same priority and detail as session 21's HANDOVER.md.
 
 ## Rollback Plan
 
-Two repos got new commits this session. Each is independently revertable.
+Two repos got changes this session. Each is independently revertable.
 
-- **slebständig commit `0d7fc0c` (3 crelvo.dev project entries):**
-  - Surgical revert: `git -C "C:/Users/kreyh/Projekte/slebständig" revert 0d7fc0c` then `npm run build && scp ./dist/* deploy@.../var/www/crelvo/`. Removes the 3 cards from the portfolio. Safe — no other code depends on these entries.
-  - Pre-session safe state on slebständig: `b41164d Rename Orb to OrbEdge with new domain orbedge.de`.
+- **slebständig commit `1b86711` (Fiscanto portfolio entry):**
+  - Surgical revert: `git -C "C:/Users/kreyh/Projekte/slebständig" revert 1b86711` then `npm run build && scp ./dist/. deploy@.../var/www/crelvo/`. Removes the Fiscanto card. Safe — no other code depends on this entry.
+  - Pre-session safe state on slebständig: `dba9368 Remove em and en dashes from player-facing copy`.
 
-- **antenna commit `b257ee7` (footer cross-links):**
-  - Surgical revert: `git -C "C:/Users/kreyh/Projekte/antenna" revert b257ee7` then `scp site/index.html deploy@.../home/deploy/theforgottensystem.org/index.html`. Removes the "Related work" footer row. Safe — no other code depends on the new CSS class.
-  - Pre-session safe state on antenna: `061873a` (parent of `b257ee7`).
+- **GSC verification file on VM (`/home/deploy/fiscanto.de/google3961c4e5a481bc42.html`):**
+  - Removal: `ssh deploy@... rm /home/deploy/fiscanto.de/google3961c4e5a481bc42.html`. Consequence: Google will un-verify the property after the next verification check (~24h) and remove ownership. Sitemap stays submitted but cannot be re-managed without re-verification. **Don't remove this file unless you intend to delete the GSC property.**
 
-- **appManager:** No commits this session except this HANDOVER.md update. Safe state is `dfbb73f Session 21 handover` (unchanged from session 21).
+- **GSC property `https://fiscanto.de`:**
+  - Removal: GSC UI → Property settings → Remove property. Or just delete the verification file (above) and let Google auto-unverify.
 
-- **No infrastructure changes this session.** No nginx configs touched, no DNS records added, no certificates issued, no databases modified. Pure content edits.
+- **appManager:** Only this HANDOVER.md changes. Safe state is `788cc52 Selfcheck Iteration 3: PDF Export Feature`.
+
+- **No infrastructure changes this session.** No nginx configs, no DNS, no certificates, no databases modified beyond reads. Pure portfolio addition + GSC setup.
 
 ## Files Changed This Session
 
-Across three repos:
+Across two repos plus VM:
 
-- **`Projekte/slebständig/src/components/Projects.astro`** — +27 lines. Three new entries appended to the `projects` array: The Forgotten System (Visual Essay), Commuter Chaos (Game · Testphase), Tabletop Siege (Game · Testphase). Committed as `0d7fc0c` on `konradreyhe/crelvo` `master`, pushed.
+- **`Projekte/slebständig/src/components/Projects.astro`** — +9 lines. New entry appended to `projects` array: Fiscanto (Tax Brand badge, BMF compliant crypto tax description, teal/cyan gradient). Committed as `1b86711` on `konradreyhe/crelvo` `master`, pushed.
 
-- **`Projekte/antenna/site/index.html`** — +13 lines. New `<div class="related-links">` row inside `<footer>` with three outbound `<a>` tags (oldworldlogos.com, t.me/oldworldlogos, crelvo.dev) and a "RELATED WORK" label. New CSS class `.related-links` + `.related-links .label` added to the footer styles block. Committed as `b257ee7` on `konradreyhe/antenna` `main`, pushed.
+- **`/var/www/crelvo/` on VM** — Refreshed full Astro `dist/` via scp. Now serves 24 portfolio cards.
 
-- **`Projekte/appManager/HANDOVER.md`** — Replaced session-21 handover with this session-22 handover. Will be committed as part of the standard handover commit at session end (parent: `dfbb73f`).
+- **`/home/deploy/fiscanto.de/google3961c4e5a481bc42.html` on VM** — New file, 1 line: `google-site-verification: google3961c4e5a481bc42.html`. Required by Google to maintain GSC ownership.
 
-- **`/var/www/crelvo/` on VM** — Refreshed full Astro `dist/` via scp.
-- **`/home/deploy/theforgottensystem.org/index.html` on VM** — Replaced via scp.
+- **Google Search Console** — New URL-prefix property `https://fiscanto.de` added, verified, sitemap submitted. Not a file change but a state change worth documenting.
+
+- **`Projekte/appManager/HANDOVER.md`** — Replaced session-22 handover with this session-23 handover. Will be committed as part of the standard handover commit at session end (parent: `788cc52`).
 
 ## Open Questions
 
-- **Will the user toggle the itch.io game visibility?** If not within a few days, the dead links damage Crelvo's portfolio credibility. Worth a follow-up nudge in the next session.
+- **Did the 1 lohncheck click convert to a smartsteuer sale?** Only Awin knows. User-side action.
 
-- **Should the existing crelvo.dev project descriptions be rewritten for the no-dashes rule?** ~20 strings need hyphenless rewrites. Not a session-22 task but lingering inconsistency.
+- **Why does abfindungsoptimizer have 0 banner views?** Embed.js injection seems broken. Investigate next session.
 
-- **Is there a CI deploy path for slebständig (crelvo.dev)?** Both deploy.sh files (slebständig and antenna's DEPLOY.md) are explicit about manual deploy. No GitHub Actions workflows referenced. Future automation could push on every `master` commit, but YAGNI without a triggering use case.
+- **Should the 7 fiscanto.de commits between sessions 22 and 23 be retroactively documented somewhere?** Right now they're git-log-only. The next person reading session 23's handover may wonder why fiscanto.de exists. The git log explains it but the handover doesn't.
 
-- **Should the nginx -s reload in slebständig/deploy.sh be fixed?** Currently fails silently with "invalid PID number" because it doesn't pass `-c /home/deploy/nginx-configs/nginx.conf`. Harmless for static-file deploys but may bite if a future deploy actually changes nginx config.
+- **Is fiscanto.de's analytics tracking working?** I didn't verify Plausible/admin tracking is firing. The site has the proxy headers in nginx (`/js/script.js` + `/api/event`) presumably; worth confirming via `GET /api/marketing/analytics` after the indexing recrawl pushes some traffic.
 
-- **Is the Marketing Brain still grounding correctly?** Multiple cron cycles ran autonomously during this session and were not measured. Could be working perfectly, could be silently regressing. Session 21 priority #2 (the SQL query) is the answer.
+- **Should `kryptoaudit.de` (the 301 alias) also be added as a separate GSC property?** Probably not — the redirect means Google consolidates signal into fiscanto.de. But if user wants to track inbound clicks to the kryptoaudit brand specifically, a separate property would help.
 
-- **Was the user's intent for the antenna footer mutual cross-linking?** I added antenna → owl + telegram + crelvo. The user did NOT ask for the reverse (owl → antenna, crelvo.dev → antenna would be a side mention, antenna is already a card on crelvo.dev). If reciprocal links were intended, they'd need to be added on oldworldlogos.com source (somewhere in `Projekte/LOGOS`).
+- **Will `/selfcheck` and `/anwalt` get indexed within a week?** Sitemap was submitted today. Worth checking next session.
+
+- **Are the 3 untracked appManager files (`.mcp.json`, `KNOWLEDGEBASE.md`, `PLAYWRIGHT-MCP-GUIDE.md`) intentional?** They've been untracked since session 22 at least. Either commit or .gitignore.
