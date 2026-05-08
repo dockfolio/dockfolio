@@ -58,6 +58,15 @@ apps:
     tech: Astro
     repo: /opt/my-blog
 
+  - name: The Design Inference
+    type: static
+    domain: thedesigninference.org
+    health: /
+    containers: []
+    description: Evidence first 3D scrollytelling site arguing the design inference. Creator agnostic, skeptic aimed.
+    tech: Next.js 14 (static export) + Three.js + R3F
+    repo: /home/deploy/thedesigninference.org
+
   # === Redirects ===
   - name: OldDomain.com
     type: redirect
