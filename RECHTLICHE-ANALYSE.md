@@ -227,16 +227,47 @@ Alle Befunde wurden vor der Umsetzung mit hartem HTTP-/TLS-/Bundle-Beweis verifi
 
 - **lohnpruefung.de lädt KEIN echtes GA.** Live-Prüfung: kein `gtag/js`, kein `dataLayer` — nur ein harmloser `preconnect`-DNS-Hinweis auf googletagmanager.com in 2593 generierten SEO-Seiten. **Keine TDDDG-Verletzung.** Die Preconnect-Reste sind reine Kosmetik (kein Rechtsbezug) und ein Massen-Sweep über 2593 Dateien lohnt nicht. Damit lädt **portfolioweit keine Seite mehr echtes Google-Tracking.**
 
-### 🔜 Noch offen (nächste Sessions)
+### ✅ Erledigt in Session 2 (Fortsetzung, alle live verifiziert)
 
-- **lohnpruefung.de:** Affiliate-Kennzeichnung pro Empfehlungsblock auf `/steuersoftware-vergleich.html` (statt nur Footer); „Testsieger/Beste App"-Superlative belegen oder entschärfen; Affiliate-Beziehung in Datenschutz. (Gratis-Tool, mittleres/niedriges Risiko.)
-- **codewithrigor.com:** Impressum + Datenschutz (verkauft, beides fehlt → höchstes verbleibendes Risiko).
-- **SacredLens:** Button „Upgrade" → „zahlungspflichtig bestellen", deutsche Widerrufsbelehrung + §356-Verzicht, Preis inkl. MwSt.
-- **theadhdmind.org:** kaputten `/datenschutz`-404 fixen + Medizin-Disclaimer.
-- **best-age.de:** Impressum vervollständigen (Name + Straße + PLZ).
-- **Mini-Impressen:** oldworldlogos.com, survivorai.app, christistrue.org, thedesigninference.org, patternmusic.art (500 prüfen).
-- **agorahoch3.org:** an den Kunden eskalieren (dessen Impressum-Pflicht).
-- **Infra-Nachzieher:** BannerForge-Quellcode unter Versionskontrolle bringen (VM-Dir ist kein Git-Repo); AbschlussCheck CI-Deploy-Pipeline reparieren (deploy.yml schlägt fehl, VM-Dockerfile war ein Stub) — aktuell per direktem `docker build` auf der VM deployt.
+- **codewithrigor.com:** standalone `impressum.html` + `datenschutz.html` in Webroot `/home/deploy/sites/codewithrigor/` deployed; Footer-Links in 101 gebaute HTML-Seiten injiziert. Live: beide 200.
+- **orbedge.de, AbfindungsOptimizer, SchenkungsPlaner, BannerForge, AbschlussCheck** — siehe Punkte 1–6 oben.
+- **best-age.de:** Impressum vervollständigt (voller Name + Welserstraße + PLZ statt nur „Leipzig"), §5 TMG→DDG, §55 RStV→§18 MStV, §7 TMG→DDG, §19-Hinweis. Datei `/home/deploy/best-age.de/impressum/index.html`. Live: „Welserstra" sichtbar.
+- **christistrue.org, thedesigninference.org, survivorai.app:** generische `impressum.html` + `datenschutz.html` in Webroot + fixierter Footer-Link (unten rechts) injiziert. Alle live 200.
+- **theadhdmind.org: KEIN Fix nötig** — der Erstaudit testete die falsche URL. Footer verlinkt korrekt `/privacy` (HTTP 200, 24 KB echte Datenschutzseite mit Plausible-Offenlegung). Erledigt durch Verifikation.
+
+### 🔜 Verbleibende Arbeit — präzise Anleitung für nächste Session
+
+**1. SacredLens (`sacredlens.de`) — verkauft Abos, mittleres Risiko.** Ziel: Button „Upgrade" → „Zahlungspflichtig bestellen"; deutsche Widerrufsbelehrung + §356-Abs.5-Digital-Verzicht (Vorlage: `abschlusscheck.de/app/widerruf/page.tsx` aus dieser Session); Preis „inkl. MwSt"/§19 korrekt.
+  - Stack: FastAPI Python, `/opt/sacredlens/backend` (deploy-writable). Container `sacredlens-backend` via `docker-compose.prod.yml` (`build:`).
+  - **Gotcha:** Auf der VM gibt es KEIN `frontend/`-Verzeichnis — das Frontend (mit dem „Upgrade"-Button) wird zur Build-Zeit ins Backend-Image kopiert ODER liegt in einem separaten Frontend-Repo, das nicht auf der VM ist. **Erster Schritt: Frontend-Quelle finden** (lokal unter `~/Projekte` mit anderem Namen, oder GitHub-Repo). Dann Button + Stripe-Checkout (`submit_type='pay'`, `locale='de'`, `custom_text` wie bei AbschlussCheck) + Widerruf-Seite + AGB. Danach Container neu bauen: `cd /opt/sacredlens && docker compose -f docker-compose.prod.yml up -d --build`.
+  - Datenschutz/Impressum von SacredLens sind laut Erstaudit bereits gut (DDG/MStV, cookieless Plausible) — nur Verbraucherrecht fehlt.
+
+**2. lohnpruefung.de (LohnCheck) — Affiliate, mittleres/niedriges Risiko (Gratis-Tool).**
+  - Quelle LOKAL: `~/Projekte/LohnCheck`. GitHub: `konradreyhe/LohnCheck`. Deploy: `deploy.sh` (rsync → VM + Docker). Backend Python Port 8002.
+  - **Affiliate-Kennzeichnung:** Auf `/steuersoftware-vergleich.html` steht der Affiliate-Hinweis nur im Footer. Pro Empfehlungsblock ein sichtbares „Anzeige"/„Werbung" ergänzen (UWG §5a Abs. 4). Datei in `web-frontend/` suchen (`grep -rl steuersoftware-vergleich web-frontend`).
+  - „Testsieger"/„Beste App"-Superlative: Quelle/Test nennen oder entschärfen.
+  - Affiliate-Beziehung in die Datenschutzerklärung aufnehmen.
+  - **Hinweis:** GA ist hier KEIN Thema (nur preconnect-Hinweis, siehe Korrektur oben). Die 2593 preconnect-Reste in `web-frontend/*.html` sind optional kosmetisch via Sweep entfernbar, aber ohne Rechtsbezug.
+
+**3. PromoForge MwSt — DEINE Entscheidung (kein reiner Fix).** `~/Projekte/promoforge/web/src/i18n/de.ts` Zeilen 224–225: „inkl. 19% MwSt". Plus Widerspruch zu „zzgl. MwSt" in `HelpCenterPage.data.tsx`. Als §19-Kleinunternehmer keine USt ausweisen → auf „keine USt gemäß §19" umstellen, ODER USt-Strategie festlegen. Deploy: PromoForge ist Express+React Monorepo, Frontend in `web/`.
+
+**4. patternmusic.art — nginx 500.** Die deployten `impressum.html`/`datenschutz.html` liegen im Webroot `/home/deploy/patternmusic.art/`, aber nginx liefert 500 (auch für die Pages). Pre-existierender Server-Config-Fehler NUR bei dieser Domain. Prüfen: `/home/deploy/nginx-configs/sites/patternmusic.art` (kaputte Direktive? try_files? fastcgi?). `sudo nginx -t` zeigt keine globalen Fehler, also domain-spezifisch. Niedrige Priorität (Gratis-Toy).
+
+**5. oldworldlogos.com — Impressum fehlt, Webroot `/var/www/logos` ist ROOT-owned.** `deploy`-User kann dort nicht schreiben (kein passwortloses sudo für `cp`). Optionen: (a) über Hetzner-Console/root die Pages ablegen, ODER (b) Webroot nach `/home/deploy/oldworldlogos` migrieren + nginx-root anpassen. Showcase/Game, niedriges Risiko.
+
+**6. agorahoch3.org — KUNDEN-Projekt.** Fehlendes Impressum/Datenschutz ist Pflicht des KUNDEN (AgoraHoch3), nicht deine. An den Kunden eskalieren; du bist nur Host/Builder. Dokumentieren, dass die Verantwortung beim Kunden liegt.
+
+### 🔧 Infra-Nachzieher (technische Schuld, kein Rechtsthema)
+
+- **BannerForge-Quellcode** (`/home/deploy/bannerforge`) ist KEIN Git-Repo → die in dieser Session gefixten `src/app/page.tsx` (Testimonials raus) + `src/app/layout.tsx` (offenes `</body>` gefixt, Build war 4 Wochen kaputt) sind nur auf der VM, nicht versioniert. Repo initialisieren + Remote anlegen.
+- **AbschlussCheck CI-Deploy** (`deploy.yml`) schlägt fehl; VM-`/opt/abschlusscheck/Dockerfile` war ein 2-Byte-Stub. In dieser Session per direktem `docker build -t abschlusscheck:latest . && docker compose -f docker-compose.prod.yml up -d` deployt, nachdem voller Quellbaum per tar auf die VM gespielt wurde. CI-Pipeline reparieren, damit `git push` wieder deployt.
+
+### Wiederkehrende Deploy-Muster (für nächste Session)
+
+- **GA-Backups:** `/home/deploy/nginx-configs-backup-ga-removal/` (Rollback der nginx-GA-Entfernung).
+- **Statische Site Legal-Page-Muster:** `scp impressum.html datenschutz.html deploy@91.99.104.132:/home/deploy/<domain>/` + Footer-Link per `sed -i "s|</body>|<LINK></body>|"` (Delimiter `|` benutzen, NICHT `#` — CSS-Farben enthalten `#`).
+- **nginx reload:** `sudo nginx -c /home/deploy/nginx-configs/nginx.conf -t && ... -s reload` (passwortloses sudo). Die vielen `protocol options redefined`/`duplicate MIME` Warnungen sind vorbestehend und harmlos.
+- **SSH:** immer `deploy@91.99.104.132`, ein Connect pro Aktion, nicht bei Fehler stur retrygen (fail2ban).
 
 ---
 
