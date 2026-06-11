@@ -234,6 +234,7 @@ Alle Befunde wurden vor der Umsetzung mit hartem HTTP-/TLS-/Bundle-Beweis verifi
 - **best-age.de:** Impressum vervollständigt (voller Name + Welserstraße + PLZ statt nur „Leipzig"), §5 TMG→DDG, §55 RStV→§18 MStV, §7 TMG→DDG, §19-Hinweis. Datei `/home/deploy/best-age.de/impressum/index.html`. Live: „Welserstra" sichtbar.
 - **christistrue.org, thedesigninference.org, survivorai.app:** generische `impressum.html` + `datenschutz.html` in Webroot + fixierter Footer-Link (unten rechts) injiziert. Alle live 200.
 - **theadhdmind.org: KEIN Fix nötig** — der Erstaudit testete die falsche URL. Footer verlinkt korrekt `/privacy` (HTTP 200, 24 KB echte Datenschutzseite mit Plausible-Offenlegung). Erledigt durch Verifikation.
+- **lohnpruefung.de (LohnCheck): Affiliate-Kennzeichnung am Empfehlungsort.** Auf `/steuersoftware-vergleich.html` trug jeder Affiliate-Block jetzt eine sichtbare „Anzeige"-Markierung (WISO, Taxfix, Smartsteuer, SteuerGo; ELSTER bleibt unmarkiert, da kein Partner) plus eine prominente Offenlegungs-Box direkt unter „Unsere Empfehlungen" (vorher nur Footer → UWG §5a Abs. 4). Unbelegte Superlative entschärft: „Testsieger" → „Unsere Empfehlung", „Beste App" → „Fürs Smartphone". Datenschutzerklärung: neuer Abschnitt 9 (Affiliate/Awin, Art. 6 Abs. 1 lit. f), Cookie-Aussage „keine Werbung" korrigiert. Die site-weit injizierten CTA-Karten (`scripts/rebuild-affiliate-cta.js`) trugen bereits „Anzeige" + Disclosure. **Committed + gepusht** (`konradreyhe/LohnCheck` `main` `453d05c2`), **deployed (scp) + live verifiziert** (4 Anzeige-Labels, Superlative weg, Abschnitt 9 + Awin live).
 
 ### 🔜 Verbleibende Arbeit — präzise Anleitung für nächste Session
 
@@ -242,12 +243,7 @@ Alle Befunde wurden vor der Umsetzung mit hartem HTTP-/TLS-/Bundle-Beweis verifi
   - **Gotcha:** Auf der VM gibt es KEIN `frontend/`-Verzeichnis — das Frontend (mit dem „Upgrade"-Button) wird zur Build-Zeit ins Backend-Image kopiert ODER liegt in einem separaten Frontend-Repo, das nicht auf der VM ist. **Erster Schritt: Frontend-Quelle finden** (lokal unter `~/Projekte` mit anderem Namen, oder GitHub-Repo). Dann Button + Stripe-Checkout (`submit_type='pay'`, `locale='de'`, `custom_text` wie bei AbschlussCheck) + Widerruf-Seite + AGB. Danach Container neu bauen: `cd /opt/sacredlens && docker compose -f docker-compose.prod.yml up -d --build`.
   - Datenschutz/Impressum von SacredLens sind laut Erstaudit bereits gut (DDG/MStV, cookieless Plausible) — nur Verbraucherrecht fehlt.
 
-**2. lohnpruefung.de (LohnCheck) — Affiliate, mittleres/niedriges Risiko (Gratis-Tool).**
-  - Quelle LOKAL: `~/Projekte/LohnCheck`. GitHub: `konradreyhe/LohnCheck`. Deploy: `deploy.sh` (rsync → VM + Docker). Backend Python Port 8002.
-  - **Affiliate-Kennzeichnung:** Auf `/steuersoftware-vergleich.html` steht der Affiliate-Hinweis nur im Footer. Pro Empfehlungsblock ein sichtbares „Anzeige"/„Werbung" ergänzen (UWG §5a Abs. 4). Datei in `web-frontend/` suchen (`grep -rl steuersoftware-vergleich web-frontend`).
-  - „Testsieger"/„Beste App"-Superlative: Quelle/Test nennen oder entschärfen.
-  - Affiliate-Beziehung in die Datenschutzerklärung aufnehmen.
-  - **Hinweis:** GA ist hier KEIN Thema (nur preconnect-Hinweis, siehe Korrektur oben). Die 2593 preconnect-Reste in `web-frontend/*.html` sind optional kosmetisch via Sweep entfernbar, aber ohne Rechtsbezug.
+**2. lohnpruefung.de (LohnCheck) — ✅ ERLEDIGT (siehe „Erledigt in Session 2" oben, `453d05c2`).** Affiliate-Kennzeichnung pro Block, Superlative entschärft, Datenschutz-Abschnitt 9. Optional offen: die 2593 kosmetischen `preconnect`-Reste in `web-frontend/*.html` (ohne Rechtsbezug, Sweep lohnt nicht).
 
 **3. PromoForge MwSt — DEINE Entscheidung (kein reiner Fix).** `~/Projekte/promoforge/web/src/i18n/de.ts` Zeilen 224–225: „inkl. 19% MwSt". Plus Widerspruch zu „zzgl. MwSt" in `HelpCenterPage.data.tsx`. Als §19-Kleinunternehmer keine USt ausweisen → auf „keine USt gemäß §19" umstellen, ODER USt-Strategie festlegen. Deploy: PromoForge ist Express+React Monorepo, Frontend in `web/`.
 
