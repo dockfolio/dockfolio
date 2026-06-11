@@ -214,24 +214,29 @@ Alle Befunde wurden vor der Umsetzung mit hartem HTTP-/TLS-/Bundle-Beweis verifi
 1. **Google Analytics portfolioweit entfernt (16 Sites).** GA wurde NICHT im Quellcode, sondern serverseitig per nginx `sub_filter` in 16 Site-Configs injiziert — auf JEDER Seite ohne Consent (TDDDG §25). Das war das größte Einzelrisiko und betraf auch zuvor „sauber" eingestufte Seiten (crelvo.dev, dockfolio.dev, bewerbungsfotos-ai). Entfernt: GA-Script-Tags (quoted + unquoted Format) + CSP-Allowlist-Einträge (googletagmanager/google-analytics/analytics.google.com inkl. Wildcards). Cookieloses Plausible + eigener admin-Tracker bleiben. `nginx -t` ok, neu geladen. **Live bestätigt: GA auf 15/16 weg** (lohnpruefung GA ist app-seitig, siehe offen). Backups: `/home/deploy/nginx-configs-backup-ga-removal/`.
 2. **AbfindungsOptimizer + SchenkungsPlaner — ehrliche Datenschutzerklärung.** Falsche Aussage „keine Datenerhebung / verarbeitet KEINE personenbezogenen Daten" ersetzt durch ehrliche Offenlegung von Plausible (cookielos, Art. 6 Abs. 1 lit. f) + admin-Tracker; volle Betroffenenrechte (Art. 15–21) statt „entfallen". Impressum: §5 TMG → §5 DDG, §55 RStV → §18 Abs. 2 MStV, §19-UStG-Hinweis ergänzt. Em-Dashes entfernt, absolute Ersparnis-Claims entschärft. **Gebaut, deployed (scp), committed + gepusht** (beide Repos, branch `main`).
 3. **BannerForge wieder online.** TLS-Zertifikat war seit ~23.05. abgelaufen (Renewal scheiterte am ungenutzten `www`-Subdomain). Neu ausgestellt apex-only (gültig bis 09.09.2026), nginx auf frischen Cert-Pfad gezeigt. **Live: HTTPS 200, gültiges Zertifikat.**
-4. **BannerForge — Fake-Testimonials + unbelegte Claims entfernt** („Sarah K./Marcus T./Lisa M.", „Loved by Marketing Teams", „1.000+ banners", „Join 1.000+ marketers") aus `src/app/page.tsx`. **Pre-existierender Build-Bug gefunden und gefixt:** `src/app/layout.tsx` hatte ein nicht geschlossenes `<body>` → Build seit ~4 Wochen kaputt, Container veraltet. `</body>` ergänzt → Build wieder lauffähig, Container neu gebaut.
+4. **BannerForge — Fake-Testimonials + unbelegte Claims entfernt** („Sarah K./Marcus T./Lisa M.", „Loved by Marketing Teams", „1.000+ banners", „Join 1.000+ marketers") aus `src/app/page.tsx`. **Pre-existierender Build-Bug gefunden und gefixt:** `src/app/layout.tsx` hatte ein nicht geschlossenes `<body>` → Build seit ~4 Wochen kaputt, Container veraltet. `</body>` ergänzt → Build wieder lauffähig, Container neu gebaut. **Live: 0 Fakes.**
+5. **AbschlussCheck (einzige Umsatz-Seite) — Verbraucherrecht vollständig.** Stripe-Checkout: `submit_type=pay` + `locale=de` + §356-Abs.5-Hinweis im `custom_text`. Upload-Seite: **Pflicht-Checkbox** (AGB + Widerrufsbelehrung + ausdrückliches Verlangen sofortiger Ausführung + Kenntnis des Widerruf-Erlöschens), Button „Weiter zur Zahlung" → **„Zahlungspflichtig bestellen"**. Neue Seiten **/agb** und **/widerruf** (mit §356-Abs.5-Digital-Verzicht + freiwilliger Geld-zurück-Garantie). Impressum: §5 DDG + §19 UStG. Datenschutz: Art.-6-Rechtsgrundlagen, Plausible/admin-Reichweitenmessung, USA-Transfer via Standardvertragsklauseln. Footer: AGB/Widerruf-Links. **Gebaut (Docker-Image direkt, da CI-Pipeline defekt + VM-Dockerfile war Stub), deployed, live verifiziert (AGB/Widerruf 200), committed + gepusht.**
+6. **orbedge.de — Trading-Claims entschärft + Impressum/Datenschutz.** Implausibler „Sharpe 17.43" entfernt; prominenter Risikohinweis (Totalverlust, „nur Backtest", keine Anlageberatung) im Footer. Echte **impressum.html + datenschutz.html** erstellt (vorher nur SPA-Fallback) und verlinkt. **Deployed (scp), live verifiziert (200, Sharpe weg), committed + gepusht** (appManager).
 
 ### ⏸️ Bewusst zurückgegeben (Geschäfts-/Steuerentscheidung)
 
 - **PromoForge „inkl. 19% MwSt" vs. Kleinunternehmer** (`web/src/i18n/de.ts`, plus Widerspruch zu „zzgl. MwSt" im HelpCenter). Korrektur hängt von der USt-Strategie ab (bleibst du §19?). GA dort bereits entfernt.
 - **USD-Preise auf BannerForge** ($0/$19/$49 ohne MwSt, auch im JSON-LD) — Umstellung auf EUR/§19 berührt Stripe und ist eine Geschäftsentscheidung.
 
-### 🔜 Noch offen (nächste Sessions, Tasks 4–9)
+### ℹ️ Korrektur zur Erstanalyse
 
-- **lohnpruefung.de:** GA ist APP-seitig (Python-Template), nicht nginx → muss im LohnCheck-Quellcode raus; Affiliate-Kennzeichnung pro Block; Affiliate in Datenschutz.
-- **AbschlussCheck** (einzige Seite mit Umsatz): Button „Jetzt prüfen" → „zahlungspflichtig bestellen", AGB + Widerrufsbelehrung + §356-Digital-Verzicht, Preis inkl. MwSt/§19, Art-6-Basis + US-Transfer (Anthropic) in Datenschutz.
-- **orbedge.de:** echtes Impressum + Datenschutz (aktuell SPA-Fallback), Renditeclaims als „nur Backtest" kennzeichnen, „Sharpe 17.43" entfernen.
-- **codewithrigor.com:** Impressum + Datenschutz (verkauft, beides fehlt).
+- **lohnpruefung.de lädt KEIN echtes GA.** Live-Prüfung: kein `gtag/js`, kein `dataLayer` — nur ein harmloser `preconnect`-DNS-Hinweis auf googletagmanager.com in 2593 generierten SEO-Seiten. **Keine TDDDG-Verletzung.** Die Preconnect-Reste sind reine Kosmetik (kein Rechtsbezug) und ein Massen-Sweep über 2593 Dateien lohnt nicht. Damit lädt **portfolioweit keine Seite mehr echtes Google-Tracking.**
+
+### 🔜 Noch offen (nächste Sessions)
+
+- **lohnpruefung.de:** Affiliate-Kennzeichnung pro Empfehlungsblock auf `/steuersoftware-vergleich.html` (statt nur Footer); „Testsieger/Beste App"-Superlative belegen oder entschärfen; Affiliate-Beziehung in Datenschutz. (Gratis-Tool, mittleres/niedriges Risiko.)
+- **codewithrigor.com:** Impressum + Datenschutz (verkauft, beides fehlt → höchstes verbleibendes Risiko).
 - **SacredLens:** Button „Upgrade" → „zahlungspflichtig bestellen", deutsche Widerrufsbelehrung + §356-Verzicht, Preis inkl. MwSt.
 - **theadhdmind.org:** kaputten `/datenschutz`-404 fixen + Medizin-Disclaimer.
 - **best-age.de:** Impressum vervollständigen (Name + Straße + PLZ).
 - **Mini-Impressen:** oldworldlogos.com, survivorai.app, christistrue.org, thedesigninference.org, patternmusic.art (500 prüfen).
 - **agorahoch3.org:** an den Kunden eskalieren (dessen Impressum-Pflicht).
+- **Infra-Nachzieher:** BannerForge-Quellcode unter Versionskontrolle bringen (VM-Dir ist kein Git-Repo); AbschlussCheck CI-Deploy-Pipeline reparieren (deploy.yml schlägt fehl, VM-Dockerfile war ein Stub) — aktuell per direktem `docker build` auf der VM deployt.
 
 ---
 
