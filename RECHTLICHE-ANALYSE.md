@@ -220,8 +220,9 @@ Alle Befunde wurden vor der Umsetzung mit hartem HTTP-/TLS-/Bundle-Beweis verifi
 
 ### ⏸️ Bewusst zurückgegeben (Geschäfts-/Steuerentscheidung)
 
-- **PromoForge „inkl. 19% MwSt" vs. Kleinunternehmer** (`web/src/i18n/de.ts`, plus Widerspruch zu „zzgl. MwSt" im HelpCenter). Korrektur hängt von der USt-Strategie ab (bleibst du §19?). GA dort bereits entfernt.
-- **USD-Preise auf BannerForge** ($0/$19/$49 ohne MwSt, auch im JSON-LD) — Umstellung auf EUR/§19 berührt Stripe und ist eine Geschäftsentscheidung.
+- ~~**PromoForge „inkl. 19% MwSt" vs. Kleinunternehmer**~~ → ✅ ERLEDIGT (Session 2026-06-11 Forts., Entscheidung des Betreibers: §19 bleibt). `web/src/i18n/de.ts` (`pricing.inclVat`/`pricing.vatFootnote`), `AGBPage.tsx` und `HelpCenterPage.data.tsx` von „inkl./zzgl. 19% MwSt" auf „Endpreis ohne Umsatzsteuer (§19 UStG)" umgestellt. **Committed + gepusht** (`konradreyhe/videoCreator` `main` `079e509e`). ⚠️ **Live-Deploy steht aus:** PromoForge deployt manuell per SSH (`docker compose down/up`, legt die DB kurz still) — bei ~0 Traffic / 🟡-Priorität bewusst zurückgestellt, nicht über die Flaggschiff-SaaS einen DB-Restart riskieren. Quelle korrekt + CI-validiert.
+- **Headshot AI „einmalig inkl. MwSt"** → ✅ ERLEDIGT (gleiche §19-Entscheidung). `messages/de.json` (2 Stellen) auf „einmalig, ohne Umsatzsteuer (§19 UStG)". **Committed + gepusht** (`konradreyhe/headshot-ai-pro` `main` `65b9d67`). ⚠️ **CI-Auto-Deploy fehlgeschlagen** — siehe kritischen Billing-Hinweis unten; geht live, sobald GitHub-Actions-Billing wieder aktiv ist.
+- **USD-Preise auf BannerForge** ($0/$19/$49 ohne MwSt, auch im JSON-LD) — Umstellung auf EUR/§19 berührt Stripe und bleibt eine **Geschäftsentscheidung** (weiterhin offen).
 
 ### ℹ️ Korrektur zur Erstanalyse
 
@@ -260,8 +261,12 @@ Alle Befunde wurden vor der Umsetzung mit hartem HTTP-/TLS-/Bundle-Beweis verifi
 
 ### 🔧 Infra-Nachzieher (technische Schuld, kein Rechtsthema)
 
-- **BannerForge-Quellcode** (`/home/deploy/bannerforge`) ist KEIN Git-Repo → die in dieser Session gefixten `src/app/page.tsx` (Testimonials raus) + `src/app/layout.tsx` (offenes `</body>` gefixt, Build war 4 Wochen kaputt) sind nur auf der VM, nicht versioniert. Repo initialisieren + Remote anlegen.
-- **AbschlussCheck CI-Deploy** (`deploy.yml`) schlägt fehl; VM-`/opt/abschlusscheck/Dockerfile` war ein 2-Byte-Stub. In dieser Session per direktem `docker build -t abschlusscheck:latest . && docker compose -f docker-compose.prod.yml up -d` deployt, nachdem voller Quellbaum per tar auf die VM gespielt wurde. CI-Pipeline reparieren, damit `git push` wieder deployt.
+- **BannerForge-Quellcode** → ✅ KORREKTUR + ERLEDIGT (Session 2026-06-11 Forts.). Die Annahme „kein Git-Repo" war falsch: `konradreyhe/bannerforge` **existiert** als privates, aktiv gepflegtes Repo (zuletzt gepusht 2026-06-10). Nur das VM-Verzeichnis `/home/deploy/bannerforge` hat kein `.git` — es ist eine **veraltete April-Kopie**, aus der die Live-Site gebaut wird (Live = sauber, keine Testimonials). **Echter Befund:** Das kanonische Repo (Juni-Redesign) hatte die **Fake-Testimonials WIEDER eingeführt** (Sarah K./Marcus T./Lisa M., „Loved by Marketing Teams", „1,000+ banners", „Join 1,000+ marketers") — ein Verstoß gegen die NO-FAKES-Policy, der bei jedem Deploy aus dem Repo live ginge. Entfernt + **committed + gepusht** (`konradreyhe/bannerforge` `main` `ed1a86f`). ⚠️ **FLAG:** kanonisches Juni-Redesign ist von der April-Live-Version divergiert; USD-Preise bleiben offene Geschäftsentscheidung.
+- **AbschlussCheck CI-Deploy** → ✅ DIAGNOSE + KORREKTUR. Kein Code-Bug: `deploy.yml` ist strukturell in Ordnung (letzter Erfolg 2026-04-07), baut das Image, pusht nach ghcr, die VM **zieht** das fertige Image (`docker compose pull`) — der „2-Byte-Stub Dockerfile" auf der VM ist daher **irrelevant** (die VM baut nicht selbst; Stub war ein Artefakt des manuellen `docker build` aus Session 24). **Eigentliche Ursache: der kontoweite GitHub-Actions-Billing-Block** (siehe unten) — deshalb lief der Juni-Legal-Push nie als Workflow. Live ist via manuellem Deploy aus Session 24 aktuell (`/agb`, `/widerruf` = 200). `workflow_dispatch`-Trigger ergänzt (`8fe0a41`), damit der Deploy nach Billing-Fix per Klick neu gestartet werden kann.
+
+### 🔴 KRITISCH (kontoweit, blockt alle CI-Deploys) — GitHub Actions Billing
+
+GitHub Actions ist **kontoweit deaktiviert**: Workflow-Runs scheitern sofort mit „The job was not started because recent account payments have failed or your spending limit needs to be increased." Das betrifft **jedes Repo** auf dem Account (Headshot, PromoForge, AbschlussCheck …). Folge: kein `git push` deployt aktuell automatisch. **Aktion für den Betreiber:** GitHub → Settings → Billing & plans klären (Zahlungsmittel / Spending Limit). Danach deployen die gepushten Fixes automatisch bzw. per `workflow_dispatch`. Bis dahin gilt manueller SSH-Deploy als Fallback.
 
 ### Wiederkehrende Deploy-Muster (für nächste Session)
 
