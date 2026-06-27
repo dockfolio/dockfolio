@@ -223,8 +223,9 @@ export default function registerStripeRoutes({ app, config, getStripeKeys, cron,
   // IMPORTANT: /v1/charges is account-wide, not per-app. Several app keys here
   // resolve to the SAME Stripe account, so we group keys by account id and keep
   // ONE cursor per account — otherwise one sale would fire once per key. The
-  // charges carry no per-app description/metadata, so we do NOT guess an app
-  // name (a wrong label is worse than none); we report what is reliable.
+  // charge itself has no per-app fields, but the Checkout Session behind it does
+  // (line-item product name, app domain), so we look that up per new sale to
+  // label it precisely — no app-repo changes needed (see describeSale).
 
   function formatMoney(amountCents, currency) {
     const amount = (amountCents / 100).toFixed(2).replace('.', ',');
@@ -237,6 +238,33 @@ export default function registerStripeRoutes({ app, config, getStripeKeys, cron,
     const t = c.payment_method_details?.type;
     const map = { card: 'Karte', sepa_debit: 'SEPA', paypal: 'PayPal', link: 'Link', klarna: 'Klarna', giropay: 'giropay', sofort: 'Sofort', ideal: 'iDEAL' };
     return t ? (map[t] || t) : null;
+  }
+
+  // The charge itself has no per-app info, but the Checkout Session behind it
+  // does: the line-item description is a perfect label ("AbschlussCheck:
+  // Bachelorarbeit"), plus a richer email and the app domain. One extra lookup
+  // per new sale (rare) attributes every sale with no app-repo changes.
+  async function describeSale(c, headers) {
+    let label = null;
+    let email = c.billing_details?.email || null;
+    try {
+      if (c.payment_intent) {
+        const url = `${STRIPE_API}/checkout/sessions?payment_intent=${c.payment_intent}&limit=1&expand[]=data.line_items`;
+        const r = await fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_STANDARD) });
+        if (r.ok) {
+          const s = (await r.json()).data?.[0];
+          if (s) {
+            const product = s.line_items?.data?.[0]?.description;
+            let host = null;
+            try { host = new URL(s.success_url).hostname.replace(/^www\./, ''); } catch { /* ignore */ }
+            if (host === 'localhost' || /^\d/.test(host || '')) host = null; // ignore localhost / IPs
+            label = product || s.metadata?.app || host || null;
+            email = email || s.customer_details?.email || s.metadata?.email || null;
+          }
+        }
+      }
+    } catch { /* best-effort: fall back to no label */ }
+    return { label, email };
   }
 
   // Resolve a secret key to its Stripe account id so keys on the same account
@@ -307,10 +335,12 @@ export default function registerStripeRoutes({ app, config, getStripeKeys, cron,
           // Real money only: paid, settled, not refunded, and live (never test mode).
           if (!c.paid || c.status !== 'succeeded' || c.refunded || c.livemode === false) continue;
           const pm = paymentMethodLabel(c);
+          const { label, email } = await describeSale(c, info.headers);
           const lines = [
             '💰💰💰 <b>NEUER VERKAUF</b>',
+            label ? `🎯 ${label}` : null,
             `💶 <b>${formatMoney(c.amount, c.currency)}</b>${pm ? ` · ${pm}` : ''}`,
-            c.billing_details?.email ? `📧 ${c.billing_details.email}` : null,
+            email ? `📧 ${email}` : null,
           ].filter(Boolean);
           await sendTelegram(lines.join('\n'));
         }
