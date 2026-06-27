@@ -2827,7 +2827,7 @@ registerAnalyticsRoutes({
 });
 registerStripeRoutes({
   app, config, getStripeKeys,
-  cron, guardedCron, sendTelegram,
+  cron, guardedCron, sendTelegram, cronFail,
   getSetting,
   setSetting: (key, value) => upsertSettingStmt.run(key, value),
 });

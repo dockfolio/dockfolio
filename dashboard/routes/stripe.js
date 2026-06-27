@@ -7,7 +7,7 @@ function stripeHeaders(secretKey) {
   return { 'Authorization': 'Basic ' + Buffer.from(secretKey + ':').toString('base64') };
 }
 
-export default function registerStripeRoutes({ app, config, getStripeKeys, cron, guardedCron, sendTelegram, getSetting, setSetting }) {
+export default function registerStripeRoutes({ app, config, getStripeKeys, cron, guardedCron, sendTelegram, getSetting, setSetting, cronFail }) {
 
   function getStripeKeyForApp(appSlug, appKeys) {
     if (!appSlug) return null;
@@ -216,9 +216,15 @@ export default function registerStripeRoutes({ app, config, getStripeKeys, cron,
   }));
 
   // --- New-sale watcher ------------------------------------------------------
-  // Polls Stripe charges per app key and fires a clear Telegram notice the
-  // moment money actually lands. This is the *confirmed* sale signal — the
-  // visit-watcher's "möglicher Verkauf" is only a heads-up from the success page.
+  // Fires a clear Telegram notice the moment money actually lands. This is the
+  // *confirmed* sale signal (amount); the visit-watcher's "möglicher Verkauf"
+  // heads-up names *which app* (from the domain) a few seconds earlier.
+  //
+  // IMPORTANT: /v1/charges is account-wide, not per-app. Several app keys here
+  // resolve to the SAME Stripe account, so we group keys by account id and keep
+  // ONE cursor per account — otherwise one sale would fire once per key. The
+  // charges carry no per-app description/metadata, so we do NOT guess an app
+  // name (a wrong label is worse than none); we report what is reliable.
 
   function formatMoney(amountCents, currency) {
     const amount = (amountCents / 100).toFixed(2).replace('.', ',');
@@ -227,62 +233,91 @@ export default function registerStripeRoutes({ app, config, getStripeKeys, cron,
     return `${amount} ${sym}`.trim();
   }
 
-  // Stable, non-secret cursor id per Stripe key (so we never store the key itself).
-  function cursorKeyFor(appNames) {
-    const label = (appNames || []).join('+') || 'unknown';
-    return `stripe_seen_charge:${label}`;
+  function paymentMethodLabel(c) {
+    const t = c.payment_method_details?.type;
+    const map = { card: 'Karte', sepa_debit: 'SEPA', paypal: 'PayPal', link: 'Link', klarna: 'Klarna', giropay: 'giropay', sofort: 'Sofort', ideal: 'iDEAL' };
+    return t ? (map[t] || t) : null;
+  }
+
+  // Resolve a secret key to its Stripe account id so keys on the same account
+  // share one cursor. Cached for the process; falls back to a non-secret key
+  // signature if /v1/account is unreadable (still dedupes per key).
+  const accountIdCache = new Map();
+  async function getAccountId(secretKey, headers) {
+    if (accountIdCache.has(secretKey)) return accountIdCache.get(secretKey);
+    let id = 'key_' + secretKey.slice(-8);
+    try {
+      const r = await fetch(`${STRIPE_API}/account`, { headers, signal: AbortSignal.timeout(TIMEOUT_STANDARD) });
+      if (r.ok) { const j = await r.json(); if (j?.id) id = j.id; }
+    } catch { /* keep fallback */ }
+    accountIdCache.set(secretKey, id);
+    return id;
   }
 
   async function pollStripeSales() {
-    const { keys } = getStripeKeys(); // Map(secretKey -> [appNames])
-    for (const [secretKey, appNames] of keys) {
-      const headers = stripeHeaders(secretKey);
-      let chargesRes;
-      try {
-        chargesRes = await fetch(`${STRIPE_API}/charges?limit=20`, {
-          headers,
-          signal: AbortSignal.timeout(TIMEOUT_STANDARD),
-        });
-      } catch { continue; }
-      if (!chargesRes.ok) continue;
+    try {
+      const { keys } = getStripeKeys(); // Map(secretKey -> [appNames])
 
-      const data = await chargesRes.json();
-      const charges = data.data || [];
-      if (charges.length === 0) continue;
+      // Group distinct keys by Stripe account (dedupe shared accounts).
+      const accounts = new Map(); // accountId -> { headers }
+      for (const [secretKey] of keys) {
+        const headers = stripeHeaders(secretKey);
+        const acctId = await getAccountId(secretKey, headers);
+        if (!accounts.has(acctId)) accounts.set(acctId, { headers });
+      }
 
-      const cursorKey = cursorKeyFor(appNames);
-      const lastSeen = getSetting(cursorKey);
-      const newestId = charges[0].id;
+      for (const [acctId, info] of accounts) {
+        let chargesRes;
+        try {
+          chargesRes = await fetch(`${STRIPE_API}/charges?limit=20`, {
+            headers: info.headers,
+            signal: AbortSignal.timeout(TIMEOUT_STANDARD),
+          });
+        } catch { continue; }
+        if (!chargesRes.ok) continue;
 
-      // First run for this key: remember where we are, don't replay history.
-      if (!lastSeen) {
+        const data = await chargesRes.json();
+        const charges = data.data || [];
+
+        const cursorKey = `stripe_seen_charge:${acctId}`;
+        const lastSeen = getSetting(cursorKey);
+
+        // First sight of this account: record the position (or a sentinel when
+        // there is no history yet) WITHOUT replaying. This also guarantees the
+        // very first sale on a brand-new account still notifies next tick.
+        if (lastSeen === null || lastSeen === undefined) {
+          setSetting(cursorKey, charges.length ? charges[0].id : '__none__');
+          continue;
+        }
+        if (charges.length === 0) continue;
+        const newestId = charges[0].id;
+        if (lastSeen === newestId) continue;
+
+        // Collect charges newer than the cursor (newest-first list → stop at cursor).
+        const fresh = [];
+        for (const c of charges) {
+          if (c.id === lastSeen) break;
+          fresh.push(c);
+        }
+        // Advance the cursor regardless, so a burst is never reported twice.
         setSetting(cursorKey, newestId);
-        continue;
-      }
-      if (lastSeen === newestId) continue;
 
-      // Collect charges newer than the cursor (newest-first list → stop at cursor).
-      const fresh = [];
-      for (const c of charges) {
-        if (c.id === lastSeen) break;
-        fresh.push(c);
+        // Notify oldest-first so the order reads naturally in the chat.
+        for (const c of fresh.reverse()) {
+          // Real money only: paid, settled, not refunded, and live (never test mode).
+          if (!c.paid || c.status !== 'succeeded' || c.refunded || c.livemode === false) continue;
+          const pm = paymentMethodLabel(c);
+          const lines = [
+            '💰💰💰 <b>NEUER VERKAUF</b>',
+            `💶 <b>${formatMoney(c.amount, c.currency)}</b>${pm ? ` · ${pm}` : ''}`,
+            c.billing_details?.email ? `📧 ${c.billing_details.email}` : null,
+          ].filter(Boolean);
+          await sendTelegram(lines.join('\n'));
+        }
       }
-      // Advance the cursor regardless, so a burst is never reported twice.
-      setSetting(cursorKey, newestId);
-
-      // Notify oldest-first so the order reads naturally in the chat.
-      const label = (appNames || []).filter(n => n && n !== '(global)').join(' / ');
-      for (const c of fresh.reverse()) {
-        // Real money only: paid, settled, not refunded, and live (never test mode).
-        if (!c.paid || c.status !== 'succeeded' || c.refunded || c.livemode === false) continue;
-        const lines = [
-          '💰💰💰 <b>NEUER VERKAUF</b>',
-          label ? `🎯 ${label}` : null,
-          `💶 <b>${formatMoney(c.amount, c.currency)}</b>${c.description ? ` · ${c.description}` : ''}`,
-          c.billing_details?.email ? `📧 ${c.billing_details.email}` : null,
-        ].filter(Boolean);
-        await sendTelegram(lines.join('\n'));
-      }
+    } catch (err) {
+      if (typeof cronFail === 'function') cronFail('stripe-sales', err);
+      else console.error('[stripe-sales]', (err && err.message) || err);
     }
   }
 
