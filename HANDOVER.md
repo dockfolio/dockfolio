@@ -1,47 +1,47 @@
 # Session Handover
 
-**Date:** 2026-06-11 (Session 25)
-**Goal:** Drain the last user-gated items of the legal/compliance sweep in `RECHTLICHE-ANALYSE.md`. User answered three decisions up front, then "go" (autonomous). All shippable items shipped.
+**Date:** 2026-06-27 (Session 26)
+**Goal:** Make the Telegram bot notices clearer — distinguish real purchases from ordinary page visits, and tighten bot filtering so only real visitors ping. User: "make it clearer" → chose Both (success-page heads-up + Stripe confirmation) + restyle visits, then "do all" (autonomous).
 
 ## ⚠️ Authoritative document is RECHTLICHE-ANALYSE.md
 
-The legal analysis + live fix log lives in **`RECHTLICHE-ANALYSE.md`** (§5b). Single source of truth for the compliance state of all public sites. This file is a thin pointer + session summary.
+For legal/compliance state of public sites, `RECHTLICHE-ANALYSE.md` (§5b) remains the single source of truth. This file is the rolling session handover.
 
-## Decisions taken this session (user-answered, then autonomous)
+## What got shipped this session (deployed + verified)
 
-1. **betpilot** → take offline / fully private.
-2. **MwSt** → stay §19 Kleinunternehmer, fix wording.
-3. **Infra** → do both (BannerForge versioning + AbschlussCheck CI).
+Three Telegram-notification improvements. The previous setup sent one identical format for every page view, so a sale and a blog reader looked the same in chat.
 
-## What got done (each its own commit + push)
+### 1. Dashboard Stripe sales poller — CONFIRMED sale notice
+- **Code:** `dashboard/routes/stripe.js` + `dashboard/server.js`. Commit `6e51131` on `master`, pushed to origin.
+- New cron `stripe-sales` (every 2 min) → `pollStripeSales()`. Polls `/v1/charges?limit=20` per app Stripe key (reuses `getStripeKeys()`), per-key cursor persisted in the `settings` table (key `stripe_seen_charge:<appNames>`). Bootstraps on first run (stores newest id, no notify → no history replay); advances cursor each tick (no double-report). Notifies only on `paid && status===succeeded && !refunded && livemode!==false`.
+- Message: `💰💰💰 NEUER VERKAUF` + app + amount (`formatMoney`, €/$/£/CHF) + description + email.
+- `server.js`: wired `cron, guardedCron, sendTelegram, getSetting, setSetting` into `registerStripeRoutes`; added `revenue` category in `parseNotificationFromTelegram` (matches verkauf/sale/MRR).
+- **Deployed:** VM `/home/deploy/appmanager/dashboard` is **build-from-source** (`docker compose build`, service `dashboard`, container `dockfolio-dashboard`) — NOT a prebuilt image, NOT a git repo (rsync-managed). Verified VM files were identical to master before overwrite, scp'd both files, `docker compose up -d --build dashboard`. Container healthy (`/api/health` = ok), `pollStripeSales` present in running container, no startup errors.
 
-1. **PromoForge MwSt → §19** (`konradreyhe/videoCreator` `079e509e`). `de.ts` pricing, `AGBPage.tsx`, `HelpCenterPage.data.tsx`: "inkl./zzgl. 19% MwSt" → "Endpreis ohne Umsatzsteuer (§19 UStG)". ⚠️ Live deploy deferred (manual SSH `docker compose down/up` downs the DB; 🟡 priority, ~0 traffic). Source correct + CI-validated.
-2. **Headshot AI MwSt → §19** (`konradreyhe/headshot-ai-pro` `65b9d67`). `messages/de.json` (2 spots). ⚠️ CI auto-deploy failed — billing block (see below); ships when billing restored.
-3. **betpilot privatized** — whole `betpilot.crelvo.dev` now behind nginx Basic Auth (reuses `/home/deploy/appmanager/.htpasswd` = admin dashboard creds). A non-public Telemedium has no DDG Impressumspflicht → item 8 closed without putting the Klarname on a gambling tool. `/health` stays open for monitoring. **Live verified:** `/`,`/login`,`/dashboard` = 401; `/health` = 200. VM `config.yml` health → `/health`. Backups: `nginx-configs-backup-betpilot-private-20260611.conf`, `appmanager-config-backup-betpilot-20260611.yml`. Fix log `160d356`.
-4. **BannerForge** — premise was wrong: `konradreyhe/bannerforge` already exists (private, active). VM `/home/deploy/bannerforge` is a stale April copy (live build, clean). **Real find:** canonical June redesign had reintroduced fake testimonials + "1,000+" claims → removed (`ed1a86f`). Live unaffected (already clean).
-5. **AbschlussCheck CI** — no code bug. `deploy.yml` sound (last success Apr 7), VM pulls the prebuilt image (the "2-byte stub Dockerfile" is irrelevant). Root cause = billing block. Added `workflow_dispatch` (`8fe0a41`) for one-click re-deploy post-billing. Live already current (`/agb`,`/widerruf` = 200).
+### 2. visit-watcher.sh — POSSIBLE sale heads-up + restyle + bot filter
+- **File:** `scripts/visit-watcher.sh`. **GITIGNORED** (contains the Telegram bot token) → not in git; the repo copy IS the deploy source, kept in sync with the VM.
+- `is_purchase_success()`: detects Stripe success redirect (`session_id=cs_(live|test)_`) + common success paths (`/danke`, `/success`, `/checkout/success`, `/erfolg`, etc.). Fires `💰 möglicher Verkauf`, deduped on the cs_ session id, runs AFTER bot+datacenter filters (so bots can't fake a sale). The dashboard poller is the source of truth for real amounts.
+- Normal visits relabeled `👁 Besuch` with device · IP on one line (was an unlabeled blob).
+- `is_bot_ua()` extended: AI crawlers (PerplexityBot, CCBot, ChatGPT-User, Applebot, Amazonbot, meta-externalagent…), SEO scrapers, feed readers, headless tooling, `Mozilla/4.0`, bare `Mozilla/5.0 (compatible)`. Deliberately did NOT block TikTok/Snapchat/Pinterest in-app browsers (those are real humans). Tested: 5 real browser UAs pass, 7 bot UAs filtered.
+- **Deployed:** backup `visit-watcher.sh.bak-20260627` on VM, scp'd, validated (LF clean, `bash -n` ok), restarted with `setsid -f` (PID was 2386297). NOTE: a plain `nohup … &` over SSH did NOT survive session close — must use `setsid -f`. There is a `@reboot` cron that restarts it, but no supervisor.
 
-appManager fix-log commits: `160d356` (betpilot) + this handover/analysis-update commit.
+## Decisions inherited / still standing
 
-## 🔴 CRITICAL blocker for the user — GitHub Actions billing
+- **GitHub Actions billing** (from session 25): was disabled account-wide. Did not need it this session — the dashboard deploy was a direct VM build, bypassing CI/ghcr entirely. If still blocked, pushes to master will show a failing `docker.yml` run, but that image is unused (VM builds locally). Harmless.
+- SSH: `deploy@91.99.104.132`, `-o BatchMode=yes`, ONE connect per action, **never retry failed auth (fail2ban)**.
+- `config.yml` and `scripts/visit-watcher.sh` are VM-local / gitignored — edit-and-deploy, not version-controlled.
 
-GitHub Actions is **disabled account-wide**: runs fail with "recent account payments have failed or your spending limit needs to be increased." Affects every repo. So pushed fixes (Headshot, and any future push) won't auto-deploy until you fix **GitHub → Settings → Billing & plans**. Then they deploy automatically / via `workflow_dispatch`.
+## How to verify it's working (for the user)
 
-## What's left (genuine user decisions, not code)
-
-1. **GitHub Actions billing** — fix it, then Headshot MwSt deploys automatically; re-run AbschlussCheck deploy via workflow_dispatch.
-2. **PromoForge live deploy** — manual SSH rebuild (downs DB): `ssh deploy@91.99.104.132 "cd /opt/promoforge && git pull && docker compose build && docker compose down && docker compose up -d"`. Deferred (DB downtime for a 🟡 wording fix).
-3. **BannerForge divergence** — canonical June redesign (Three.js hero, now testimonial-free) vs. live April build. Decide which is canonical + whether to deploy the redesign. USD→EUR/§19 pricing still a business decision (touches Stripe).
-4. **agorahoch3.org** — client's Impressum/Datenschutz duty; escalate (you are host/builder only).
-5. **Insurance (Markel Pro Media)** — acute defects cleared; clarify the 3 broker questions in §4.5, then sign (start-up discount while <1 yr). orbedge + betpilot excluded (trading/gambling).
+- A test sale in Stripe live mode → within ~2 min a `💰💰💰 NEUER VERKAUF` message. (First poll only sets the cursor; sales AFTER that notify.)
+- Any real visitor now reads `👁 Besuch`; a buyer hitting the success page reads `💰 möglicher Verkauf`.
 
 ## Rollback
 
-Each item independently revertable. betpilot: restore `nginx-configs-backup-betpilot-private-20260611.conf` + reload. MwSt/testimonials: `git revert` the noted commits per repo. appManager changes are doc-only (RECHTLICHE-ANALYSE.md + handover).
+- Dashboard: `git revert 6e51131`, re-scp `routes/stripe.js`+`server.js`, `docker compose up -d --build dashboard`. (Cron is additive; reverting fully removes it.)
+- visit-watcher: on VM `cp /home/deploy/scripts/visit-watcher.sh.bak-20260627 /home/deploy/scripts/visit-watcher.sh`, `pkill -f visit-watcher.sh; rm -f /home/deploy/visit-logs/.watcher.pid; setsid -f bash /home/deploy/scripts/visit-watcher.sh`.
 
-## Recurring patterns (confirmed)
+## Open follow-ups (not blocking)
 
-- `config.yml` is **gitignored** in appManager — it's rsync/VM-local, not version-controlled. Edit the VM copy at `/home/deploy/appmanager/dashboard/config.yml` for live effect.
-- Make a site private without an Impressum: whole-server `auth_basic` + `auth_basic_user_file /home/deploy/appmanager/.htpasswd`, keep `location = /health { auth_basic off; }`.
-- SSH: always `deploy@91.99.104.132`, `-o BatchMode=yes`, one connect per action, never retry failed auth (fail2ban). Passwordless `sudo nginx -c /home/deploy/nginx-configs/nginx.conf -t / -s reload`.
-- BannerForge/AbschlussCheck/Headshot deploy = build image → push ghcr → VM `docker compose pull` (VM does not build). PromoForge = manual SSH `docker compose build` on VM.
+1. Confirm each monetized app's Stripe success URL carries `?session_id=…` (Stripe Checkout default). Payment Links with a custom thank-you page need their path added to `is_purchase_success()`.
+2. Optional: a tiny systemd unit for visit-watcher instead of the `@reboot` cron, so it auto-restarts on crash (not just reboot).
