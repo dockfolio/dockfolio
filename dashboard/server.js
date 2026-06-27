@@ -652,7 +652,8 @@ function parseNotificationFromTelegram(msg) {
   const lower = plain.toLowerCase();
 
   let category = 'system';
-  if (/heal|auto-heal/i.test(lower)) category = 'healing';
+  if (/verkauf|new sale|revenue milestone|mrr/i.test(lower)) category = 'revenue';
+  else if (/heal|auto-heal/i.test(lower)) category = 'healing';
   else if (/error|spike|bug|recurring critical/i.test(lower)) category = 'error';
   else if (/ssl|certificate/i.test(lower)) category = 'ssl';
   else if (/backup|stale backup/i.test(lower)) category = 'backup';
@@ -2824,7 +2825,12 @@ registerAnalyticsRoutes({
   cronFail,
   MS_PER_HOUR, MS_PER_DAY,
 });
-registerStripeRoutes({ app, config, getStripeKeys });
+registerStripeRoutes({
+  app, config, getStripeKeys,
+  cron, guardedCron, sendTelegram,
+  getSetting,
+  setSetting: (key, value) => upsertSettingStmt.run(key, value),
+});
 registerAlertRoutes({
   app, db, config, cron,
   qLatestMetric,

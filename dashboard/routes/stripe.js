@@ -7,7 +7,7 @@ function stripeHeaders(secretKey) {
   return { 'Authorization': 'Basic ' + Buffer.from(secretKey + ':').toString('base64') };
 }
 
-export default function registerStripeRoutes({ app, config, getStripeKeys }) {
+export default function registerStripeRoutes({ app, config, getStripeKeys, cron, guardedCron, sendTelegram, getSetting, setSetting }) {
 
   function getStripeKeyForApp(appSlug, appKeys) {
     if (!appSlug) return null;
@@ -214,4 +214,80 @@ export default function registerStripeRoutes({ app, config, getStripeKeys }) {
       timestamp: new Date().toISOString(),
     });
   }));
+
+  // --- New-sale watcher ------------------------------------------------------
+  // Polls Stripe charges per app key and fires a clear Telegram notice the
+  // moment money actually lands. This is the *confirmed* sale signal — the
+  // visit-watcher's "möglicher Verkauf" is only a heads-up from the success page.
+
+  function formatMoney(amountCents, currency) {
+    const amount = (amountCents / 100).toFixed(2).replace('.', ',');
+    const symbols = { eur: '€', usd: '$', gbp: '£', chf: 'CHF' };
+    const sym = symbols[(currency || '').toLowerCase()] || (currency || '').toUpperCase();
+    return `${amount} ${sym}`.trim();
+  }
+
+  // Stable, non-secret cursor id per Stripe key (so we never store the key itself).
+  function cursorKeyFor(appNames) {
+    const label = (appNames || []).join('+') || 'unknown';
+    return `stripe_seen_charge:${label}`;
+  }
+
+  async function pollStripeSales() {
+    const { keys } = getStripeKeys(); // Map(secretKey -> [appNames])
+    for (const [secretKey, appNames] of keys) {
+      const headers = stripeHeaders(secretKey);
+      let chargesRes;
+      try {
+        chargesRes = await fetch(`${STRIPE_API}/charges?limit=20`, {
+          headers,
+          signal: AbortSignal.timeout(TIMEOUT_STANDARD),
+        });
+      } catch { continue; }
+      if (!chargesRes.ok) continue;
+
+      const data = await chargesRes.json();
+      const charges = data.data || [];
+      if (charges.length === 0) continue;
+
+      const cursorKey = cursorKeyFor(appNames);
+      const lastSeen = getSetting(cursorKey);
+      const newestId = charges[0].id;
+
+      // First run for this key: remember where we are, don't replay history.
+      if (!lastSeen) {
+        setSetting(cursorKey, newestId);
+        continue;
+      }
+      if (lastSeen === newestId) continue;
+
+      // Collect charges newer than the cursor (newest-first list → stop at cursor).
+      const fresh = [];
+      for (const c of charges) {
+        if (c.id === lastSeen) break;
+        fresh.push(c);
+      }
+      // Advance the cursor regardless, so a burst is never reported twice.
+      setSetting(cursorKey, newestId);
+
+      // Notify oldest-first so the order reads naturally in the chat.
+      const label = (appNames || []).filter(n => n && n !== '(global)').join(' / ');
+      for (const c of fresh.reverse()) {
+        // Real money only: paid, settled, not refunded, and live (never test mode).
+        if (!c.paid || c.status !== 'succeeded' || c.refunded || c.livemode === false) continue;
+        const lines = [
+          '💰💰💰 <b>NEUER VERKAUF</b>',
+          label ? `🎯 ${label}` : null,
+          `💶 <b>${formatMoney(c.amount, c.currency)}</b>${c.description ? ` · ${c.description}` : ''}`,
+          c.billing_details?.email ? `📧 ${c.billing_details.email}` : null,
+        ].filter(Boolean);
+        await sendTelegram(lines.join('\n'));
+      }
+    }
+  }
+
+  // Every 2 minutes — responsive without hammering the Stripe API.
+  if (cron && guardedCron && sendTelegram && getSetting && setSetting) {
+    cron.schedule('*/2 * * * *', guardedCron('stripe-sales', pollStripeSales));
+  }
 }
