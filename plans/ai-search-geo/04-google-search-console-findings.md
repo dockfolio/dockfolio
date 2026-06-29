@@ -57,5 +57,14 @@ The dominant rejection reason across the whole portfolio is **"Crawled/Discovere
 3. **Attack "crawled-not-indexed" as a content problem**, worst-first: promoforge (2 indexed!), lohnpruefung (1 indexed, thin cities), then theadhdmind/oldworldlogos. Consolidate or enrich; request indexing after.
 4. **Then** do the Bing/IndexNow + GEO structural work from file 02 — it compounds only on pages Google actually indexes.
 
+## E2. Concrete reject-URL example: promoforge.app (the smoking gun)
+The 49 "Discovered – currently not indexed" URLs are not junk — they are a **real content library Google refuses to crawl**:
+- A full blog: `/blog` + 18 posts (`/blog/arztpraxis-werbevideo-patienten`, `/blog/ecommerce-video-marketing-shop`, `/blog/immobilien-video-marketing`, `/blog/software-video-marketing-saas`, ...).
+- Industry landing pages: `/für/elektro-eckert`, `/für/frauenzimmer`, `/für/salon-larte`, ...
+- Product/legal: `/compare`, `/create`, `/contact`, `/agb`, `/datenschutz`, `/accessibility`.
+
+**"Discovered – not indexed"** means Google knows these URLs (from sitemap/links) but has not even crawled them — a **low-site-authority / crawl-budget** verdict. With only 2 pages indexed and a homepage missing h1 + schema, Google has decided promoforge isn't worth deep crawling. These blog posts are exactly the content that would win AI citations *if indexed*. Fix path: strengthen the homepage (h1 + SoftwareApplication/FAQ schema), build real internal links from indexed pages to the blog, submit key URLs via URL Inspection → "Request indexing", and earn a few external links to raise crawl priority.
+**To pull the same list for any property:** open its index report → click a rejection reason → the drilldown lists the exact URLs (exportable).
+
 ## F. Still to pull (when useful)
 Bing Webmaster Tools coverage (the ChatGPT-relevant index) for the same domains; per-page "crawled-not-indexed" URL lists (GSC → click each reason → export) to target specific consolidations; and Performance/query data to see which pages already earn impressions.
