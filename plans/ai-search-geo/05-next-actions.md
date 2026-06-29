@@ -24,8 +24,12 @@ then `sudo nginx -c /home/deploy/nginx-configs/nginx.conf -t && ... -s reload`, 
 
 **After verifying each:** GSC → Sitemaps → submit the sitemap; for the worst indexers (promoforge, lohnpruefung) use URL Inspection → "Request indexing" on key pages. Sitemap submission for the 9 just-verified is still pending.
 
-## TODO ④ — Bing Webmaster Tools (BLOCKED: needs your Microsoft login)
-Highest ROI for AI visibility (ChatGPT pulls ~87% of citations from Bing). Once logged in at bing.com/webmasters, "Import from GSC" pulls all verified properties in one click. Then enable IndexNow.
+## TODO ④ — Bing Webmaster Tools (STARTED 2026-06-29; importer flaky)
+Highest ROI for AI visibility (ChatGPT pulls ~87% of citations from Bing).
+- ✅ Bing Webmaster account created (signed in with Google SSO = same kreyhe12@gmail.com → enables GSC import).
+- ✅ Bing↔GSC OAuth connection authorized (view-only).
+- ⚠️ **GSC import is flaky right now:** first pass found all 26 sites but only **abfindungsoptimizer.de** actually imported; retries alternated between "import failed / fetch error" and "we didn't find any sites from GSC". This is a known Bing-side inconsistency, not a config problem. **Action: retry the import in a few hours** — bing.com/webmasters → site dropdown → Import from GSC → Continue (connection persists, it's idempotent). It usually completes on a later attempt. Alternatively add sites manually (URL + verify; the same per-account verification works, or Bing accepts the existing GSC verification).
+- ⏳ **Then enable IndexNow** (Bing left-nav → IndexNow → generate API key) and wire it so new/updated pages ping Bing instantly. This is the compounding win for AI freshness.
 
 ## TODO ② — Confirmed code fixes (each in its own repo; confirm before prod deploy)
 | Fix | Repo (local) | What | Why (GSC-confirmed) |
