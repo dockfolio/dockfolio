@@ -13,6 +13,10 @@ This is the portfolio's single source of truth for being discoverable in the AI 
 | `01-ai-search-landscape.md` | The 2026 landscape: real adoption numbers, how each engine retrieves and cites, where the traffic actually is, and the myths (incl. why llms.txt is mostly a dud). |
 | `02-geo-playbook.md` | The science of getting cited. The concrete, ranked levers: Bing indexing, structured data, definition-first writing, statistics density, third-party presence (Reddit/Wikipedia), freshness, measurement. |
 | `03-portfolio-audit-and-actions.md` | The verified inventory of all 40+ domains on the VM, a graded SEO + AI-readiness scorecard for the 32 real content sites, and a prioritized fix list. |
+| `04-google-search-console-findings.md` | Empirical GSC pull: indexed-vs-rejected pages + reasons per verified property. The "crawled-not-indexed = content-value verdict" lesson. |
+| `05-next-actions.md` | Turnkey checklist: GSC registration, Bing Webmaster + IndexNow, confirmed per-repo code fixes. |
+| `06-view-magnet-site-ideas.md` | **What to build next.** The LohnCheck model distilled (free, browser-side, official-source calculator on an evergreen head query), the AI-first + ads-first governing strategy, and a ranked two-track build plan (English ACTION tools for ads; German finance Rechner for affiliate). Grounded in live traffic measurement + 5 deep-research clusters. |
+| `06-appendix-research-clusters.md` | Raw per-cluster findings tables + sources behind file 06 (A German finance Rechner, B German health/life, C AI/GEO global tools, D monetization economics, E English ad-cited tools). |
 
 ## The one-paragraph summary
 
