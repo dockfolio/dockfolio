@@ -33,7 +33,7 @@ Highest ROI for AI visibility (ChatGPT pulls ~87% of citations from Bing).
 | Fix | Repo (local) | What | Why (GSC-confirmed) |
 |-----|--------------|------|---------------------|
 | sacredlens.de empty `<title>` + `meta.desc` placeholder | (locate sacredlens repo) | fix head template | live HTML bug, hurts all engines |
-| dockfolio.dev missing canonical + 3×h1 | (dockfolio marketing site) | add canonical, single h1 | GSC: "duplicate, no canonical" |
+| ~~dockfolio.dev missing canonical + 3×h1~~ ✅ DONE 2026-06-29 | dockfolio-landing/ (in this repo) | added canonical + SoftwareApplication JSON-LD, demoted 2 legal h1→h2. Deployed + verified live. | GSC: "duplicate, no canonical" |
 | oldworldlogos.com no lang/hreflang | LOGOS | add lang + hreflang (16 langs) | GSC: 24 duplicates + 82 crawl-rejected |
 | bewerbungsfotos-ai.de 6×404 | headshot-ai-pro | fix broken sitemap/links | GSC: 6 live 404s |
 | promoforge.app no h1 + no JSON-LD + blog uncrawled | promoforge | add h1 + SoftwareApplication/FAQ schema + internal links to /blog; request indexing | GSC: only 2 indexed, 49 discovered-not-crawled |
