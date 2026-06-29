@@ -1,56 +1,116 @@
 # Session Handover
 
-**Date:** 2026-06-27/28 (Session 26)
-**Goal:** Make the Telegram bot notices clearer — distinguish real purchases from ordinary page visits, name the app/product on each sale, and tighten bot filtering so only real visitors ping. User: "make it clearer" → Both (heads-up + Stripe confirmation) + restyle visits, then "do all" twice (autonomous), then "verify, be 1000% sure".
+**Date:** 2026-06-29 (Session 27)
+**Topic:** AI search / GEO (Generative Engine Optimization) + portfolio-wide indexing audit and fixes.
+**User intent (verbatim spirit):** "Make 1000% sure which websites are on my VM, then check if ALL are indexed intelligently with structured text so they're found in any search engine. Understand AI search (people research via ChatGPT/Perplexity now, not just Google) 10000%, build a knowledgebase, see all indexing 'rejects'." Then repeatedly: "do all", "u decide". User helps with logins (Google, Bing) when asked.
 
-## ⚠️ Authoritative document is RECHTLICHE-ANALYSE.md
+> Session 26's work (Telegram/Stripe sale notifications + visit-watcher watchdog) was verified complete and live at the start of this session. Its handover is in git history. This file supersedes it.
 
-For legal/compliance state of public sites, `RECHTLICHE-ANALYSE.md` (§5b) remains the single source of truth. This file is the rolling session handover.
+---
 
-## What got shipped this session (deployed + verified)
+## 0. READ THESE FIRST (the real knowledgebase)
+All under `plans/ai-search-geo/` (gitignored dir, but these files are force-added/tracked — use `git add -f` for new ones):
+- `README.md` — overview + one-paragraph summary
+- `01-ai-search-landscape.md` — 2026 research: how ChatGPT/Perplexity/Gemini/AIOverviews retrieve & cite, real numbers, the llms.txt myth
+- `02-geo-playbook.md` — the 6 ranked levers to get cited by AI
+- `03-portfolio-audit-and-actions.md` — graded SEO scorecard for all 32 content sites
+- `04-google-search-console-findings.md` — REAL indexed-vs-rejected data per property (the "rejects")
+- `05-next-actions.md` — turnkey checklist (THE to-do list; keep it updated)
 
-Three Telegram-notification improvements. The previous setup sent one identical format for every page view, so a sale and a blog reader looked the same in chat.
+This HANDOVER is the orientation; `05-next-actions.md` is the live task list.
 
-### 1. Dashboard Stripe sales poller — CONFIRMED sale notice
-- **Code:** `dashboard/routes/stripe.js` + `dashboard/server.js`. Commits `6e51131` (initial) + `4b331a4` (account-dedup fix) + `d537942` (per-sale label) on `master`, pushed to origin.
-- New cron `stripe-sales` (every 2 min) → `pollStripeSales()`. Notifies only on `paid && status===succeeded && !refunded && livemode!==false`. Message: `💰💰💰 NEUER VERKAUF` + amount (`formatMoney`, €/$/£/CHF) + payment method + email.
-- ⚠️ **KEY FINDING (verified live):** the per-app Stripe keys all resolve to ONE account `acct_1SWLDMRJyY7UPueJ`, and `/v1/charges` is account-wide. The first version kept a cursor per key → one sale would have fired up to 3x with wrong app labels. **Fix:** group keys by Stripe account id (`/v1/account`, cached, key-signature fallback) → ONE cursor per account (`settings` key `stripe_seen_charge:acct_…`). Bootstraps on first sight (records position, no replay; sentinel `__none__` when no history so the very first sale still notifies). Wrapped in `try/catch → cronFail` (guardedCron has no catch).
-- **Per-app label via Checkout Session (commit `d537942`, verified live):** the charge has no per-app fields (`description=null, metadata={}`), BUT the Checkout Session behind it does. `describeSale()` looks up `checkout/sessions?payment_intent=<c.payment_intent>&expand=line_items` per new sale and uses the line-item product name as the label (e.g. `AbschlussCheck: Bachelorarbeit`, `AbschlussCheck: Masterarbeit`, `HeadshotAI Pro: Starter`), with `metadata.app` then success_url host as fallbacks, plus a richer email. NO app-repo changes needed. Final message: `💰💰💰 NEUER VERKAUF` + `🎯 <product>` + amount·method + email.
-- `server.js`: wired `cron, guardedCron, sendTelegram, cronFail, getSetting, setSetting` into `registerStripeRoutes`; added `revenue` category in `parseNotificationFromTelegram`.
-- **Deployed + VERIFIED:** VM `/home/deploy/appmanager/dashboard` is **build-from-source** (`docker compose up -d --build dashboard`, container `dockfolio-dashboard`) — NOT a prebuilt image, NOT git (rsync-managed). After deploy, confirmed live: exactly ONE cursor row `stripe_seen_charge:acct_1SWLDMRJyY7UPueJ` created at the cron tick (no 3x dup), no replay of 6 historical sales, no errors. Cleaned 3 orphaned old per-key cursor rows from the settings DB. Telegram delivery proven end-to-end: dashboard token tail `1WHK78` + `chat_id 975931713` == visit-watcher's chat; sent a real test message (`telegram_ok=true`, id 12561).
+---
 
-### 2. visit-watcher.sh — POSSIBLE sale heads-up + restyle + bot filter
-- **File:** `scripts/visit-watcher.sh`. **GITIGNORED** (contains the Telegram bot token) → not in git; the repo copy IS the deploy source, kept in sync with the VM.
-- `is_purchase_success()`: detects Stripe success redirect (`session_id=cs_(live|test)_`) + common success paths (`/danke`, `/success`, `/checkout/success`, `/erfolg`, etc.). Fires `💰 möglicher Verkauf`, deduped on the cs_ session id, runs AFTER bot+datacenter filters (so bots can't fake a sale). The dashboard poller is the source of truth for real amounts.
-- Normal visits relabeled `👁 Besuch` with device · IP on one line (was an unlabeled blob).
-- `is_bot_ua()` extended: AI crawlers (PerplexityBot, CCBot, ChatGPT-User, Applebot, Amazonbot, meta-externalagent…), SEO scrapers, feed readers, headless tooling, `Mozilla/4.0`, bare `Mozilla/5.0 (compatible)`. Deliberately did NOT block TikTok/Snapchat/Pinterest in-app browsers (those are real humans). Tested: 5 real browser UAs pass, 7 bot UAs filtered.
-- **Deployed:** backup `visit-watcher.sh.bak-20260627` on VM, scp'd, validated (LF clean, `bash -n` ok), restarted with `setsid -f`. NOTE: a plain `nohup … &` over SSH did NOT survive session close — must use `setsid -f`.
-- **Watchdog (crontab line 49, `# visit-watcher-watchdog`):** every 5 min, if the pidfile is missing or its PID is dead, clears the pidfile and `setsid -f` restarts the watcher. Tested live: no-op while alive (no duplicate spawned), and it restarted the watcher after I killed it. So it now recovers from a crash, not just a reboot. (A systemd unit would be nicer but `systemctl` sudo rights are unconfirmed; the cron needs no sudo.)
+## 1. The authoritative website inventory (verified live from nginx, NOT config.yml which is stale)
+**32 real content sites** (HTTP 200) + **6 pure redirects** (correct 301s) + **3 internal/auth-gated** (admin, betpilot, demo — correctly not indexable).
+To regenerate the live list: `ssh deploy@91.99.104.132 'grep -rhoE "server_name\s+[^;]+;" /home/deploy/nginx-configs/sites/'`.
+Domains live on the VM but missing from `CLAUDE.md`: deepresearch.business, since1971.org, theforgottensystem.org, slingshot/grimhollow/adhdgame.crelvo.dev, app/studio.patternmusic.art, sacredlens.app, konzept-reyhe.de. (Consider updating CLAUDE.md's app table.)
 
-### 2b. Findings worth the user's attention (AbschlussCheck, app-side — not fixed here)
-- AbschlussCheck Checkout `success_url` is `https://abschlusscheck.de/review/<reviewId>` — it does NOT contain `session_id`/`/success`/`/danke`, so the visit-watcher `💰 möglicher Verkauf` heads-up will NOT fire for AbschlussCheck. Not a problem in practice: the Stripe confirmed notice now fully covers it with a precise label. `/review/<id>` is also visited by non-buyers, so it can't safely be added to `is_purchase_success()`.
-- Some AbschlussCheck sessions had `success_url=http://localhost:3000/review/<id>` (the two most recent at probe time) → those buyers were redirected to localhost after paying = broken post-payment page. Looks like a misconfigured base URL in AbschlussCheck's checkout creation. App-repo fix, flagged to user.
+---
 
-## Decisions inherited / still standing
+## 2. WHAT IS DONE (verified, committed, pushed)
+1. **6-file knowledgebase** (above).
+2. **Google Search Console — 12 properties verified this session** (whole 26-property portfolio now has verified ownership + collects data):
+   codewithrigor.com, thecreativeprogrammer.dev, thedesigninference.org, theforgottensystem.org, since1971.org, orbedge.de, patternmusic.art, christistrue.org, slingshot.crelvo.dev, deepresearch.business, app.patternmusic.art, studio.patternmusic.art.
+3. **dockfolio.dev code fix — LIVE & verified:** added canonical + SoftwareApplication JSON-LD, fixed 3→1 h1. Source: `dockfolio-landing/index.html` (in THIS repo). Deployed via scp to `/home/deploy/dockfolio-landing/`.
+4. **Bing Webmaster Tools** — account created (Google SSO, kreyhe12@gmail.com), GSC OAuth connection authorized, 1 site imported (abfindungsoptimizer.de).
+5. **nginx** — added GSC-verification `location` blocks to 3 proxied-app configs (deepresearch.business, app.patternmusic.art, studio.patternmusic.art), validated with `nginx -t`, reloaded. All sites healthy, zero downtime.
 
-- **GitHub Actions billing** (from session 25): was disabled account-wide. Did not need it this session — the dashboard deploy was a direct VM build, bypassing CI/ghcr entirely. If still blocked, pushes to master will show a failing `docker.yml` run, but that image is unused (VM builds locally). Harmless.
-- SSH: `deploy@91.99.104.132`, `-o BatchMode=yes`, ONE connect per action, **never retry failed auth (fail2ban)**.
-- `config.yml` and `scripts/visit-watcher.sh` are VM-local / gitignored — edit-and-deploy, not version-controlled.
+Git is clean, all pushed to `origin/master`. All sites return 200.
 
-## How to verify it's working (for the user)
+---
 
-- A test sale in Stripe live mode → within ~2 min a `💰💰💰 NEUER VERKAUF` + `🎯 <product name>` + amount + email. (First poll only sets the cursor; sales AFTER that notify.)
-- Any real visitor now reads `👁 Besuch`; a buyer hitting a success page reads `💰 möglicher Verkauf` (not AbschlussCheck — see 2b).
+## 3. KEY METHODS & CREDENTIALS (so you don't rediscover them)
 
-## Rollback
+### SSH / VM
+- `ssh deploy@91.99.104.132` (key in ssh-agent, no password). **fail2ban is active — NEVER retry failed auth.** One connection per action. Use `-o BatchMode=yes`.
+- Static-site webroots: mostly `/home/deploy/<domain>/` (some `/home/deploy/sites/<name>`, creativeprogrammer is `/opt/creativeprogrammer`). Find with: `grep -hE '^[^#]*root ' /home/deploy/nginx-configs/sites/<cfgfile>`.
+- nginx configs: `/home/deploy/nginx-configs/sites/<name>` (filenames don't always equal domain; find with `grep -rlE "server_name[^;]*<domain>" /home/deploy/nginx-configs/sites/`).
+- Reload: `sudo nginx -c /home/deploy/nginx-configs/nginx.conf -t && sudo nginx -c /home/deploy/nginx-configs/nginx.conf -s reload` (certbot/nginx reload are passwordless sudo; arbitrary sudo is NOT).
+- **No `rsync` on this Windows Git-Bash shell** — use `scp` for deploys.
 
-- Dashboard: `git revert d537942 4b331a4 6e51131`, re-scp `routes/stripe.js`+`server.js`, `docker compose up -d --build dashboard`. (Cron is additive; reverting fully removes it.)
-- Watchdog: `crontab -l | grep -v visit-watcher-watchdog | crontab -`.
-- visit-watcher: on VM `cp /home/deploy/scripts/visit-watcher.sh.bak-20260627 /home/deploy/scripts/visit-watcher.sh`, `pkill -f visit-watcher.sh; rm -f /home/deploy/visit-logs/.watcher.pid; setsid -f bash /home/deploy/scripts/visit-watcher.sh`.
+### Google Search Console (Playwright browser, logged in as kreyhe12@gmail.com)
+- **The HTML-file verification token is per-ACCOUNT, not per-site:** the single file `google3961c4e5a481bc42.html` (content exactly: `google-site-verification: google3961c4e5a481bc42.html`) verifies ANY property for this account. Files are already placed in the verified sites' webroots — DO NOT DELETE.
+- **To register a new site:** open `https://search.google.com/search-console/welcome` → type URL into the URL-Präfix textbox → click its "Weiter" → if the token file is reachable it AUTO-verifies ("Inhaberschaft automatisch bestätigt"). So: place the file first, then register.
+- **To read indexing data:** `https://search.google.com/search-console/index?resource_id=https%3A%2F%2F<domain>%2F`. Extract compactly via `browser_evaluate` reading `[role=main]` innerText (DON'T full-snapshot — it's huge). Click a rejection reason row → drilldown page lists the exact rejected URLs.
 
-## Open follow-ups (not blocking)
+### Bing Webmaster Tools
+- Sign in at `bing.com/webmasters` with **Google SSO** (same kreyhe12@gmail.com → enables GSC import).
+- Import: site dropdown / welcome → "Import from GSC" → Continue → Google OAuth (user may need to click Allow) → select all → Import. **The importer is FLAKY** (found 26, imported 1, then "0 found" on retries). Each retry needs a FRESH OAuth code (the code is single-use; reusing it = "could not fetch"). Retry the whole flow later; it's idempotent. Then enable **IndexNow** (left nav) for instant crawl pings.
 
-1. **AbschlussCheck localhost success_url** (app-repo): fix the misconfigured base URL so post-payment redirects go to `https://abschlusscheck.de/...` not `http://localhost:3000/...`. See 2b.
-2. ~~Per-app sale labels~~ — DONE via Checkout Session lookup (`d537942`), no app changes needed.
-3. ~~Watcher auto-restart on crash~~ — DONE via watchdog cron. A systemd unit remains a nice-to-have if `systemctl` sudo gets confirmed.
-4. Optional: have apps set Checkout `metadata.app` anyway (belt-and-suspenders label source if a product description is ever blank).
+### Deploy / git
+- Commits: end with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`. Work directly on `master` (project convention), commit AND push after each unit.
+- `plans/` is gitignored — new knowledgebase files need `git add -f`.
+
+---
+
+## 4. WHAT REMAINS — DO THIS (priority order)
+
+### TASK A — promoforge.app code fix (HIGHEST VALUE; only 2 pages indexed)
+Repo: `~/Projekte/promoforge` (React + Remotion + PostgreSQL + Redis, Docker SaaS, port 3000). **Heavy deploy — be careful, verify build.**
+GSC data: 2 indexed, 77 not (49 "discovered, not indexed" = a full blog Google won't crawl; 23 crawled-not-indexed). Homepage has **0 h1 and no JSON-LD**.
+Do: (1) add a single proper `<h1>` to the homepage hero; (2) add `SoftwareApplication` + `FAQPage` JSON-LD; (3) ensure indexed pages link internally to `/blog` and the `/für/<industry>` landing pages (they exist but Google won't crawl them due to low authority); (4) after deploy, in GSC use URL Inspection → "Request indexing" on `/blog` and 3-4 top posts. Verify homepage h1=1 + JSON-LD live before committing. Find deploy method in the promoforge repo (likely its own deploy.sh / docker compose — READ ITS HANDOVER/CLAUDE.md first).
+
+### TASK B — Retry Bing GSC import + enable IndexNow
+See §3 Bing. The connection is already authorized; just re-run the import flow (fresh OAuth) until all 26 land, then turn on IndexNow.
+
+### TASK C — oldworldlogos.com hreflang (208 not indexed!)
+Repo: `~/Projekte/LOGOS` (Next.js, 16 languages). GSC: 122 indexed, 208 not (24 duplicates + 82 crawl-rejected + 90 redirects). Root cause: **no `lang` attribute and no `hreflang`** on a 16-language site → Google treats language versions as duplicates. Add `<html lang>` per locale + reciprocal `hreflang` alternates (+ x-default) across all 16 languages. Also add `<h1>` (homepage has 0). Verify, deploy, commit.
+
+### TASK D — bewerbungsfotos-ai.de 404s
+Repo: `~/Projekte/headshot-ai-pro` (Next.js, bewerbungsfotos-ai.de). GSC: 6 live 404s Google is trying to index. Pull the exact URLs (GSC index report → "Nicht gefunden (404)" → drilldown), then either fix the broken links/pages or remove them from the sitemap. Verify, deploy, commit.
+
+### TASK E — sacredlens.de empty title bug
+The live homepage has an **empty `<title>`** and a literal `meta.desc` template placeholder as its description. Locate the source (no obvious `sacredlens` dir in `~/Projekte` — may be under another name or served from a VM webroot `/home/deploy/sacredlens*`; check `grep root .../sites/sacredlens`). Fix the head template so title + description render. Verify, deploy, commit.
+
+### TASK F — finish 2 GSC registrations
+- **survivorai.app**: an nginx `location = /google3961c4e5a481bc42.html {...}` was inserted into `nginx-survivorai.conf` but landed in the WRONG server block (it serves the homepage at that path, so verify fails). Move/add the location inside the `server { ... server_name survivorai.app; ...}` block specifically, `nginx -t`, reload, then register in GSC welcome flow.
+- **adhdgame.crelvo.dev**: low-value duplicate of grimhollow (shares the `grimhollow` config). Optional. Add the location to its server block if wanted.
+
+### TASK G — content depth (the real long-term unlock; strategy not a quick fix)
+The dominant GSC rejection portfolio-wide is "crawled/discovered – currently not indexed" = Google judging pages low-value. **Schema/robots make pages eligible; only substantively unique, valuable pages get indexed (and thus AI-citable).** For thin programmatic page sets (lohnpruefung's 63 city pages → only 1 indexed; oldworldlogos language variants; blog chapter splits): consolidate or enrich to genuine uniqueness, or `noindex` the filler to concentrate authority. This is what actually moves both Google indexing and AI citation. See `04-...findings.md` §D.
+
+---
+
+## 5. KEY FINDINGS (the data, so you don't re-derive)
+- **Bing is the biggest AI-visibility lever**: ChatGPT pulls ~87% of citations from Bing's index; the portfolio was Google-only. (Now half-fixed: Bing account + connection live, import pending.)
+- **No site blocks AI crawlers** (good). 2 sites (abschlusscheck, lohnpruefung) explicitly welcome them and are the gold-standard schema templates to copy. 15 ship llms.txt (low priority — llms.txt is a proven dud for AI-search; don't backfill).
+- **Flagships barely indexed**: promoforge 2 pages, lohnpruefung 1 page, bewerbungsfotos 5. oldworldlogos 122/208-rejected.
+- **Verify before "fixing"**: christistrue.org's homepage `noindex` is INTENTIONAL (language-redirect root; /en/ and /de/ index fine). It was wrongly flagged then corrected. Apply the same caution: audit content pages, not just `/`.
+
+---
+
+## 6. ROLLBACK
+- dockfolio.dev: `git revert <the dockfolio commit>`; re-`scp dockfolio-landing/index.html deploy@91.99.104.132:/home/deploy/dockfolio-landing/`.
+- nginx location blocks: edit the 3 configs (deepresearch.business, app/studio.patternmusic.art), remove the `location = /google3961c4e5a481bc42.html` line, `nginx -t` + reload. (Harmless to leave — Google requires them to STAY for verification.)
+- GSC verifications: harmless; to undo, remove the property in GSC + delete the webroot file.
+- All knowledgebase/doc changes are pure additions on master.
+
+---
+
+## 7. GOTCHAS
+- Don't full-`browser_snapshot` GSC index pages or `curl` full site HTML into context — both are huge and burn context fast. Use targeted `browser_evaluate` / `grep -o`.
+- Bing importer flakiness (see §3). Don't reuse a spent OAuth code.
+- When editing nginx via sed/awk: variables don't expand in sed `a\`; use `awk -v`. And check the REAL exit code of `nginx -t` (don't pipe it to `tail` in an `if`). Always back up configs first; restore on `-t` failure; never reload a failing config.
+- `plans/` is gitignored → `git add -f` for new files there.
+- Screenshot/context budget: this session did ~90 tool calls; do heavy multi-repo deploys one repo per fresh session.
