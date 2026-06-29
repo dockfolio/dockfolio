@@ -33,7 +33,7 @@ Ranked by leverage. Do them top-down. Each lever says *why it works*, *what to d
 ## Lever 4 — Fix the crawl/index basics first  ★ blocking issues, do immediately
 **Why:** None of the above matters if the page can't be indexed or has broken meta. These are bugs, not optimizations.
 **Do (specific live bugs found 2026-06-29):**
-- **christistrue.org has `noindex,follow`** → deliberately invisible to ALL search + AI. If indexing is wanted, remove it now. (#1 fastest win in the portfolio.)
+- ~~christistrue.org noindex~~ — VERIFIED a false alarm: the `/` noindex is intentional (language-redirect root, canonical→/en/); the real `/en/` and `/de/` pages are `index,follow`. No action needed. (Lesson: audit content pages, not just `/`.)
 - **sacredlens.de** ships an **empty `<title>`** and a literal `meta.desc` template placeholder as its description → catastrophic for every engine. Fix the template.
 - **deepresearch.business**: no robots.txt, no sitemap, no canonical, no OG, no JSON-LD → add the full SEO baseline.
 - **studio.patternmusic.art** serves the raw **"Streamlit"** default page (no title/meta) → either add proper meta or `noindex` it.

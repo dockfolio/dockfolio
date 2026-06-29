@@ -52,7 +52,7 @@ Signals: Title, Meta description, H1 count (want exactly 1), Canonical, Open Gra
 | **app.patternmusic.art** | D | NONE | robots.txt + sitemap 404; thin meta. |
 | **sacredlens.de** | D | FAQ, SoftwareApplication, Organization | **BUG: empty `<title>` + literal `meta.desc` placeholder as description.** Fix template now. |
 | **adhdgame.crelvo.dev** | D | VideoGame, Offer | **Duplicate of grimhollow** (identical content) → duplicate-content risk. |
-| **christistrue.org** | F | NONE | **`noindex,follow` — invisible to all search + AI.** Remove if indexing wanted. #1 fast win. |
+| **christistrue.org** | B+ | NONE (on /en/,/de/) | CORRECTED: homepage `/` noindex is INTENTIONAL (language-redirect root, canonical→/en/). Real pages `/en/` + `/de/` are `index,follow` ✓. Not a bug. Could add Article/Organization schema. Not in GSC yet. |
 | **deepresearch.business** | F | NONE | **No robots.txt, no sitemap, no canonical, no OG, no schema.** Full baseline missing. |
 | **studio.patternmusic.art** | F | NONE | **Raw "Streamlit" default page** — no title/meta/schema. Add meta or noindex. |
 | **slingshot.crelvo.dev** | F | NONE | Bare placeholder ("Slingshot", no desc/OG/canonical). Build it out or noindex. |
@@ -61,7 +61,7 @@ Signals: Title, Meta description, H1 count (want exactly 1), Canonical, Open Gra
 ## D. Prioritized action plan
 
 ### Tier 0 — Bugs costing visibility right now (this week)
-1. **christistrue.org** — remove `noindex,follow` if the site should be found. One-line fix, biggest immediate win.
+1. ~~christistrue.org noindex~~ — VERIFIED NOT A BUG (intentional language-redirect root; /en/ and /de/ index fine).
 2. **sacredlens.de** — fix empty `<title>` + `meta.desc` placeholder template bug.
 3. **deepresearch.business** — add robots.txt, sitemap, canonical, OG, Organization+SoftwareApplication schema.
 4. **studio.patternmusic.art** — add real meta or `noindex` (don't let a "Streamlit" page represent the brand).
