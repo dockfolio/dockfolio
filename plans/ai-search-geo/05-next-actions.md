@@ -11,18 +11,18 @@ State as of 2026-06-29 (session 27). Everything below is ready to execute; the h
 - Corrected christistrue.org false alarm (intentional redirect-root noindex).
 - **GSC verification completed for codewithrigor.com + thecreativeprogrammer.dev.**
 
-## TODO ③ — Register the 12 missing sites in GSC (method proven, ~2 min each)
-Use the per-account file `google3961c4e5a481bc42.html` (content: `google-site-verification: google3961c4e5a481bc42.html`).
-Flow per site: GSC property selector → "Property hinzufügen" → URL-prefix `https://<domain>/` → choose HTML-file method → drop the file in the site's nginx `root` via SSH → "Bestätigen". For proxied apps add `location = /google3961c4e5a481bc42.html { return 200 'google-site-verification: google3961c4e5a481bc42.html'; }` to the nginx site config + reload.
+## TODO ③ — Register missing sites in GSC (9 of 14 DONE this session)
+Method (proven): per-account file `google3961c4e5a481bc42.html` (content: `google-site-verification: google3961c4e5a481bc42.html`). For STATIC sites: drop the file in the nginx `root`, then GSC → /welcome → URL-prefix `https://<domain>/` → Weiter → auto-verifies.
 
-Priority order (content value):
-1. thedesigninference.org (static) — strong Article-schema content
-2. theforgottensystem.org (static) — research content, good technical SEO
-3. since1971.org (static) — data-heavy, ideal for GEO
-4. survivorai.app (app) — needs nginx location method
-5. orbedge.de, patternmusic.art, app./studio.patternmusic.art, deepresearch.business (Next.js → nginx method), christistrue.org, slingshot/adhdgame.crelvo.dev
+**✅ VERIFIED 2026-06-29 (9):** codewithrigor.com, thecreativeprogrammer.dev, thedesigninference.org, theforgottensystem.org, since1971.org, orbedge.de, patternmusic.art, christistrue.org, slingshot.crelvo.dev. (Files already placed in their webroots — do NOT delete.)
 
-After verifying each: submit its sitemap (GSC → Sitemaps), and for the worst indexers use URL Inspection → "Request indexing" on key pages.
+**⏳ REMAINING (5, reverse-proxied — need nginx method):** deepresearch.business (Next.js), survivorai.app, app.patternmusic.art, studio.patternmusic.art (Streamlit), adhdgame.crelvo.dev. For each, add to the 443 server block in `/home/deploy/nginx-configs/sites/<file>`:
+```nginx
+location = /google3961c4e5a481bc42.html { default_type text/plain; return 200 'google-site-verification: google3961c4e5a481bc42.html'; }
+```
+then `sudo nginx -c /home/deploy/nginx-configs/nginx.conf -t && ... -s reload`, then add the URL-prefix property in GSC as above. (Deferred here because a bad nginx reload affects all 40+ sites; do it deliberately, gated on `nginx -t`.)
+
+**After verifying each:** GSC → Sitemaps → submit the sitemap; for the worst indexers (promoforge, lohnpruefung) use URL Inspection → "Request indexing" on key pages. Sitemap submission for the 9 just-verified is still pending.
 
 ## TODO ④ — Bing Webmaster Tools (BLOCKED: needs your Microsoft login)
 Highest ROI for AI visibility (ChatGPT pulls ~87% of citations from Bing). Once logged in at bing.com/webmasters, "Import from GSC" pulls all verified properties in one click. Then enable IndexNow.
