@@ -14,13 +14,11 @@ State as of 2026-06-29 (session 27). Everything below is ready to execute; the h
 ## TODO ③ — Register missing sites in GSC (9 of 14 DONE this session)
 Method (proven): per-account file `google3961c4e5a481bc42.html` (content: `google-site-verification: google3961c4e5a481bc42.html`). For STATIC sites: drop the file in the nginx `root`, then GSC → /welcome → URL-prefix `https://<domain>/` → Weiter → auto-verifies.
 
-**✅ VERIFIED 2026-06-29 (9):** codewithrigor.com, thecreativeprogrammer.dev, thedesigninference.org, theforgottensystem.org, since1971.org, orbedge.de, patternmusic.art, christistrue.org, slingshot.crelvo.dev. (Files already placed in their webroots — do NOT delete.)
+**✅ VERIFIED 2026-06-29 (12):** codewithrigor.com, thecreativeprogrammer.dev, thedesigninference.org, theforgottensystem.org, since1971.org, orbedge.de, patternmusic.art, christistrue.org, slingshot.crelvo.dev (static, file in webroot) + deepresearch.business, app.patternmusic.art, studio.patternmusic.art (proxied, nginx `location` block added to their configs + reloaded). Do NOT delete the webroot files or the nginx location blocks.
 
-**⏳ REMAINING (5, reverse-proxied — need nginx method):** deepresearch.business (Next.js), survivorai.app, app.patternmusic.art, studio.patternmusic.art (Streamlit), adhdgame.crelvo.dev. For each, add to the 443 server block in `/home/deploy/nginx-configs/sites/<file>`:
-```nginx
-location = /google3961c4e5a481bc42.html { default_type text/plain; return 200 'google-site-verification: google3961c4e5a481bc42.html'; }
-```
-then `sudo nginx -c /home/deploy/nginx-configs/nginx.conf -t && ... -s reload`, then add the URL-prefix property in GSC as above. (Deferred here because a bad nginx reload affects all 40+ sites; do it deliberately, gated on `nginx -t`.)
+**⏳ REMAINING (2):**
+- **survivorai.app** — nginx location was inserted but landed in the wrong server block in the shared `nginx-survivorai.conf` (it served the homepage at the token path, so GSC verify would fail). Fix: place the `location = /google3961c4e5a481bc42.html {...}` inside the `server { ... server_name survivorai.app; ... }` block specifically (not survivorai.de's), `nginx -t`, reload, then add the property in GSC.
+- **adhdgame.crelvo.dev** — deliberately skipped (duplicate of grimhollow, low value). Its config is shared with grimhollow; add the location to the adhdgame server block if you want it tracked.
 
 **After verifying each:** GSC → Sitemaps → submit the sitemap; for the worst indexers (promoforge, lohnpruefung) use URL Inspection → "Request indexing" on key pages. Sitemap submission for the 9 just-verified is still pending.
 
